@@ -90,9 +90,14 @@ export type Database = {
         Row: {
           api_key_hash: string | null
           created_at: string
+          encrypted_api_secret: string | null
+          encrypted_passphrase: string | null
+          encryption_iv: string | null
           exchange_name: string
+          exchange_uid: string | null
           id: string
           is_connected: boolean | null
+          last_verified_at: string | null
           permissions: string[] | null
           updated_at: string
           user_id: string
@@ -100,9 +105,14 @@ export type Database = {
         Insert: {
           api_key_hash?: string | null
           created_at?: string
+          encrypted_api_secret?: string | null
+          encrypted_passphrase?: string | null
+          encryption_iv?: string | null
           exchange_name: string
+          exchange_uid?: string | null
           id?: string
           is_connected?: boolean | null
+          last_verified_at?: string | null
           permissions?: string[] | null
           updated_at?: string
           user_id: string
@@ -110,9 +120,14 @@ export type Database = {
         Update: {
           api_key_hash?: string | null
           created_at?: string
+          encrypted_api_secret?: string | null
+          encrypted_passphrase?: string | null
+          encryption_iv?: string | null
           exchange_name?: string
+          exchange_uid?: string | null
           id?: string
           is_connected?: boolean | null
+          last_verified_at?: string | null
           permissions?: string[] | null
           updated_at?: string
           user_id?: string
