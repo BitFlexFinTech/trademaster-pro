@@ -1,0 +1,173 @@
+import { useState } from 'react';
+import { sandboxData } from '@/lib/mockData';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { FlaskConical, Play, RotateCcw, Calendar } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+const assets = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'AVAX/USDT'];
+
+export default function Sandbox() {
+  const [virtualBalance, setVirtualBalance] = useState(sandboxData.virtualBalance);
+  const [selectedAsset, setSelectedAsset] = useState(sandboxData.selectedAsset);
+  const [startDate, setStartDate] = useState(sandboxData.backtestPeriod.start);
+  const [endDate, setEndDate] = useState(sandboxData.backtestPeriod.end);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <FlaskConical className="w-6 h-6 text-primary" />
+          <h1 className="text-xl font-bold text-foreground">Sandbox / Backtest Mode</h1>
+          <span className="bg-secondary text-muted-foreground text-xs px-2 py-1 rounded">
+            {sandboxData.status}
+          </span>
+        </div>
+      </div>
+
+      {/* Configuration */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Virtual Balance */}
+        <div className="card-terminal p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-primary">$</span>
+            <h3 className="text-sm text-muted-foreground">Virtual Balance</h3>
+          </div>
+          <Input
+            type="number"
+            value={virtualBalance}
+            onChange={(e) => setVirtualBalance(Number(e.target.value))}
+            className="bg-secondary border-border text-lg font-mono"
+          />
+          <p className="text-xs text-muted-foreground mt-2">Risk-free testing environment</p>
+        </div>
+
+        {/* Backtest Period */}
+        <div className="card-terminal p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Calendar className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm text-muted-foreground">Backtest Period</h3>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <span className="text-xs text-muted-foreground block mb-1">Start</span>
+              <Input
+                type="text"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="bg-secondary border-border text-sm"
+              />
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground block mb-1">End</span>
+              <Input
+                type="text"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="bg-secondary border-border text-sm"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Asset Selection */}
+        <div className="card-terminal p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-primary">↗</span>
+            <h3 className="text-sm text-muted-foreground">Asset</h3>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {assets.map((asset) => (
+              <button
+                key={asset}
+                onClick={() => setSelectedAsset(asset)}
+                className={cn(
+                  'px-3 py-1 rounded text-sm transition-colors',
+                  selectedAsset === asset
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {asset}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex items-center gap-4">
+        <Button className="btn-primary gap-2">
+          <Play className="w-4 h-4" />
+          Start Backtest
+        </Button>
+        <Button variant="outline" className="gap-2">
+          <RotateCcw className="w-4 h-4" />
+          Reset
+        </Button>
+      </div>
+
+      {/* Results */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Summary */}
+        <div className="card-terminal p-4">
+          <h3 className="font-semibold text-foreground mb-4">Backtest Summary</h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Total P&L</span>
+              <span className="text-primary font-mono text-lg">
+                +${sandboxData.summary.totalPnL.toLocaleString()}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Total Trades</span>
+              <span className="text-foreground font-mono">{sandboxData.summary.totalTrades}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Win Rate</span>
+              <span className="text-primary font-mono">{sandboxData.summary.winRate}%</span>
+            </div>
+            <div className="flex items-center justify-between pt-3 border-t border-border">
+              <span className="text-muted-foreground">Final Balance</span>
+              <span className="text-foreground font-mono text-lg">
+                ${sandboxData.summary.finalBalance.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Monthly Breakdown */}
+        <div className="card-terminal p-4">
+          <h3 className="font-semibold text-foreground mb-4">Monthly Breakdown</h3>
+          <div className="overflow-x-auto">
+            <table className="table-terminal text-sm">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>P&L</th>
+                  <th>Trades</th>
+                  <th>Win Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sandboxData.monthlyBreakdown.map((month, index) => (
+                  <tr key={index}>
+                    <td className="text-foreground">{month.period}</td>
+                    <td className={cn(
+                      'font-mono',
+                      month.pnl >= 0 ? 'text-primary' : 'text-destructive'
+                    )}>
+                      {month.pnl >= 0 ? '+' : ''}${month.pnl}
+                    </td>
+                    <td className="text-muted-foreground font-mono">{month.trades}</td>
+                    <td className="text-muted-foreground font-mono">{month.winRate}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

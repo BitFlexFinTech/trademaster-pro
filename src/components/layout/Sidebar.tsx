@@ -1,0 +1,120 @@
+import { useState } from 'react';
+import { NavLink } from '@/components/NavLink';
+import { cn } from '@/lib/utils';
+import {
+  LayoutDashboard,
+  TrendingUp,
+  Zap,
+  Gift,
+  BarChart3,
+  Shield,
+  FlaskConical,
+  LineChart,
+  Bot,
+  Settings,
+  User,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
+
+const navItems = [
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/signals', icon: TrendingUp, label: 'Signals' },
+  { to: '/auto-earn', icon: Zap, label: 'Auto Earn' },
+  { to: '/bots', icon: Bot, label: 'Bots' },
+  { to: '/airdrops', icon: Gift, label: 'Airdrops' },
+  { to: '/analytics', icon: BarChart3, label: 'Analytics' },
+  { to: '/risk', icon: Shield, label: 'Risk' },
+  { to: '/sandbox', icon: FlaskConical, label: 'Sandbox' },
+  { to: '/charts', icon: LineChart, label: 'Charts' },
+];
+
+const bottomNavItems = [
+  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/demo-account', icon: User, label: 'Demo Account' },
+];
+
+export function Sidebar() {
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <aside
+      className={cn(
+        'bg-sidebar border-r border-sidebar-border flex flex-col h-screen sticky top-0 transition-all duration-300',
+        collapsed ? 'w-16' : 'w-48'
+      )}
+    >
+      {/* Logo */}
+      <div className="h-14 flex items-center px-4 border-b border-sidebar-border">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+            <TrendingUp className="w-5 h-5 text-primary-foreground" />
+          </div>
+          {!collapsed && (
+            <span className="font-bold text-foreground">CryptoArb</span>
+          )}
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 py-4 overflow-y-auto">
+        <ul className="space-y-1 px-2">
+          {navItems.map((item) => (
+            <li key={item.to}>
+              <NavLink
+                to={item.to}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors',
+                  collapsed && 'justify-center px-2'
+                )}
+                activeClassName="bg-sidebar-accent text-sidebar-accent-foreground"
+              >
+                <item.icon className="w-5 h-5 flex-shrink-0" />
+                {!collapsed && <span className="text-sm">{item.label}</span>}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      {/* Bottom Navigation */}
+      <div className="border-t border-sidebar-border py-4">
+        <ul className="space-y-1 px-2">
+          {bottomNavItems.map((item) => (
+            <li key={item.to}>
+              <NavLink
+                to={item.to}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors',
+                  collapsed && 'justify-center px-2'
+                )}
+                activeClassName="bg-sidebar-accent text-sidebar-accent-foreground"
+              >
+                <item.icon className="w-5 h-5 flex-shrink-0" />
+                {!collapsed && <span className="text-sm">{item.label}</span>}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+
+        {/* Collapse Button */}
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className={cn(
+            'flex items-center gap-3 px-3 py-2 mx-2 mt-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors w-[calc(100%-16px)]',
+            collapsed && 'justify-center px-2'
+          )}
+        >
+          {collapsed ? (
+            <ChevronRight className="w-5 h-5" />
+          ) : (
+            <>
+              <ChevronLeft className="w-5 h-5" />
+              <span className="text-sm">Collapse</span>
+            </>
+          )}
+        </button>
+      </div>
+    </aside>
+  );
+}
