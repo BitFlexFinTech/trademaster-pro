@@ -86,6 +86,36 @@ export type Database = {
         }
         Relationships: []
       }
+      chart_drawings: {
+        Row: {
+          created_at: string | null
+          data: Json
+          id: string
+          symbol: string
+          tool_type: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          data: Json
+          id?: string
+          symbol: string
+          tool_type: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          data?: Json
+          id?: string
+          symbol?: string
+          tool_type?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       exchange_connections: {
         Row: {
           api_key_hash: string | null
@@ -131,6 +161,45 @@ export type Database = {
           permissions?: string[] | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      news_cache: {
+        Row: {
+          assets: string[] | null
+          category: string | null
+          fetched_at: string | null
+          id: string
+          image_url: string | null
+          published_at: string
+          source: string
+          summary: string | null
+          title: string
+          url: string | null
+        }
+        Insert: {
+          assets?: string[] | null
+          category?: string | null
+          fetched_at?: string | null
+          id?: string
+          image_url?: string | null
+          published_at: string
+          source: string
+          summary?: string | null
+          title: string
+          url?: string | null
+        }
+        Update: {
+          assets?: string[] | null
+          category?: string | null
+          fetched_at?: string | null
+          id?: string
+          image_url?: string | null
+          published_at?: string
+          source?: string
+          summary?: string | null
+          title?: string
+          url?: string | null
         }
         Relationships: []
       }
@@ -221,6 +290,51 @@ export type Database = {
           id?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      research_articles: {
+        Row: {
+          assets: string[] | null
+          author: string
+          content: string | null
+          created_at: string | null
+          external_url: string | null
+          id: string
+          published_at: string | null
+          source: string | null
+          summary: string | null
+          tags: string[] | null
+          tier: string | null
+          title: string
+        }
+        Insert: {
+          assets?: string[] | null
+          author: string
+          content?: string | null
+          created_at?: string | null
+          external_url?: string | null
+          id?: string
+          published_at?: string | null
+          source?: string | null
+          summary?: string | null
+          tags?: string[] | null
+          tier?: string | null
+          title: string
+        }
+        Update: {
+          assets?: string[] | null
+          author?: string
+          content?: string | null
+          created_at?: string | null
+          external_url?: string | null
+          id?: string
+          published_at?: string | null
+          source?: string | null
+          summary?: string | null
+          tags?: string[] | null
+          tier?: string | null
+          title?: string
         }
         Relationships: []
       }
@@ -391,6 +505,33 @@ export type Database = {
           push_notifications?: boolean | null
           theme?: string | null
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_watchlists: {
+        Row: {
+          created_at: string | null
+          id: string
+          name: string
+          symbols: string[] | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          name?: string
+          symbols?: string[] | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          name?: string
+          symbols?: string[] | null
+          updated_at?: string | null
           user_id?: string
         }
         Relationships: []

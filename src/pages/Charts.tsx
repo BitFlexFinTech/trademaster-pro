@@ -4,6 +4,7 @@ import { ChartToolbar, type IndicatorSettings } from '@/components/charts/ChartT
 import { DrawingToolsSidebar, type DrawingTool } from '@/components/charts/DrawingToolsSidebar';
 import { ChartRightSidebar } from '@/components/charts/ChartRightSidebar';
 import { TradingChart } from '@/components/charts/TradingChart';
+import { TokenListSidebar } from '@/components/charts/TokenListSidebar';
 import { useChartData } from '@/hooks/useChartData';
 import { Loader2 } from 'lucide-react';
 
@@ -11,6 +12,7 @@ export default function Charts() {
   const [selectedPair, setSelectedPair] = useState('BTC/USDT');
   const [selectedTimeframe, setSelectedTimeframe] = useState('4h');
   const [activeTool, setActiveTool] = useState<DrawingTool>('crosshair');
+  const [contractType, setContractType] = useState<'spot' | 'perpetual'>('spot');
   const [indicators, setIndicators] = useState<IndicatorSettings>({
     sma20: false,
     sma50: false,
@@ -20,7 +22,7 @@ export default function Charts() {
     bollingerBands: false,
   });
 
-  const { data, loading, error, currentPrice, refetch } = useChartData(selectedPair, selectedTimeframe);
+  const { data, loading, error, currentPrice, refetch } = useChartData(selectedPair, selectedTimeframe, contractType);
 
   // Calculate price change from data
   const priceChange = data.length >= 2 
@@ -41,13 +43,23 @@ export default function Charts() {
     console.log('Clear drawings');
   };
 
+  const handleSelectPair = (pair: string) => {
+    setSelectedPair(pair);
+    // Detect if it's a perpetual pair
+    if (pair.includes('PERP')) {
+      setContractType('perpetual');
+    } else {
+      setContractType('spot');
+    }
+  };
+
   return (
     <TooltipProvider>
-      <div className="h-[calc(100vh-8rem)] flex flex-col bg-background">
+      <div className="h-[calc(100vh-8rem)] flex flex-col bg-background overflow-hidden">
         {/* Top Toolbar */}
         <ChartToolbar
           selectedPair={selectedPair}
-          setSelectedPair={setSelectedPair}
+          setSelectedPair={handleSelectPair}
           selectedTimeframe={selectedTimeframe}
           setSelectedTimeframe={setSelectedTimeframe}
           indicators={indicators}
@@ -58,7 +70,13 @@ export default function Charts() {
           onRefresh={refetch}
         />
 
-        <div className="flex-1 flex min-h-0">
+        <div className="flex-1 flex min-h-0 overflow-hidden">
+          {/* Token List Sidebar */}
+          <TokenListSidebar
+            selectedPair={selectedPair}
+            onSelectPair={handleSelectPair}
+          />
+
           {/* Left Drawing Tools */}
           <DrawingToolsSidebar
             activeTool={activeTool}
@@ -67,7 +85,7 @@ export default function Charts() {
           />
 
           {/* Main Chart Area */}
-          <div className="flex-1 flex flex-col bg-background min-w-0">
+          <div className="flex-1 flex flex-col bg-background min-w-0 overflow-hidden">
             {loading && data.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />

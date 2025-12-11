@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Play, Volume2, VolumeX, SkipForward } from 'lucide-react';
+import { Play, Volume2, VolumeX, SkipForward, RefreshCw } from 'lucide-react';
 
 // Curated list of crypto analysis videos (excluding SimplyBitcoin)
 const YOUTUBE_VIDEOS = [
@@ -34,6 +34,7 @@ export function VideoHighlights() {
   const [activeVideo, setActiveVideo] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [failedVideos, setFailedVideos] = useState<Set<number>>(new Set());
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Get available videos (excluding failed ones)
   const availableVideos = YOUTUBE_VIDEOS.filter((_, index) => !failedVideos.has(index));
@@ -58,6 +59,13 @@ export function VideoHighlights() {
     setActiveVideo((prev) => (prev + 1) % availableVideos.length);
   }, [availableVideos.length]);
 
+  const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    setFailedVideos(new Set());
+    setActiveVideo(0);
+    setTimeout(() => setIsRefreshing(false), 500);
+  }, []);
+
   return (
     <div className="card-terminal p-3 h-full flex flex-col">
       <div className="flex items-center justify-between mb-2">
@@ -66,6 +74,13 @@ export function VideoHighlights() {
           <h3 className="text-xs font-medium text-foreground uppercase tracking-wide">Video Highlights</h3>
         </div>
         <div className="flex items-center gap-1">
+          <button 
+            onClick={handleRefresh}
+            className="p-1 hover:bg-muted rounded transition-colors"
+            title="Refresh videos"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-muted-foreground hover:text-primary ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
           <button 
             onClick={skipToNext}
             className="p-1 hover:bg-muted rounded transition-colors"
@@ -87,11 +102,11 @@ export function VideoHighlights() {
         </div>
       </div>
 
-      {/* Main Video - YouTube Embed */}
+      {/* Main Video - YouTube Embed - NO AUTOPLAY */}
       <div className="relative rounded-lg overflow-hidden flex-1 min-h-0 bg-secondary">
         <iframe
-          key={currentVideo.id}
-          src={`https://www.youtube-nocookie.com/embed/${currentVideo.id}?autoplay=1&mute=${isMuted ? 1 : 0}&loop=1&playlist=${currentVideo.id}&controls=0&modestbranding=1&rel=0&showinfo=0`}
+          key={`${currentVideo.id}-${isRefreshing}`}
+          src={`https://www.youtube-nocookie.com/embed/${currentVideo.id}?autoplay=0&mute=${isMuted ? 1 : 0}&loop=1&playlist=${currentVideo.id}&controls=1&modestbranding=1&rel=0&showinfo=0`}
           title={currentVideo.title}
           className="absolute inset-0 w-full h-full"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
