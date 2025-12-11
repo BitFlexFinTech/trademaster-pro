@@ -29,27 +29,25 @@ interface TableRow {
 export function ArbitrageTable({ opportunities = [], loading = false }: ArbitrageTableProps) {
   const [tableData, setTableData] = useState<TableRow[]>([]);
 
-  // Transform API data to table rows
   useEffect(() => {
     if (opportunities.length > 0) {
-      const rows: TableRow[] = opportunities.map((opp, index) => ({
+      const rows: TableRow[] = opportunities.map((opp) => ({
         id: opp.id,
         pair: opp.pair,
         route: `${opp.buy_exchange} → ${opp.sell_exchange}`,
         buyPrice: opp.buy_price,
         sellPrice: opp.sell_price,
         profitPercent: opp.profit_percentage,
-        profitUsd: (1000 * opp.profit_percentage) / 100, // Default 1000 USDT
+        profitUsd: (1000 * opp.profit_percentage) / 100,
         volume24h: formatVolume(opp.volume_24h),
         expires: getTimeRemaining(opp.expires_at),
         amount: 1000,
-        type: (['Uniswap', 'Curve', 'GMX', 'Aave'].some(d => 
+        type: (['Uniswap', 'Curve', 'GMX', 'Aave', 'dYdX', 'Compound'].some(d => 
           opp.buy_exchange.includes(d) || opp.sell_exchange.includes(d)
         ) ? 'DeFi' : 'CEX') as 'CEX' | 'DeFi',
       }));
       setTableData(rows);
     } else {
-      // Fall back to mock data
       setTableData(arbitrageOpportunities.map(opp => ({
         ...opp,
         id: String(opp.id),
@@ -62,11 +60,7 @@ export function ArbitrageTable({ opportunities = [], loading = false }: Arbitrag
     setTableData((prev) =>
       prev.map((opp) =>
         opp.id === id
-          ? {
-              ...opp,
-              amount,
-              profitUsd: (amount * opp.profitPercent) / 100,
-            }
+          ? { ...opp, amount, profitUsd: (amount * opp.profitPercent) / 100 }
           : opp
       )
     );
@@ -80,85 +74,89 @@ export function ArbitrageTable({ opportunities = [], loading = false }: Arbitrag
   };
 
   return (
-    <div className="card-terminal">
-      <div className="flex items-center justify-between p-4 border-b border-border">
-        <div className="flex items-center gap-3">
-          <h3 className="font-semibold text-foreground">Arbitrage Opportunities</h3>
-          <span className="live-indicator">{tableData.length} LIVE</span>
-        </div>
+    <div className="card-terminal flex flex-col">
+      <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-2" disabled={loading}>
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Auto: 1m
-          </Button>
+          <h3 className="font-semibold text-foreground text-sm">Arbitrage Opportunities</h3>
+          <span className="live-indicator text-[10px]">{tableData.length} LIVE</span>
         </div>
+        <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" disabled={loading}>
+          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+          Auto: 1h
+        </Button>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="table-terminal">
-          <thead>
-            <tr className="bg-secondary/50">
-              <th>Pair</th>
-              <th>Route</th>
-              <th>Buy Price</th>
-              <th>Sell Price</th>
-              <th>Profit %</th>
-              <th>Profit USD</th>
-              <th>Volume 24H</th>
-              <th>Expires</th>
-              <th>Amount</th>
-              <th>Type</th>
-              <th>Action</th>
+      {/* Table with vertical-only scroll */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden max-h-[400px]">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 z-10 bg-secondary/95 backdrop-blur-sm">
+            <tr>
+              <th className="text-muted-foreground font-medium uppercase tracking-wider py-2 px-2 text-left whitespace-nowrap">Pair</th>
+              <th className="text-muted-foreground font-medium uppercase tracking-wider py-2 px-2 text-left whitespace-nowrap">Route</th>
+              <th className="text-muted-foreground font-medium uppercase tracking-wider py-2 px-2 text-right whitespace-nowrap">Buy</th>
+              <th className="text-muted-foreground font-medium uppercase tracking-wider py-2 px-2 text-right whitespace-nowrap">Sell</th>
+              <th className="text-muted-foreground font-medium uppercase tracking-wider py-2 px-2 text-right whitespace-nowrap">Profit %</th>
+              <th className="text-muted-foreground font-medium uppercase tracking-wider py-2 px-2 text-right whitespace-nowrap">Profit $</th>
+              <th className="text-muted-foreground font-medium uppercase tracking-wider py-2 px-2 text-right whitespace-nowrap">Vol 24H</th>
+              <th className="text-muted-foreground font-medium uppercase tracking-wider py-2 px-2 text-center whitespace-nowrap">Expires</th>
+              <th className="text-muted-foreground font-medium uppercase tracking-wider py-2 px-2 text-center whitespace-nowrap">Amount</th>
+              <th className="text-muted-foreground font-medium uppercase tracking-wider py-2 px-2 text-center whitespace-nowrap">Type</th>
+              <th className="text-muted-foreground font-medium uppercase tracking-wider py-2 px-2 text-center whitespace-nowrap">Action</th>
             </tr>
           </thead>
           <tbody>
             {loading && tableData.length === 0 ? (
-              Array.from({ length: 10 }).map((_, i) => (
+              Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i}>
                   {Array.from({ length: 11 }).map((_, j) => (
-                    <td key={j}><Skeleton className="h-4 w-full" /></td>
+                    <td key={j} className="py-2 px-2"><Skeleton className="h-4 w-full" /></td>
                   ))}
                 </tr>
               ))
             ) : (
               tableData.map((opp) => (
-                <tr key={opp.id} className="hover:bg-secondary/30">
-                  <td className="font-medium text-foreground">{opp.pair}</td>
-                  <td className="text-muted-foreground text-sm">{opp.route}</td>
-                  <td className="font-mono text-foreground">
-                    ${opp.buyPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                <tr key={opp.id} className="hover:bg-secondary/30 border-t border-border">
+                  <td className="py-2 px-2 font-medium text-foreground whitespace-nowrap">{opp.pair}</td>
+                  <td className="py-2 px-2 text-muted-foreground whitespace-nowrap max-w-[100px] truncate" title={opp.route}>{opp.route}</td>
+                  <td className="py-2 px-2 font-mono text-foreground text-right whitespace-nowrap">
+                    ${formatPrice(opp.buyPrice)}
                   </td>
-                  <td className="font-mono text-foreground">
-                    ${opp.sellPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  <td className="py-2 px-2 font-mono text-foreground text-right whitespace-nowrap">
+                    ${formatPrice(opp.sellPrice)}
                   </td>
-                  <td className={cn('font-mono font-medium', getProfitColor(opp.profitPercent))}>
-                    {opp.profitPercent >= 0 ? '+' : ''}{opp.profitPercent.toFixed(2)}%
+                  <td className={cn('py-2 px-2 font-mono font-medium text-right whitespace-nowrap', getProfitColor(opp.profitPercent))}>
+                    +{opp.profitPercent.toFixed(2)}%
                   </td>
-                  <td className={cn('font-mono', getProfitColor(opp.profitPercent))}>
-                    {opp.profitUsd >= 0 ? '+' : ''}${opp.profitUsd.toFixed(2)}
+                  <td className={cn('py-2 px-2 font-mono text-right whitespace-nowrap', getProfitColor(opp.profitPercent))}>
+                    +${opp.profitUsd.toFixed(2)}
                   </td>
-                  <td className="text-muted-foreground font-mono">{opp.volume24h}</td>
-                  <td>
-                    <span className="flex items-center gap-1 text-warning font-mono">
-                      <Clock className="w-3 h-3" />
+                  <td className="py-2 px-2 text-muted-foreground font-mono text-right whitespace-nowrap">{opp.volume24h}</td>
+                  <td className="py-2 px-2 text-center">
+                    <span className="inline-flex items-center gap-0.5 text-warning font-mono whitespace-nowrap">
+                      <Clock className="w-2.5 h-2.5" />
                       {opp.expires}
                     </span>
                   </td>
-                  <td>
+                  <td className="py-2 px-2 text-center">
                     <Input
                       type="number"
                       value={opp.amount}
                       onChange={(e) => handleAmountChange(opp.id, Number(e.target.value))}
-                      className="w-20 h-8 text-sm font-mono bg-secondary border-border"
+                      className="w-16 h-6 text-xs font-mono bg-secondary border-border text-center px-1"
                     />
                   </td>
-                  <td>
-                    <span className={opp.type === 'CEX' ? 'badge-cex' : 'badge-defi'}>
+                  <td className="py-2 px-2 text-center">
+                    <span className={cn(
+                      'text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap',
+                      opp.type === 'CEX' 
+                        ? 'bg-primary/20 text-primary border border-primary/30' 
+                        : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                    )}>
                       {opp.type}
                     </span>
                   </td>
-                  <td>
-                    <Button size="sm" className="btn-primary h-7 px-4">
+                  <td className="py-2 px-2 text-center">
+                    <Button size="sm" className="btn-primary h-6 px-3 text-xs">
                       Trade
                     </Button>
                   </td>
@@ -170,6 +168,12 @@ export function ArbitrageTable({ opportunities = [], loading = false }: Arbitrag
       </div>
     </div>
   );
+}
+
+function formatPrice(price: number): string {
+  if (price >= 1000) return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (price >= 1) return price.toFixed(2);
+  return price.toFixed(4);
 }
 
 function formatVolume(volume: number): string {
@@ -187,6 +191,5 @@ function getTimeRemaining(expiresAt: string): string {
   const minutes = Math.floor(diff / 60000);
   const seconds = Math.floor((diff % 60000) / 1000);
   
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }

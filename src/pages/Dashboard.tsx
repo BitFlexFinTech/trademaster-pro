@@ -13,12 +13,10 @@ export default function Dashboard() {
   const { opportunities, loading, refreshData } = useRealtimePrices();
   const { notifyHighProfit, requestPushPermission } = useNotifications();
 
-  // Request push notification permission on mount
   useEffect(() => {
     requestPushPermission();
   }, [requestPushPermission]);
 
-  // Check for high-profit opportunities and notify
   useEffect(() => {
     if (opportunities.length > 0) {
       const highProfitOpps = opportunities.filter(opp => opp.profit_percentage >= 1);
@@ -34,34 +32,33 @@ export default function Dashboard() {
     }
   }, [opportunities, notifyHighProfit]);
 
-  // Initial data fetch
   useEffect(() => {
     refreshData();
   }, []);
 
   return (
-    <div className="space-y-6">
-      {/* Top Row - Stats Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-3">
+    <div className="space-y-4">
+      {/* Top Row - Stats Cards - Match screenshot layout */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3">
+        <div className="lg:col-span-2">
           <PortfolioCard />
         </div>
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-2">
           <OpportunitiesCard opportunities={opportunities} loading={loading} />
         </div>
         <div className="lg:col-span-2">
           <AutoEarnCard />
         </div>
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-3">
           <AiSummaryCard />
         </div>
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-3">
           <VideoHighlights />
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Arbitrage Table */}
         <div className="lg:col-span-9">
           <ArbitrageTable opportunities={opportunities} loading={loading} />
