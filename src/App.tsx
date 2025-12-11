@@ -23,6 +23,7 @@ import DemoAccount from "./pages/DemoAccount";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import RiskDisclaimer from "./pages/RiskDisclaimer";
+import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -58,6 +59,7 @@ const App = () => (
                   <Route path="/charts" element={<Charts />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/demo-account" element={<DemoAccount />} />
+                  <Route path="/admin" element={<Admin />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>
