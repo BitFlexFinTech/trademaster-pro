@@ -36,20 +36,52 @@ async function fetchCryptoCompareNews(): Promise<NewsItem[]> {
 
 async function fetchCoinGeckoNews(): Promise<NewsItem[]> {
   try {
-    const response = await fetch('https://api.coingecko.com/api/v3/news');
+    // Use the status updates endpoint as the news endpoint requires pro
+    const response = await fetch('https://api.coingecko.com/api/v3/status_updates?per_page=10');
     if (!response.ok) throw new Error('CoinGecko API failed');
     
     const data = await response.json();
-    return (data.data || []).slice(0, 10).map((item: any) => ({
-      id: `cg-${item.id || Math.random().toString(36)}`,
-      title: item.title,
+    return (data.status_updates || []).slice(0, 10).map((item: any) => ({
+      id: `cg-${item.created_at}-${Math.random().toString(36).slice(2, 8)}`,
+      title: item.project?.name ? `${item.project.name}: ${item.user_title || 'Update'}` : item.user_title || 'Crypto Update',
       summary: item.description?.substring(0, 150) + '...' || '',
-      source: item.author || 'CoinGecko',
-      timestamp: item.updated_at || new Date().toISOString(),
-      url: item.url,
+      source: 'CoinGecko',
+      timestamp: item.created_at || new Date().toISOString(),
+      url: item.project?.links?.homepage?.[0] || 'https://coingecko.com',
     }));
   } catch (error) {
     console.error('CoinGecko fetch error:', error);
+    return [];
+  }
+}
+
+async function fetchMessariNews(): Promise<NewsItem[]> {
+  try {
+    const apiKey = Deno.env.get('MESSARI_API_KEY');
+    if (!apiKey) {
+      console.log('MESSARI_API_KEY not configured, skipping Messari fetch');
+      return [];
+    }
+    
+    const response = await fetch('https://data.messari.io/api/v1/news', {
+      headers: {
+        'x-messari-api-key': apiKey,
+      },
+    });
+    
+    if (!response.ok) throw new Error(`Messari API failed: ${response.status}`);
+    
+    const data = await response.json();
+    return (data.data || []).slice(0, 10).map((item: any) => ({
+      id: `ms-${item.id || Math.random().toString(36).slice(2, 8)}`,
+      title: item.title || 'Messari News',
+      summary: item.content?.substring(0, 150) + '...' || item.previewText || '',
+      source: item.author?.name || 'Messari',
+      timestamp: item.publishedAt || item.published_at || new Date().toISOString(),
+      url: item.url || item.link || 'https://messari.io',
+    }));
+  } catch (error) {
+    console.error('Messari fetch error:', error);
     return [];
   }
 }
@@ -63,15 +95,16 @@ serve(async (req) => {
     console.log('Fetching news from multiple sources...');
     
     // Fetch from all sources in parallel
-    const [cryptoCompareNews, coinGeckoNews] = await Promise.all([
+    const [cryptoCompareNews, coinGeckoNews, messariNews] = await Promise.all([
       fetchCryptoCompareNews(),
       fetchCoinGeckoNews(),
+      fetchMessariNews(),
     ]);
 
-    console.log(`CryptoCompare: ${cryptoCompareNews.length}, CoinGecko: ${coinGeckoNews.length}`);
+    console.log(`CryptoCompare: ${cryptoCompareNews.length}, CoinGecko: ${coinGeckoNews.length}, Messari: ${messariNews.length}`);
 
     // Merge and deduplicate by similar titles
-    const allNews = [...cryptoCompareNews, ...coinGeckoNews];
+    const allNews = [...cryptoCompareNews, ...coinGeckoNews, ...messariNews];
     const seen = new Set<string>();
     const uniqueNews = allNews.filter(item => {
       const key = item.title.toLowerCase().substring(0, 50);
@@ -83,8 +116,8 @@ serve(async (req) => {
     // Sort by timestamp (newest first)
     uniqueNews.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-    // Return top 15
-    const finalNews = uniqueNews.slice(0, 15);
+    // Return top 20
+    const finalNews = uniqueNews.slice(0, 20);
     console.log(`Returning ${finalNews.length} news items`);
 
     return new Response(JSON.stringify({ news: finalNews }), {

@@ -1,17 +1,12 @@
 import { useState, useCallback } from 'react';
 import { Play, Volume2, VolumeX, SkipForward } from 'lucide-react';
 
-// Curated list of popular crypto analysis videos (more likely to be available globally)
+// Curated list of crypto analysis videos (excluding SimplyBitcoin)
 const YOUTUBE_VIDEOS = [
   { 
     id: 'gyMwXuJrbJQ',
     title: 'Crypto Market Analysis', 
     channel: 'Coin Bureau',
-  },
-  { 
-    id: 'oYGN1dt5F3Q',
-    title: 'Bitcoin Deep Dive', 
-    channel: 'Simply Bitcoin',
   },
   { 
     id: 'VYWc9dFqROI',
