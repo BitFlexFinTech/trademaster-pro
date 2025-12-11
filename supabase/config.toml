@@ -1,5 +1,8 @@
 project_id = "rkqeowpkwbbkqsadbxth"
 
+[functions.fetch-research]
+verify_jwt = false
+
 [functions.fetch-prices]
 verify_jwt = false
 

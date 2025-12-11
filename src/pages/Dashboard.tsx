@@ -11,26 +11,11 @@ import { useNotifications } from '@/hooks/useNotifications';
 
 export default function Dashboard() {
   const { opportunities, loading, refreshData } = useRealtimePrices();
-  const { notifyHighProfit, requestPushPermission } = useNotifications();
+  const { requestPushPermission } = useNotifications();
 
   useEffect(() => {
     requestPushPermission();
   }, [requestPushPermission]);
-
-  useEffect(() => {
-    if (opportunities.length > 0) {
-      const highProfitOpps = opportunities.filter(opp => opp.profit_percentage >= 1);
-      if (highProfitOpps.length > 0) {
-        const topOpp = highProfitOpps[0];
-        notifyHighProfit(
-          topOpp.pair,
-          topOpp.profit_percentage,
-          topOpp.buy_exchange,
-          topOpp.sell_exchange
-        );
-      }
-    }
-  }, [opportunities, notifyHighProfit]);
 
   useEffect(() => {
     refreshData();

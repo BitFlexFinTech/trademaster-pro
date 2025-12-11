@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { OHLCData } from '@/lib/indicators';
 
-const BINANCE_API = 'https://api.binance.com/api/v3';
+const BINANCE_SPOT_API = 'https://api.binance.com/api/v3';
+const BINANCE_FUTURES_API = 'https://fapi.binance.com/fapi/v1';
 
 const TIMEFRAME_MAP: Record<string, string> = {
   '1m': '1m',
@@ -13,22 +14,30 @@ const TIMEFRAME_MAP: Record<string, string> = {
   '1W': '1w',
 };
 
-export function useChartData(symbol: string, timeframe: string) {
+export function useChartData(symbol: string, timeframe: string, contractType: 'spot' | 'perpetual' = 'spot') {
   const [data, setData] = useState<OHLCData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+
+  // Extract the base symbol (remove /USDT and PERP suffix)
+  const getBaseSymbol = useCallback((displaySymbol: string) => {
+    return displaySymbol.replace('/', '').replace(' PERP', '');
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const binanceSymbol = symbol.replace('/', '');
+      const binanceSymbol = getBaseSymbol(symbol);
       const interval = TIMEFRAME_MAP[timeframe] || '4h';
       
+      // Use futures API for perpetual contracts, spot API for spot
+      const apiBase = contractType === 'perpetual' ? BINANCE_FUTURES_API : BINANCE_SPOT_API;
+      
       const response = await fetch(
-        `${BINANCE_API}/klines?symbol=${binanceSymbol}&interval=${interval}&limit=200`
+        `${apiBase}/klines?symbol=${binanceSymbol}&interval=${interval}&limit=200`
       );
       
       if (!response.ok) {
@@ -58,7 +67,7 @@ export function useChartData(symbol: string, timeframe: string) {
     } finally {
       setLoading(false);
     }
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, contractType, getBaseSymbol]);
 
   useEffect(() => {
     fetchData();
@@ -70,12 +79,15 @@ export function useChartData(symbol: string, timeframe: string) {
 
   // WebSocket for real-time updates
   useEffect(() => {
-    const binanceSymbol = symbol.replace('/', '').toLowerCase();
+    const binanceSymbol = getBaseSymbol(symbol).toLowerCase();
     const wsInterval = TIMEFRAME_MAP[timeframe] || '4h';
     
-    const ws = new WebSocket(
-      `wss://stream.binance.com:9443/ws/${binanceSymbol}@kline_${wsInterval}`
-    );
+    // Use different WebSocket endpoints for spot vs futures
+    const wsUrl = contractType === 'perpetual'
+      ? `wss://fstream.binance.com/ws/${binanceSymbol}@kline_${wsInterval}`
+      : `wss://stream.binance.com:9443/ws/${binanceSymbol}@kline_${wsInterval}`;
+    
+    const ws = new WebSocket(wsUrl);
     
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
@@ -115,7 +127,7 @@ export function useChartData(symbol: string, timeframe: string) {
     return () => {
       ws.close();
     };
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, contractType, getBaseSymbol]);
 
   return { data, loading, error, currentPrice, refetch: fetchData };
 }

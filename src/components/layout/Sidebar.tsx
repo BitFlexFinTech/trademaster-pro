@@ -16,6 +16,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Crown,
+  Newspaper,
+  BookOpen,
 } from 'lucide-react';
 import { UsageBanner } from '@/components/subscription/UsageBanner';
 import { useAuth } from '@/hooks/useAuth';
@@ -31,6 +33,8 @@ const navItems = [
   { to: '/risk', icon: Shield, label: 'Risk' },
   { to: '/sandbox', icon: FlaskConical, label: 'Sandbox' },
   { to: '/charts', icon: LineChart, label: 'Charts' },
+  { to: '/news', icon: Newspaper, label: 'News' },
+  { to: '/research', icon: BookOpen, label: 'Research' },
 ];
 
 const bottomNavItems = [

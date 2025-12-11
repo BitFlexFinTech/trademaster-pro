@@ -24,6 +24,8 @@ import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import RiskDisclaimer from "./pages/RiskDisclaimer";
 import Admin from "./pages/Admin";
+import News from "./pages/News";
+import Research from "./pages/Research";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -57,6 +59,8 @@ const App = () => (
                   <Route path="/risk" element={<Risk />} />
                   <Route path="/sandbox" element={<Sandbox />} />
                   <Route path="/charts" element={<Charts />} />
+                  <Route path="/news" element={<News />} />
+                  <Route path="/research" element={<Research />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/demo-account" element={<DemoAccount />} />
                   <Route path="/admin" element={<Admin />} />
