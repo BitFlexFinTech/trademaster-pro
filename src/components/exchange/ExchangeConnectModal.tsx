@@ -7,7 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { Shield, Eye, EyeOff, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Shield, Eye, EyeOff, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 
 interface ExchangeConnectModalProps {
   open: boolean;
@@ -15,6 +15,7 @@ interface ExchangeConnectModalProps {
   exchange: {
     name: string;
     color: string;
+    requiresPassphrase?: boolean;
   } | null;
   onConnected: () => void;
 }
@@ -28,13 +29,17 @@ const PERMISSIONS = [
 export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected }: ExchangeConnectModalProps) {
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
+  const [passphrase, setPassphrase] = useState('');
   const [showSecret, setShowSecret] = useState(false);
+  const [showPassphrase, setShowPassphrase] = useState(false);
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(['read', 'trade']);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; balances?: unknown[]; error?: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
+
+  const requiresPassphrase = exchange?.name === 'KuCoin' || exchange?.name === 'OKX';
 
   const handleTestConnection = async () => {
     if (!apiKey || !apiSecret) {
@@ -42,27 +47,52 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
       return;
     }
 
+    if (requiresPassphrase && !passphrase) {
+      toast({ title: 'Error', description: `${exchange?.name} requires a passphrase`, variant: 'destructive' });
+      return;
+    }
+
     setTesting(true);
     setTestResult(null);
 
-    // Simulate connection test (in production, this would verify with exchange API)
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // 90% success rate for demo
-    const success = Math.random() > 0.1;
-    setTestResult(success ? 'success' : 'error');
-    setTesting(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('test-exchange-connection', {
+        body: {
+          exchange: exchange?.name,
+          apiKey,
+          apiSecret,
+          passphrase: requiresPassphrase ? passphrase : undefined,
+        }
+      });
 
-    if (success) {
-      toast({ title: 'Connection Successful', description: `API key verified for ${exchange?.name}` });
-    } else {
-      toast({ title: 'Connection Failed', description: 'Invalid API credentials. Please check and try again.', variant: 'destructive' });
+      if (error) throw error;
+
+      setTestResult(data);
+
+      if (data.success) {
+        toast({ 
+          title: 'Connection Successful', 
+          description: `API verified for ${exchange?.name}. Found ${data.balances?.length || 0} assets.` 
+        });
+      } else {
+        toast({ 
+          title: 'Connection Failed', 
+          description: data.error || 'Invalid API credentials',
+          variant: 'destructive' 
+        });
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Connection test failed';
+      setTestResult({ success: false, error: message });
+      toast({ title: 'Connection Failed', description: message, variant: 'destructive' });
+    } finally {
+      setTesting(false);
     }
   };
 
   const handleConnect = async () => {
     if (!user || !exchange) return;
-    if (testResult !== 'success') {
+    if (!testResult?.success) {
       toast({ title: 'Test Required', description: 'Please test your connection first', variant: 'destructive' });
       return;
     }
@@ -70,15 +100,29 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
     setLoading(true);
 
     try {
-      // Store connection (API key is hashed, never stored in plain text)
+      // Encrypt the API secret
+      const { data: encryptedData, error: encryptError } = await supabase.functions.invoke('encrypt-api-key', {
+        body: {
+          apiSecret,
+          passphrase: requiresPassphrase ? passphrase : undefined,
+        }
+      });
+
+      if (encryptError) throw encryptError;
+
+      // Store connection with encrypted credentials
       const { error } = await supabase
         .from('exchange_connections')
         .upsert({
           user_id: user.id,
           exchange_name: exchange.name,
-          api_key_hash: btoa(apiKey.slice(0, 4) + '****' + apiKey.slice(-4)), // Mask for display only
+          api_key_hash: btoa(apiKey.slice(0, 4) + '****' + apiKey.slice(-4)),
+          encrypted_api_secret: encryptedData.encryptedSecret,
+          encrypted_passphrase: encryptedData.encryptedPassphrase,
+          encryption_iv: encryptedData.iv,
           is_connected: true,
           permissions: selectedPermissions,
+          last_verified_at: new Date().toISOString(),
         }, {
           onConflict: 'user_id,exchange_name',
         });
@@ -89,9 +133,10 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
       onConnected();
       onOpenChange(false);
       resetForm();
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('Error connecting exchange:', error);
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      toast({ title: 'Error', description: message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -100,6 +145,7 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
   const resetForm = () => {
     setApiKey('');
     setApiSecret('');
+    setPassphrase('');
     setTestResult(null);
     setSelectedPermissions(['read', 'trade']);
   };
@@ -134,7 +180,7 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
             <Shield className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
             <div className="text-sm">
               <p className="font-medium text-foreground">Your credentials are secure</p>
-              <p className="text-muted-foreground">API keys are encrypted with AES-256 and never stored in plain text.</p>
+              <p className="text-muted-foreground">API keys are encrypted with AES-256-GCM and never stored in plain text.</p>
             </div>
           </div>
 
@@ -173,6 +219,33 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
             </div>
           </div>
 
+          {/* Passphrase (for KuCoin/OKX) */}
+          {requiresPassphrase && (
+            <div>
+              <Label htmlFor="passphrase">API Passphrase</Label>
+              <div className="relative mt-1.5">
+                <Input
+                  id="passphrase"
+                  type={showPassphrase ? 'text' : 'password'}
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                  placeholder={`Enter your ${exchange?.name} passphrase`}
+                  className="font-mono bg-muted/50 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassphrase(!showPassphrase)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassphrase ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {exchange?.name} requires an API passphrase set during key creation.
+              </p>
+            </div>
+          )}
+
           {/* Permissions */}
           <div>
             <Label className="mb-2 block">API Permissions</Label>
@@ -206,17 +279,19 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
           {/* Test Result */}
           {testResult && (
             <div className={`flex items-center gap-2 p-3 rounded-lg ${
-              testResult === 'success' ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'
+              testResult.success ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'
             }`}>
-              {testResult === 'success' ? (
+              {testResult.success ? (
                 <>
                   <CheckCircle2 className="w-5 h-5" />
-                  <span className="text-sm font-medium">Connection verified successfully</span>
+                  <span className="text-sm font-medium">
+                    Connection verified - {testResult.balances?.length || 0} assets found
+                  </span>
                 </>
               ) : (
                 <>
                   <AlertTriangle className="w-5 h-5" />
-                  <span className="text-sm font-medium">Connection failed - check credentials</span>
+                  <span className="text-sm font-medium">{testResult.error || 'Connection failed'}</span>
                 </>
               )}
             </div>
@@ -228,16 +303,30 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
             variant="outline"
             className="flex-1"
             onClick={handleTestConnection}
-            disabled={testing || !apiKey || !apiSecret}
+            disabled={testing || !apiKey || !apiSecret || (requiresPassphrase && !passphrase)}
           >
-            {testing ? 'Testing...' : 'Test Connection'}
+            {testing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Testing...
+              </>
+            ) : (
+              'Test Connection'
+            )}
           </Button>
           <Button
             className="flex-1 btn-primary"
             onClick={handleConnect}
-            disabled={loading || testResult !== 'success'}
+            disabled={loading || !testResult?.success}
           >
-            {loading ? 'Connecting...' : 'Connect Exchange'}
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Connecting...
+              </>
+            ) : (
+              'Connect Exchange'
+            )}
           </Button>
         </div>
       </DialogContent>

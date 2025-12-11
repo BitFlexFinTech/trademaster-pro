@@ -1,1 +1,19 @@
 project_id = "rkqeowpkwbbkqsadbxth"
+
+[functions.fetch-prices]
+verify_jwt = false
+
+[functions.generate-signals]
+verify_jwt = true
+
+[functions.execute-trade]
+verify_jwt = true
+
+[functions.encrypt-api-key]
+verify_jwt = true
+
+[functions.test-exchange-connection]
+verify_jwt = false
+
+[functions.check-encryption-status]
+verify_jwt = true

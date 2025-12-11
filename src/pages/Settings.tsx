@@ -2,24 +2,26 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Settings as SettingsIcon, Link, AlertTriangle, CheckCircle2, Unlink } from 'lucide-react';
 import { ExchangeConnectModal } from '@/components/exchange/ExchangeConnectModal';
+import { SecurityConfigPanel } from '@/components/settings/SecurityConfigPanel';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 
 const EXCHANGES = [
-  { id: 1, name: 'Binance', color: '#F0B90B' },
-  { id: 2, name: 'KuCoin', color: '#24AE8F' },
-  { id: 3, name: 'Bybit', color: '#F7A600' },
-  { id: 4, name: 'OKX', color: '#FFFFFF' },
-  { id: 5, name: 'Kraken', color: '#5741D9' },
-  { id: 6, name: 'Hyperliquid', color: '#00FF88' },
-  { id: 7, name: 'Nexo', color: '#4DA3FF' },
+  { id: 1, name: 'Binance', color: '#F0B90B', requiresPassphrase: false },
+  { id: 2, name: 'KuCoin', color: '#24AE8F', requiresPassphrase: true },
+  { id: 3, name: 'Bybit', color: '#F7A600', requiresPassphrase: false },
+  { id: 4, name: 'OKX', color: '#FFFFFF', requiresPassphrase: true },
+  { id: 5, name: 'Kraken', color: '#5741D9', requiresPassphrase: false },
+  { id: 6, name: 'Hyperliquid', color: '#00FF88', requiresPassphrase: false },
+  { id: 7, name: 'Nexo', color: '#4DA3FF', requiresPassphrase: false },
 ];
 
 interface ExchangeConnection {
   exchange_name: string;
   is_connected: boolean;
   permissions: string[];
+  last_verified_at?: string;
 }
 
 export default function Settings() {
@@ -27,6 +29,7 @@ export default function Settings() {
   const [selectedExchange, setSelectedExchange] = useState<typeof EXCHANGES[0] | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -36,7 +39,7 @@ export default function Settings() {
     try {
       const { data, error } = await supabase
         .from('exchange_connections')
-        .select('exchange_name, is_connected, permissions')
+        .select('exchange_name, is_connected, permissions, last_verified_at')
         .eq('user_id', user.id);
 
       if (error) throw error;
@@ -46,7 +49,14 @@ export default function Settings() {
         connMap[conn.exchange_name] = conn;
       });
       setConnections(connMap);
-    } catch (err: any) {
+
+      // Check if user is admin
+      const { data: hasRole } = await supabase.rpc('has_role', {
+        _user_id: user.id,
+        _role: 'super_admin'
+      });
+      setIsAdmin(!!hasRole);
+    } catch (err: unknown) {
       console.error('Error fetching connections:', err);
     } finally {
       setLoading(false);
@@ -72,7 +82,13 @@ export default function Settings() {
     try {
       const { error } = await supabase
         .from('exchange_connections')
-        .update({ is_connected: false, api_key_hash: null })
+        .update({ 
+          is_connected: false, 
+          api_key_hash: null,
+          encrypted_api_secret: null,
+          encrypted_passphrase: null,
+          encryption_iv: null,
+        })
         .eq('user_id', user.id)
         .eq('exchange_name', exchangeName);
 
@@ -84,7 +100,7 @@ export default function Settings() {
       });
 
       fetchConnections();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error disconnecting:', err);
       toast({
         title: 'Error',
@@ -175,6 +191,9 @@ export default function Settings() {
         })}
       </div>
 
+      {/* Admin Security Panel */}
+      {isAdmin && <SecurityConfigPanel />}
+
       {/* Security Notice */}
       <div className="card-terminal p-4">
         <div className="flex items-start gap-3">
@@ -182,7 +201,7 @@ export default function Settings() {
           <div>
             <h3 className="font-semibold text-foreground mb-1">Security Notice</h3>
             <p className="text-sm text-muted-foreground">
-              API keys are encrypted with AES-256 before storage. We recommend using read-only keys or keys with limited trading permissions. Never share your API secrets with anyone. Your keys are stored securely and never transmitted in plain text.
+              API keys are encrypted with AES-256-GCM before storage. We recommend using read-only keys or keys with limited trading permissions. Never share your API secrets with anyone. Your keys are stored securely and never transmitted in plain text.
             </p>
           </div>
         </div>
