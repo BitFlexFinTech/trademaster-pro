@@ -1,11 +1,23 @@
 import { useState, useEffect } from 'react';
-import { tickerData } from '@/lib/mockData';
-import { RefreshCw, Bell, Clock } from 'lucide-react';
+import { RefreshCw, Bell, Clock, LogOut, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/hooks/useAuth';
+import { useRealtimePrices } from '@/hooks/useRealtimePrices';
+import { useNavigate } from 'react-router-dom';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 export function Header() {
   const [currentTime, setCurrentTime] = useState(new Date());
+  const { user, signOut } = useAuth();
+  const { prices, loading, refreshData } = useRealtimePrices();
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const navigate = useNavigate();
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -16,9 +28,30 @@ export function Header() {
     return date.toLocaleTimeString('en-US', { hour12: false });
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
+    await refreshData();
     setLastRefresh(new Date());
   };
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/auth');
+  };
+
+  // Use real prices or fallback to mock
+  const tickerData = prices.length > 0 
+    ? prices.map(p => ({
+        symbol: p.symbol,
+        price: p.price,
+        change: p.change_24h || 0,
+      }))
+    : [
+        { symbol: 'BTC', price: 97000, change: 2.5 },
+        { symbol: 'ETH', price: 3400, change: -1.2 },
+        { symbol: 'SOL', price: 180, change: 5.3 },
+        { symbol: 'XRP', price: 2.1, change: 3.8 },
+        { symbol: 'ADA', price: 0.95, change: -0.5 },
+      ];
 
   // Duplicate ticker data for seamless scrolling
   const duplicatedTicker = [...tickerData, ...tickerData];
@@ -28,14 +61,13 @@ export function Header() {
       <div className="h-full flex items-center px-4">
         {/* Live Indicator */}
         <div className="live-indicator mr-4 flex-shrink-0">
-          LIVE
+          {loading ? 'UPDATING' : 'LIVE'}
         </div>
 
         {/* Time */}
         <div className="flex items-center gap-2 text-muted-foreground text-sm mr-4 flex-shrink-0">
           <Clock className="w-4 h-4" />
           <span className="font-mono">{formatTime(currentTime)}</span>
-          <span className="text-primary font-medium">{portfolioChange}%</span>
         </div>
 
         {/* Ticker Tape */}
@@ -61,7 +93,7 @@ export function Header() {
 
         {/* Right Side */}
         <div className="flex items-center gap-4 flex-shrink-0">
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs text-muted-foreground hidden md:block">
             Last refresh: {formatTime(lastRefresh)}
           </span>
           <Button
@@ -69,18 +101,39 @@ export function Header() {
             size="sm"
             onClick={handleRefresh}
             className="gap-2"
+            disabled={loading}
           >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
           <button className="relative text-muted-foreground hover:text-foreground">
             <Bell className="w-5 h-5" />
             <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
           </button>
+
+          {/* User Menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-2">
+                <User className="w-4 h-4" />
+                <span className="hidden md:inline max-w-[100px] truncate">
+                  {user?.email?.split('@')[0] || 'User'}
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                {user?.email}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
+                <LogOut className="w-4 h-4 mr-2" />
+                Sign Out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>
   );
 }
-
-const portfolioChange = '1.87';
