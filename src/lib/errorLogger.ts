@@ -95,4 +95,14 @@ class ErrorLogger {
 }
 
 export const errorLogger = ErrorLogger.getInstance();
+
+// Helper functions for easy access
+export function getErrorLogs(): ErrorLog[] {
+  return errorLogger.getErrors();
+}
+
+export function clearErrorLogs(): void {
+  errorLogger.clearErrors();
+}
+
 export type { ErrorLog };

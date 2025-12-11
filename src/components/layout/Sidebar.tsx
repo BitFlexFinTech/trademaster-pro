@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink } from '@/components/NavLink';
 import { cn } from '@/lib/utils';
 import {
@@ -15,7 +15,11 @@ import {
   User,
   ChevronLeft,
   ChevronRight,
+  Crown,
 } from 'lucide-react';
+import { UsageBanner } from '@/components/subscription/UsageBanner';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -36,6 +40,21 @@ const bottomNavItems = [
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    const checkAdminRole = async () => {
+      if (!user) return;
+      const { data } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .single();
+      setIsAdmin(data?.role === 'super_admin');
+    };
+    checkAdminRole();
+  }, [user]);
 
   return (
     <aside
@@ -74,8 +93,30 @@ export function Sidebar() {
               </NavLink>
             </li>
           ))}
+          {isAdmin && (
+            <li>
+              <NavLink
+                to="/admin"
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-md text-amber-400 hover:bg-sidebar-accent hover:text-amber-300 transition-colors',
+                  collapsed && 'justify-center px-2'
+                )}
+                activeClassName="bg-sidebar-accent text-amber-300"
+              >
+                <Crown className="w-5 h-5 flex-shrink-0" />
+                {!collapsed && <span className="text-sm">Admin</span>}
+              </NavLink>
+            </li>
+          )}
         </ul>
       </nav>
+
+      {/* Usage Banner */}
+      {!collapsed && (
+        <div className="px-2 pb-2">
+          <UsageBanner />
+        </div>
+      )}
 
       {/* Bottom Navigation */}
       <div className="border-t border-sidebar-border py-4">
