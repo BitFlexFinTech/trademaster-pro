@@ -6,6 +6,28 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Rate limiting: 10 requests per minute per user
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT = 10;
+const RATE_WINDOW = 60000; // 1 minute
+
+function checkRateLimit(userId: string): { allowed: boolean; retryAfter?: number } {
+  const now = Date.now();
+  const entry = rateLimitMap.get(userId);
+
+  if (!entry || now > entry.resetTime) {
+    rateLimitMap.set(userId, { count: 1, resetTime: now + RATE_WINDOW });
+    return { allowed: true };
+  }
+
+  if (entry.count >= RATE_LIMIT) {
+    return { allowed: false, retryAfter: Math.ceil((entry.resetTime - now) / 1000) };
+  }
+
+  entry.count++;
+  return { allowed: true };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -20,6 +42,33 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Get user ID for rate limiting (use IP as fallback)
+    const authHeader = req.headers.get("Authorization");
+    let userId = req.headers.get("x-forwarded-for") || "anonymous";
+    
+    if (authHeader) {
+      const token = authHeader.replace("Bearer ", "");
+      const { data: { user } } = await supabase.auth.getUser(token);
+      if (user) userId = user.id;
+    }
+
+    // Rate limiting
+    const rateCheck = checkRateLimit(userId);
+    if (!rateCheck.allowed) {
+      console.log(`Rate limit exceeded for user: ${userId}`);
+      return new Response(
+        JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
+        { 
+          status: 429, 
+          headers: { 
+            ...corsHeaders, 
+            "Content-Type": "application/json",
+            "Retry-After": String(rateCheck.retryAfter),
+          } 
+        }
+      );
+    }
 
     // Fetch current prices for analysis
     const { data: prices } = await supabase
@@ -111,7 +160,7 @@ Return ONLY valid JSON array with exactly 10 signals, no markdown or explanation
       createdAt: new Date().toISOString(),
     }));
 
-    console.log(`Generated ${enhancedSignals.length} signals`);
+    console.log(`Generated ${enhancedSignals.length} signals for user ${userId}`);
 
     return new Response(
       JSON.stringify({ signals: enhancedSignals }),
