@@ -5,7 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// HMAC-SHA256 signature
+// HMAC-SHA256 signature (hex output)
 async function hmacSha256(key: string, message: string): Promise<string> {
   const encoder = new TextEncoder();
   const keyData = encoder.encode(key);
@@ -19,6 +19,20 @@ async function hmacSha256(key: string, message: string): Promise<string> {
   return Array.from(new Uint8Array(signature))
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+// HMAC-SHA256 signature (base64 output - for OKX)
+async function hmacSha256Base64(key: string, message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(key);
+  const msgData = encoder.encode(message);
+  
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, msgData);
+  return btoa(String.fromCharCode(...new Uint8Array(signature)));
 }
 
 // HMAC-SHA512 signature (for Kraken)
@@ -133,12 +147,13 @@ async function testOKX(apiKey: string, apiSecret: string, passphrase: string): P
     const method = 'GET';
     const requestPath = '/api/v5/account/balance';
     const signPayload = timestamp + method + requestPath;
-    const signature = await hmacSha256(apiSecret, signPayload);
+    // OKX requires base64 encoded signature directly (not hex then base64)
+    const signature = await hmacSha256Base64(apiSecret, signPayload);
     
     const response = await fetch(`https://www.okx.com${requestPath}`, {
       headers: {
         'OK-ACCESS-KEY': apiKey,
-        'OK-ACCESS-SIGN': btoa(signature),
+        'OK-ACCESS-SIGN': signature,
         'OK-ACCESS-TIMESTAMP': timestamp,
         'OK-ACCESS-PASSPHRASE': passphrase,
       }
@@ -226,7 +241,8 @@ async function testNexo(apiKey: string, apiSecret: string): Promise<{ success: b
     const timestamp = Date.now().toString();
     const signature = await hmacSha256(apiSecret, timestamp);
     
-    const response = await fetch('https://api.nexo.io/api/v1/accountSummary', {
+    // Updated to use Nexo Pro API URL
+    const response = await fetch('https://pro-api.nexo.io/api/v1/accountSummary', {
       headers: {
         'X-API-KEY': apiKey,
         'X-API-SIGNATURE': signature,

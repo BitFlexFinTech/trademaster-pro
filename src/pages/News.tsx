@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Search, Filter, RefreshCw, ExternalLink, Newspaper, Calendar, Tag } from 'lucide-react';
+import { useState } from 'react';
+import { Search, RefreshCw, ExternalLink, Newspaper, Calendar } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,55 +12,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { supabase } from '@/integrations/supabase/client';
-import { format, formatDistanceToNow } from 'date-fns';
-
-interface NewsItem {
-  id: string;
-  title: string;
-  summary: string;
-  source: string;
-  url: string;
-  image_url?: string;
-  category: string;
-  assets: string[];
-  published_at: string;
-}
+import { useNews } from '@/hooks/useNews';
+import { formatDistanceToNow } from 'date-fns';
 
 const CATEGORIES = ['All', 'Markets', 'DeFi', 'NFTs', 'Regulation', 'Technology', 'Bitcoin', 'Ethereum'];
-const SOURCES = ['All', 'CryptoCompare', 'CoinGecko', 'Messari', 'CryptoPanic'];
+const SOURCES = ['All', 'CryptoCompare', 'CoinGecko', 'Messari'];
 
 export default function News() {
-  const [news, setNews] = useState<NewsItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { news, isLoading: loading, refresh } = useNews();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedSource, setSelectedSource] = useState('All');
 
-  const fetchNews = async () => {
-    setLoading(true);
-    try {
-      const response = await supabase.functions.invoke('fetch-news');
-      if (response.data) {
-        setNews(response.data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch news:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchNews();
-  }, []);
-
   const filteredNews = news.filter(item => {
     const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.summary?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
     const matchesSource = selectedSource === 'All' || item.source === selectedSource;
-    return matchesSearch && matchesCategory && matchesSource;
+    return matchesSearch && matchesSource;
   });
 
   return (
@@ -111,7 +79,7 @@ export default function News() {
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-xl font-bold text-foreground">News Feed</h1>
-          <Button variant="outline" size="sm" onClick={fetchNews} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
@@ -143,10 +111,9 @@ export default function News() {
         {/* News Table */}
         <div className="flex-1 overflow-hidden bg-card border border-border rounded-lg">
           <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-border bg-muted/50 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            <div className="col-span-6">Title</div>
+            <div className="col-span-7">Title</div>
             <div className="col-span-2">Date</div>
-            <div className="col-span-2">Assets</div>
-            <div className="col-span-2">Source</div>
+            <div className="col-span-3">Source</div>
           </div>
 
           <ScrollArea className="h-[calc(100%-44px)]">
@@ -173,7 +140,7 @@ export default function News() {
                     rel="noopener noreferrer"
                     className="grid grid-cols-12 gap-4 px-4 py-3 hover:bg-muted/50 transition-colors group"
                   >
-                    <div className="col-span-6">
+                    <div className="col-span-7">
                       <h4 className="text-sm font-medium text-foreground group-hover:text-primary transition-colors line-clamp-2 flex items-start gap-2">
                         {item.title}
                         <ExternalLink className="w-3 h-3 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -184,17 +151,10 @@ export default function News() {
                     </div>
                     <div className="col-span-2 flex items-center">
                       <span className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(item.published_at), { addSuffix: true })}
+                        {formatDistanceToNow(new Date(item.timestamp), { addSuffix: true })}
                       </span>
                     </div>
-                    <div className="col-span-2 flex items-center gap-1 flex-wrap">
-                      {item.assets?.slice(0, 2).map(asset => (
-                        <Badge key={asset} variant="secondary" className="text-[10px] px-1.5 py-0">
-                          {asset}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="col-span-2 flex items-center">
+                    <div className="col-span-3 flex items-center">
                       <Badge variant="outline" className="text-[10px]">
                         {item.source}
                       </Badge>
