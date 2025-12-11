@@ -209,6 +209,39 @@ export type Database = {
         }
         Relationships: []
       }
+      subscriptions: {
+        Row: {
+          created_at: string
+          ends_at: string | null
+          id: string
+          plan: string
+          starts_at: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          ends_at?: string | null
+          id?: string
+          plan?: string
+          starts_at?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          ends_at?: string | null
+          id?: string
+          plan?: string
+          starts_at?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       trades: {
         Row: {
           amount: number
@@ -259,6 +292,36 @@ export type Database = {
           profit_loss?: number | null
           profit_percentage?: number | null
           status?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      usage_limits: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          signals_used: number
+          trades_used: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          date?: string
+          id?: string
+          signals_used?: number
+          trades_used?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          signals_used?: number
+          trades_used?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -331,7 +394,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "trader" | "viewer"
+      app_role: "admin" | "trader" | "viewer" | "super_admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -459,7 +522,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "trader", "viewer"],
+      app_role: ["admin", "trader", "viewer", "super_admin"],
     },
   },
 } as const
