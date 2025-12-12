@@ -16,20 +16,55 @@ export function useNews() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+  const fetchFromCache = useCallback(async (): Promise<boolean> => {
+    try {
+      const { data, error: dbError } = await supabase
+        .from('news_cache')
+        .select('*')
+        .order('published_at', { ascending: false })
+        .limit(20);
+
+      if (dbError) throw dbError;
+
+      if (data && data.length > 0) {
+        setNews(data.map(item => ({
+          id: item.id,
+          title: item.title,
+          summary: item.summary || '',
+          source: item.source,
+          timestamp: item.published_at,
+          url: item.url || '#',
+        })));
+        setLastUpdated(new Date());
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Error fetching from cache:', err);
+      return false;
+    }
+  }, []);
+
   const fetchNews = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('fetch-news');
+      // First try to get from cache
+      const hasCache = await fetchFromCache();
       
-      if (fnError) throw fnError;
-      
-      if (data?.news && data.news.length > 0) {
-        setNews(data.news);
-        setLastUpdated(new Date());
-      } else {
-        throw new Error('No news received');
+      if (!hasCache) {
+        // If no cache, call edge function to populate it
+        const { data, error: fnError } = await supabase.functions.invoke('fetch-news');
+        
+        if (fnError) throw fnError;
+        
+        if (data?.news && data.news.length > 0) {
+          setNews(data.news);
+          setLastUpdated(new Date());
+        } else {
+          throw new Error('No news received');
+        }
       }
     } catch (err) {
       console.error('Error fetching news:', err);
@@ -37,11 +72,29 @@ export function useNews() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [fetchFromCache]);
 
-  const refresh = useCallback(() => {
-    fetchNews();
-  }, [fetchNews]);
+  const refresh = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Force refresh from edge function
+      const { data, error: fnError } = await supabase.functions.invoke('fetch-news');
+      
+      if (fnError) throw fnError;
+      
+      if (data?.news && data.news.length > 0) {
+        setNews(data.news);
+        setLastUpdated(new Date());
+      }
+    } catch (err) {
+      console.error('Error refreshing news:', err);
+      setError('Failed to refresh news');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchNews();

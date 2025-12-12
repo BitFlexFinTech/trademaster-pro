@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { arbitrageOpportunities } from '@/lib/mockData';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RefreshCw, Clock } from 'lucide-react';
@@ -47,12 +46,6 @@ export function ArbitrageTable({ opportunities = [], loading = false }: Arbitrag
         ) ? 'DeFi' : 'CEX') as 'CEX' | 'DeFi',
       }));
       setTableData(rows);
-    } else {
-      setTableData(arbitrageOpportunities.map(opp => ({
-        ...opp,
-        id: String(opp.id),
-        type: opp.type as 'CEX' | 'DeFi',
-      })));
     }
   }, [opportunities]);
 
@@ -74,7 +67,7 @@ export function ArbitrageTable({ opportunities = [], loading = false }: Arbitrag
   };
 
   return (
-    <div className="card-terminal flex flex-col">
+    <div className="card-terminal flex flex-col h-full">
       <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
           <h3 className="font-semibold text-foreground text-sm">Arbitrage Opportunities</h3>
@@ -87,7 +80,7 @@ export function ArbitrageTable({ opportunities = [], loading = false }: Arbitrag
       </div>
 
       {/* Table with vertical-only scroll */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden max-h-[400px]">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
         <table className="w-full text-xs">
           <thead className="sticky top-0 z-10 bg-secondary/95 backdrop-blur-sm">
             <tr>
@@ -113,6 +106,12 @@ export function ArbitrageTable({ opportunities = [], loading = false }: Arbitrag
                   ))}
                 </tr>
               ))
+            ) : tableData.length === 0 ? (
+              <tr>
+                <td colSpan={11} className="py-8 text-center text-muted-foreground">
+                  No arbitrage opportunities available
+                </td>
+              </tr>
             ) : (
               tableData.map((opp) => (
                 <tr key={opp.id} className="hover:bg-secondary/30 border-t border-border">
