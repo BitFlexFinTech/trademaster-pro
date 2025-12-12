@@ -79,25 +79,29 @@ async function testKuCoin(apiKey: string, apiSecret: string, passphrase: string)
     const method = 'GET';
     const endpoint = '/api/v1/accounts';
     const stringToSign = timestamp + method + endpoint;
-    const signature = await hmacSha256(apiSecret, stringToSign);
-    const passphraseSign = await hmacSha256(apiSecret, passphrase);
+    // KuCoin requires base64-encoded HMAC-SHA256 signatures directly
+    const signature = await hmacSha256Base64(apiSecret, stringToSign);
+    const passphraseSign = await hmacSha256Base64(apiSecret, passphrase);
     
     const response = await fetch(`https://api.kucoin.com${endpoint}`, {
       headers: {
         'KC-API-KEY': apiKey,
-        'KC-API-SIGN': btoa(signature),
+        'KC-API-SIGN': signature,
         'KC-API-TIMESTAMP': timestamp,
-        'KC-API-PASSPHRASE': btoa(passphraseSign),
+        'KC-API-PASSPHRASE': passphraseSign,
         'KC-API-KEY-VERSION': '2',
       }
     });
     
     if (!response.ok) {
       const error = await response.json();
-      return { success: false, error: error.msg || 'Invalid API credentials' };
+      return { success: false, error: error.msg || error.message || 'Invalid API credentials' };
     }
     
     const data = await response.json();
+    if (data.code && data.code !== '200000') {
+      return { success: false, error: data.msg || 'Invalid API credentials' };
+    }
     const balances = data.data?.filter((b: { balance: string }) => parseFloat(b.balance) > 0).slice(0, 5);
     return { success: true, balances };
   } catch (error: unknown) {
@@ -238,21 +242,21 @@ async function testHyperliquid(apiKey: string): Promise<{ success: boolean; bala
 
 async function testNexo(apiKey: string, apiSecret: string): Promise<{ success: boolean; balances?: unknown[]; error?: string }> {
   try {
-    const timestamp = Date.now().toString();
-    const signature = await hmacSha256(apiSecret, timestamp);
+    const nonce = Date.now().toString();
+    // Nexo Pro requires base64-encoded HMAC-SHA256 signature of the nonce
+    const signature = await hmacSha256Base64(apiSecret, nonce);
     
-    // Updated to use Nexo Pro API URL
     const response = await fetch('https://pro-api.nexo.io/api/v1/accountSummary', {
       headers: {
         'X-API-KEY': apiKey,
-        'X-API-SIGNATURE': signature,
-        'X-API-TIMESTAMP': timestamp,
+        'X-SIGNATURE': signature,
+        'X-NONCE': nonce,
       }
     });
     
     if (!response.ok) {
       const error = await response.json();
-      return { success: false, error: error.message || 'Invalid API credentials' };
+      return { success: false, error: error.errorMessage || error.message || 'Invalid API credentials' };
     }
     
     const data = await response.json();
