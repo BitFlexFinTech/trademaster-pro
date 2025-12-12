@@ -4,11 +4,11 @@ import { Header } from './Header';
 
 export function MainLayout() {
   return (
-    <div className="flex min-h-screen w-full bg-background">
+    <div className="flex h-screen w-full bg-background overflow-hidden">
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Header />
-        <main className="flex-1 p-6 overflow-hidden flex flex-col">
+        <main className="flex-1 p-6 overflow-hidden min-h-0">
           <Outlet />
         </main>
       </div>
