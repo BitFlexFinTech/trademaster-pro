@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,7 +37,6 @@ async function fetchCryptoCompareNews(): Promise<NewsItem[]> {
 
 async function fetchCoinGeckoNews(): Promise<NewsItem[]> {
   try {
-    // Use the status updates endpoint as the news endpoint requires pro
     const response = await fetch('https://api.coingecko.com/api/v3/status_updates?per_page=10');
     if (!response.ok) throw new Error('CoinGecko API failed');
     
@@ -119,6 +119,35 @@ serve(async (req) => {
     // Return top 20
     const finalNews = uniqueNews.slice(0, 20);
     console.log(`Returning ${finalNews.length} news items`);
+
+    // Cache news to database using service role
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    
+    if (supabaseUrl && supabaseServiceKey) {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      
+      for (const news of finalNews) {
+        try {
+          await supabase
+            .from('news_cache')
+            .upsert({
+              title: news.title,
+              summary: news.summary,
+              source: news.source,
+              published_at: news.timestamp,
+              url: news.url,
+              fetched_at: new Date().toISOString(),
+            }, { 
+              onConflict: 'title',
+              ignoreDuplicates: true 
+            });
+        } catch (e) {
+          // Silently ignore upsert errors
+        }
+      }
+      console.log('Cached news to database');
+    }
 
     return new Response(JSON.stringify({ news: finalNews }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

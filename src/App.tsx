@@ -26,6 +26,8 @@ import RiskDisclaimer from "./pages/RiskDisclaimer";
 import Admin from "./pages/Admin";
 import News from "./pages/News";
 import Research from "./pages/Research";
+import Portfolio from "./pages/Portfolio";
+import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,6 +53,7 @@ const App = () => (
                   </ProtectedRoute>
                 }>
                   <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/portfolio" element={<Portfolio />} />
                   <Route path="/signals" element={<Signals />} />
                   <Route path="/auto-earn" element={<AutoEarn />} />
                   <Route path="/bots" element={<Bots />} />
@@ -61,6 +64,7 @@ const App = () => (
                   <Route path="/charts" element={<Charts />} />
                   <Route path="/news" element={<News />} />
                   <Route path="/research" element={<Research />} />
+                  <Route path="/notifications" element={<Notifications />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/demo-account" element={<DemoAccount />} />
                   <Route path="/admin" element={<Admin />} />
