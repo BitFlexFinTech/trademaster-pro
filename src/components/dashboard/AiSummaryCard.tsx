@@ -1,6 +1,7 @@
 import { useAISummary } from '@/hooks/useAISummary';
 import { Sparkles, TrendingUp } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 export function AiSummaryCard() {
   const { summary, loading } = useAISummary();
@@ -30,57 +31,59 @@ export function AiSummaryCard() {
         </span>
       </div>
 
-      <div className="space-y-2 text-xs flex-1 min-h-0 overflow-hidden">
-        <div>
-          <span className="text-muted-foreground text-[10px]">↗ Top Opportunities Today</span>
-          <div className="space-y-0.5 mt-0.5">
-            {summary.topOpportunities.length > 0 ? (
-              summary.topOpportunities.map((opp, idx) => (
-                <div key={idx} className="flex items-center justify-between gap-1">
-                  <span className="text-muted-foreground truncate text-[11px]">
-                    {idx + 1}. {opp.pair} via {opp.route}
-                  </span>
-                  <span className="text-primary font-mono text-[11px] whitespace-nowrap flex-shrink-0">+{opp.profit.toFixed(2)}%</span>
-                </div>
-              ))
-            ) : (
-              <p className="text-muted-foreground text-[11px]">No opportunities found</p>
-            )}
+      <ScrollArea className="flex-1 min-h-0">
+        <div className="space-y-2 text-xs pr-2">
+          <div>
+            <span className="text-muted-foreground text-[10px]">↗ Top Opportunities Today</span>
+            <div className="space-y-0.5 mt-0.5">
+              {summary.topOpportunities.length > 0 ? (
+                summary.topOpportunities.map((opp, idx) => (
+                  <div key={idx} className="flex items-center justify-between gap-1">
+                    <span className="text-muted-foreground truncate text-[11px]">
+                      {idx + 1}. {opp.pair} via {opp.route}
+                    </span>
+                    <span className="text-primary font-mono text-[11px] whitespace-nowrap flex-shrink-0">+{opp.profit.toFixed(2)}%</span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-muted-foreground text-[11px]">No opportunities found</p>
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2 pt-1.5 border-t border-border">
-          <div className="flex-1 min-w-0">
-            <span className="text-[10px] text-muted-foreground block">Best Strategy</span>
-            <span className="text-foreground font-medium text-[11px] truncate block">{summary.bestStrategy}</span>
+          <div className="flex items-center gap-2 pt-1.5 border-t border-border">
+            <div className="flex-1 min-w-0">
+              <span className="text-[10px] text-muted-foreground block">Best Strategy</span>
+              <span className="text-foreground font-medium text-[11px] truncate block">{summary.bestStrategy}</span>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <span className="text-[10px] text-muted-foreground block">Yield</span>
+              <span className="text-primary font-mono text-[11px]">+{summary.bestStrategyProfit}%/day</span>
+            </div>
           </div>
-          <div className="text-right flex-shrink-0">
-            <span className="text-[10px] text-muted-foreground block">Yield</span>
-            <span className="text-primary font-mono text-[11px]">+{summary.bestStrategyProfit}%/day</span>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-1.5 text-[10px]">
-          <TrendingUp className="w-2.5 h-2.5 text-muted-foreground flex-shrink-0" />
-          <span className="text-muted-foreground">Signals Win Rate:</span>
-          <span className="text-primary font-mono">{summary.signalsWinRate}%</span>
-        </div>
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <TrendingUp className="w-2.5 h-2.5 text-muted-foreground flex-shrink-0" />
+            <span className="text-muted-foreground">Signals Win Rate:</span>
+            <span className="text-primary font-mono">{summary.signalsWinRate}%</span>
+          </div>
 
-        <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-border">
-          <div className="bg-secondary/50 p-1.5 rounded text-center">
-            <span className="text-[10px] text-muted-foreground block">24h Profit</span>
-            <span className="text-sm font-bold text-primary font-mono">
-              {summary.profit24h >= 0 ? '+' : ''}${summary.profit24h.toLocaleString()}
-            </span>
-          </div>
-          <div className="bg-secondary/50 p-1.5 rounded text-center">
-            <span className="text-[10px] text-muted-foreground block">Trades</span>
-            <span className="text-sm font-bold text-foreground font-mono">
-              {summary.trades24h}
-            </span>
+          <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-border">
+            <div className="bg-secondary/50 p-1.5 rounded text-center">
+              <span className="text-[10px] text-muted-foreground block">24h Profit</span>
+              <span className="text-sm font-bold text-primary font-mono">
+                {summary.profit24h >= 0 ? '+' : ''}${summary.profit24h.toLocaleString()}
+              </span>
+            </div>
+            <div className="bg-secondary/50 p-1.5 rounded text-center">
+              <span className="text-[10px] text-muted-foreground block">Trades</span>
+              <span className="text-sm font-bold text-foreground font-mono">
+                {summary.trades24h}
+              </span>
+            </div>
           </div>
         </div>
-      </div>
+      </ScrollArea>
     </div>
   );
 }

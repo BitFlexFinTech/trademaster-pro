@@ -1,6 +1,7 @@
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 export function PortfolioCard() {
   const { portfolio, loading } = usePortfolio();
@@ -40,23 +41,25 @@ export function PortfolioCard() {
         </p>
       </div>
 
-      <div className="space-y-1.5 flex-1">
-        {portfolio.holdings.length > 0 ? (
-          portfolio.holdings.map((holding) => (
-            <div key={holding.symbol} className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">{holding.symbol}</span>
-              <div className="flex items-center gap-2">
-                <span className="text-foreground font-mono">
-                  ${holding.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className="text-primary text-[11px]">{holding.percent}%</span>
+      <ScrollArea className="flex-1 min-h-0">
+        <div className="space-y-1.5 pr-2">
+          {portfolio.holdings.length > 0 ? (
+            portfolio.holdings.map((holding) => (
+              <div key={holding.symbol} className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{holding.symbol}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-foreground font-mono">
+                    ${holding.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-primary text-[11px]">{holding.percent}%</span>
+                </div>
               </div>
-            </div>
-          ))
-        ) : (
-          <p className="text-xs text-muted-foreground">No holdings yet</p>
-        )}
-      </div>
+            ))
+          ) : (
+            <p className="text-xs text-muted-foreground">No holdings yet</p>
+          )}
+        </div>
+      </ScrollArea>
     </div>
   );
 }

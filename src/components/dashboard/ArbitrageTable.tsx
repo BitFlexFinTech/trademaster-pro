@@ -5,6 +5,7 @@ import { RefreshCw, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ArbitrageOpportunity } from '@/hooks/useRealtimePrices';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface ArbitrageTableProps {
   opportunities?: ArbitrageOpportunity[];
@@ -79,8 +80,8 @@ export function ArbitrageTable({ opportunities = [], loading = false }: Arbitrag
         </Button>
       </div>
 
-      {/* Table with vertical-only scroll */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+      {/* Table with ScrollArea for individual scrolling */}
+      <ScrollArea className="flex-1 min-h-0">
         <table className="w-full text-xs">
           <thead className="sticky top-0 z-10 bg-secondary/95 backdrop-blur-sm">
             <tr>
@@ -164,7 +165,7 @@ export function ArbitrageTable({ opportunities = [], loading = false }: Arbitrag
             )}
           </tbody>
         </table>
-      </div>
+      </ScrollArea>
     </div>
   );
 }
