@@ -18,13 +18,18 @@ import {
   Crown,
   Newspaper,
   BookOpen,
+  Wallet,
+  Bell,
 } from 'lucide-react';
 import { UsageBanner } from '@/components/subscription/UsageBanner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { useAlerts } from '@/hooks/useAlerts';
+import { Badge } from '@/components/ui/badge';
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/portfolio', icon: Wallet, label: 'Portfolio' },
   { to: '/signals', icon: TrendingUp, label: 'Signals' },
   { to: '/auto-earn', icon: Zap, label: 'Auto Earn' },
   { to: '/bots', icon: Bot, label: 'Bots' },
@@ -38,6 +43,7 @@ const navItems = [
 ];
 
 const bottomNavItems = [
+  { to: '/notifications', icon: Bell, label: 'Notifications' },
   { to: '/settings', icon: Settings, label: 'Settings' },
   { to: '/demo-account', icon: User, label: 'Demo Account' },
 ];
@@ -46,6 +52,7 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const { user } = useAuth();
+  const { unreadCount } = useAlerts();
 
   useEffect(() => {
     const checkAdminRole = async () => {
@@ -130,13 +137,29 @@ export function Sidebar() {
               <NavLink
                 to={item.to}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors',
+                  'flex items-center gap-3 px-3 py-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors relative',
                   collapsed && 'justify-center px-2'
                 )}
                 activeClassName="bg-sidebar-accent text-sidebar-accent-foreground"
               >
-                <item.icon className="w-5 h-5 flex-shrink-0" />
-                {!collapsed && <span className="text-sm">{item.label}</span>}
+                <div className="relative">
+                  <item.icon className="w-5 h-5 flex-shrink-0" />
+                  {item.to === '/notifications' && unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </div>
+                {!collapsed && (
+                  <span className="text-sm flex items-center gap-2">
+                    {item.label}
+                    {item.to === '/notifications' && unreadCount > 0 && (
+                      <Badge variant="default" className="h-5 px-1.5 text-[10px] bg-primary text-primary-foreground">
+                        {unreadCount}
+                      </Badge>
+                    )}
+                  </span>
+                )}
               </NavLink>
             </li>
           ))}

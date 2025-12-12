@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { useBotRuns } from '@/hooks/useBotRuns';
 import {
   Select,
   SelectContent,
@@ -42,10 +43,15 @@ const EXCHANGE_CONFIGS: ExchangeConfig[] = [
 ];
 
 export function GreenBackBot() {
-  const [isRunning, setIsRunning] = useState(false);
-  const [mode, setMode] = useState<'spot' | 'leverage'>('spot');
-  const [dailyTarget, setDailyTarget] = useState(40);
-  const [profitPerTrade, setProfitPerTrade] = useState(1);
+  const { bots, startBot, stopBot, updateBotPnl, refetch } = useBotRuns();
+  
+  // Find existing GreenBack bot
+  const existingBot = bots.find(b => b.botName === 'GreenBack' && b.status === 'running');
+  const isRunning = !!existingBot;
+  
+  const [mode, setMode] = useState<'spot' | 'leverage'>(existingBot?.mode || 'spot');
+  const [dailyTarget, setDailyTarget] = useState(existingBot?.dailyTarget || 40);
+  const [profitPerTrade, setProfitPerTrade] = useState(existingBot?.profitPerTrade || 1);
   const [leverages, setLeverages] = useState<Record<string, number>>({
     Binance: 5,
     OKX: 5,
@@ -55,19 +61,36 @@ export function GreenBackBot() {
   });
   const [activeExchange, setActiveExchange] = useState<string | null>(null);
 
-  // Simulated metrics
+  // Use existing bot metrics or defaults
   const [metrics, setMetrics] = useState({
-    currentPnL: 22.5,
-    tradesExecuted: 45,
-    hitRate: 68.5,
+    currentPnL: existingBot?.currentPnl || 0,
+    tradesExecuted: existingBot?.tradesExecuted || 0,
+    hitRate: existingBot?.hitRate || 0,
     avgTimeToTP: 12.3,
     avgSlippage: 0.02,
-    maxDrawdown: 3.2,
+    maxDrawdown: existingBot?.maxDrawdown || 0,
   });
 
-  // Simulate active trading
+  // Sync with existing bot data
   useEffect(() => {
-    if (!isRunning) {
+    if (existingBot) {
+      setMetrics({
+        currentPnL: existingBot.currentPnl,
+        tradesExecuted: existingBot.tradesExecuted,
+        hitRate: existingBot.hitRate,
+        avgTimeToTP: 12.3,
+        avgSlippage: 0.02,
+        maxDrawdown: existingBot.maxDrawdown,
+      });
+      setMode(existingBot.mode);
+      setDailyTarget(existingBot.dailyTarget);
+      setProfitPerTrade(existingBot.profitPerTrade);
+    }
+  }, [existingBot]);
+
+  // Simulate active trading and persist to database
+  useEffect(() => {
+    if (!isRunning || !existingBot) {
       setActiveExchange(null);
       return;
     }
@@ -77,19 +100,49 @@ export function GreenBackBot() {
     const interval = setInterval(() => {
       setActiveExchange(exchanges[idx % exchanges.length]);
       idx++;
+      
       // Simulate metrics updates
-      setMetrics(prev => ({
-        ...prev,
-        currentPnL: Math.min(prev.currentPnL + (Math.random() * 0.5 - 0.1), dailyTarget),
-        tradesExecuted: prev.tradesExecuted + (Math.random() > 0.7 ? 1 : 0),
-      }));
+      setMetrics(prev => {
+        const newPnl = Math.min(prev.currentPnL + (Math.random() * 0.5 - 0.1), dailyTarget);
+        const newTrades = prev.tradesExecuted + (Math.random() > 0.7 ? 1 : 0);
+        const newHitRate = newTrades > 0 ? 60 + Math.random() * 20 : 0;
+        
+        // Persist to database periodically
+        if (newTrades !== prev.tradesExecuted) {
+          updateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
+        }
+        
+        return {
+          ...prev,
+          currentPnL: newPnl,
+          tradesExecuted: newTrades,
+          hitRate: newHitRate,
+        };
+      });
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [isRunning, dailyTarget]);
+  }, [isRunning, dailyTarget, existingBot, updateBotPnl]);
 
   const handleLeverageChange = (exchange: string, value: number[]) => {
     setLeverages(prev => ({ ...prev, [exchange]: value[0] }));
+  };
+
+  const handleStartStop = async () => {
+    if (isRunning && existingBot) {
+      await stopBot(existingBot.id);
+      setMetrics({
+        currentPnL: 0,
+        tradesExecuted: 0,
+        hitRate: 0,
+        avgTimeToTP: 12.3,
+        avgSlippage: 0.02,
+        maxDrawdown: 0,
+      });
+    } else {
+      await startBot('GreenBack', mode, dailyTarget, profitPerTrade);
+    }
+    refetch();
   };
 
   const progressPercent = (metrics.currentPnL / dailyTarget) * 100;
@@ -266,7 +319,7 @@ export function GreenBackBot() {
       {/* Start/Stop Button */}
       <Button
         className={cn('w-full gap-2', isRunning ? 'btn-outline-primary' : 'btn-primary')}
-        onClick={() => setIsRunning(!isRunning)}
+        onClick={handleStartStop}
       >
         {isRunning ? (
           <>

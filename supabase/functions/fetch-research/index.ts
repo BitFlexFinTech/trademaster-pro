@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -114,6 +115,38 @@ serve(async (req) => {
     );
 
     console.log(`Returning ${allResearch.length} research articles`);
+
+    // Cache research to database using service role
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    
+    if (supabaseUrl && supabaseServiceKey) {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      
+      for (const article of allResearch) {
+        try {
+          await supabase
+            .from('research_articles')
+            .upsert({
+              title: article.title,
+              summary: article.summary,
+              author: article.author,
+              published_at: article.published_at,
+              assets: article.assets,
+              tags: article.tags,
+              tier: article.tier,
+              external_url: article.external_url,
+              source: article.source,
+            }, { 
+              onConflict: 'title',
+              ignoreDuplicates: true 
+            });
+        } catch (e) {
+          // Silently ignore upsert errors
+        }
+      }
+      console.log('Cached research to database');
+    }
 
     return new Response(JSON.stringify(allResearch), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
