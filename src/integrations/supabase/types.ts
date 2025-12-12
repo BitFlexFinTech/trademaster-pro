@@ -86,6 +86,117 @@ export type Database = {
         }
         Relationships: []
       }
+      backtest_runs: {
+        Row: {
+          asset: string
+          completed_at: string | null
+          created_at: string | null
+          end_date: string
+          final_balance: number | null
+          id: string
+          initial_balance: number | null
+          max_drawdown: number | null
+          results: Json | null
+          sharpe_ratio: number | null
+          start_date: string
+          status: string | null
+          total_pnl: number | null
+          total_trades: number | null
+          user_id: string
+          win_rate: number | null
+        }
+        Insert: {
+          asset: string
+          completed_at?: string | null
+          created_at?: string | null
+          end_date: string
+          final_balance?: number | null
+          id?: string
+          initial_balance?: number | null
+          max_drawdown?: number | null
+          results?: Json | null
+          sharpe_ratio?: number | null
+          start_date: string
+          status?: string | null
+          total_pnl?: number | null
+          total_trades?: number | null
+          user_id: string
+          win_rate?: number | null
+        }
+        Update: {
+          asset?: string
+          completed_at?: string | null
+          created_at?: string | null
+          end_date?: string
+          final_balance?: number | null
+          id?: string
+          initial_balance?: number | null
+          max_drawdown?: number | null
+          results?: Json | null
+          sharpe_ratio?: number | null
+          start_date?: string
+          status?: string | null
+          total_pnl?: number | null
+          total_trades?: number | null
+          user_id?: string
+          win_rate?: number | null
+        }
+        Relationships: []
+      }
+      bot_runs: {
+        Row: {
+          bot_name: string
+          created_at: string | null
+          current_pnl: number | null
+          daily_target: number | null
+          hit_rate: number | null
+          id: string
+          max_drawdown: number | null
+          mode: string
+          profit_per_trade: number | null
+          started_at: string | null
+          status: string | null
+          stopped_at: string | null
+          trades_executed: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          bot_name: string
+          created_at?: string | null
+          current_pnl?: number | null
+          daily_target?: number | null
+          hit_rate?: number | null
+          id?: string
+          max_drawdown?: number | null
+          mode?: string
+          profit_per_trade?: number | null
+          started_at?: string | null
+          status?: string | null
+          stopped_at?: string | null
+          trades_executed?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          bot_name?: string
+          created_at?: string | null
+          current_pnl?: number | null
+          daily_target?: number | null
+          hit_rate?: number | null
+          id?: string
+          max_drawdown?: number | null
+          mode?: string
+          profit_per_trade?: number | null
+          started_at?: string | null
+          status?: string | null
+          stopped_at?: string | null
+          trades_executed?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       chart_drawings: {
         Row: {
           created_at: string | null
@@ -338,6 +449,51 @@ export type Database = {
         }
         Relationships: []
       }
+      strategy_executions: {
+        Row: {
+          created_at: string | null
+          daily_profit: number | null
+          deployed_usdt: number | null
+          exchange: string
+          id: string
+          risk_level: string | null
+          started_at: string | null
+          status: string | null
+          strategy_name: string
+          total_profit: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          daily_profit?: number | null
+          deployed_usdt?: number | null
+          exchange: string
+          id?: string
+          risk_level?: string | null
+          started_at?: string | null
+          status?: string | null
+          strategy_name: string
+          total_profit?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          daily_profit?: number | null
+          deployed_usdt?: number | null
+          exchange?: string
+          id?: string
+          risk_level?: string | null
+          started_at?: string | null
+          status?: string | null
+          strategy_name?: string
+          total_profit?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       subscriptions: {
         Row: {
           created_at: string
@@ -533,6 +689,39 @@ export type Database = {
           symbols?: string[] | null
           updated_at?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      wallet_connections: {
+        Row: {
+          address: string
+          chain: string | null
+          connected_at: string | null
+          created_at: string | null
+          id: string
+          is_connected: boolean | null
+          user_id: string
+          wallet_type: string
+        }
+        Insert: {
+          address: string
+          chain?: string | null
+          connected_at?: string | null
+          created_at?: string | null
+          id?: string
+          is_connected?: boolean | null
+          user_id: string
+          wallet_type: string
+        }
+        Update: {
+          address?: string
+          chain?: string | null
+          connected_at?: string | null
+          created_at?: string | null
+          id?: string
+          is_connected?: boolean | null
+          user_id?: string
+          wallet_type?: string
         }
         Relationships: []
       }

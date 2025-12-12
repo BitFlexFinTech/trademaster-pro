@@ -1,38 +1,61 @@
-import { portfolioData } from '@/lib/mockData';
-import { TrendingUp } from 'lucide-react';
+import { usePortfolio } from '@/hooks/usePortfolio';
+import { TrendingUp, TrendingDown } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function PortfolioCard() {
+  const { portfolio, loading } = usePortfolio();
+
+  if (loading) {
+    return (
+      <div className="card-terminal p-3 h-full flex flex-col">
+        <Skeleton className="h-4 w-24 mb-2" />
+        <Skeleton className="h-8 w-32 mb-2" />
+        <div className="space-y-2 flex-1">
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-3/4" />
+        </div>
+      </div>
+    );
+  }
+
+  const isPositive = portfolio.changePercent >= 0;
+
   return (
     <div className="card-terminal p-3 h-full flex flex-col">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs text-muted-foreground">Portfolio Value</h3>
-        <div className="flex items-center gap-0.5 text-primary text-xs">
-          <TrendingUp className="w-3 h-3" />
-          +{portfolioData.changePercent}%
+        <div className={`flex items-center gap-0.5 text-xs ${isPositive ? 'text-primary' : 'text-destructive'}`}>
+          {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+          {isPositive ? '+' : ''}{portfolio.changePercent.toFixed(2)}%
         </div>
       </div>
       
       <div className="mb-2">
         <span className="text-2xl font-bold text-foreground font-mono">
-          ${portfolioData.totalValue.toLocaleString()}
+          ${portfolio.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </span>
-        <p className="text-xs text-primary mt-0.5">
-          +${portfolioData.change24h.toLocaleString()} (24h)
+        <p className={`text-xs mt-0.5 ${isPositive ? 'text-primary' : 'text-destructive'}`}>
+          {isPositive ? '+' : ''}${portfolio.change24h.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (24h)
         </p>
       </div>
 
       <div className="space-y-1.5 flex-1">
-        {portfolioData.holdings.map((holding) => (
-          <div key={holding.symbol} className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">{holding.symbol}</span>
-            <div className="flex items-center gap-2">
-              <span className="text-foreground font-mono">
-                ${holding.value.toLocaleString()}
-              </span>
-              <span className="text-primary text-[11px]">{holding.percent}%</span>
+        {portfolio.holdings.length > 0 ? (
+          portfolio.holdings.map((holding) => (
+            <div key={holding.symbol} className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">{holding.symbol}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-foreground font-mono">
+                  ${holding.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span className="text-primary text-[11px]">{holding.percent}%</span>
+              </div>
             </div>
-          </div>
-        ))}
+          ))
+        ) : (
+          <p className="text-xs text-muted-foreground">No holdings yet</p>
+        )}
       </div>
     </div>
   );
