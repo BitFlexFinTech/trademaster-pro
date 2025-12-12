@@ -22,9 +22,9 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="space-y-4">
-      {/* Top Row - Stats Cards - Match screenshot layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3">
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Top Row - Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 flex-shrink-0 mb-4">
         <div className="lg:col-span-2">
           <PortfolioCard />
         </div>
@@ -42,15 +42,15 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      {/* Main Content - Takes remaining space */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
         {/* Arbitrage Table */}
-        <div className="lg:col-span-9">
+        <div className="lg:col-span-9 min-h-0">
           <ArbitrageTable opportunities={opportunities} loading={loading} />
         </div>
 
         {/* News Sidebar */}
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3 min-h-0">
           <NewsSidebar />
         </div>
       </div>

@@ -3,6 +3,7 @@ import { RefreshCw, ExternalLink, Clock, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 
 function formatRelativeTime(timestamp: string): string {
@@ -33,8 +34,8 @@ export function NewsSidebar() {
   const { news, isLoading, error, lastUpdated, refresh } = useNews();
 
   return (
-    <div className="card-terminal p-4 h-full flex flex-col">
-      <div className="flex items-center justify-between mb-4">
+    <div className="card-terminal p-4 h-full flex flex-col min-h-0">
+      <div className="flex items-center justify-between mb-4 flex-shrink-0">
         <h3 className="font-semibold text-foreground">Crypto News</h3>
         <div className="flex items-center gap-2">
           {lastUpdated && (
@@ -78,38 +79,40 @@ export function NewsSidebar() {
         </div>
       )}
 
-      {/* News List */}
+      {/* News List with ScrollArea */}
       {news.length > 0 && (
-        <div className="flex-1 space-y-4 overflow-y-auto">
-          {news.map((item) => (
-            <article key={item.id} className="pb-4 border-b border-border last:border-0">
-              <h4 className="font-medium text-foreground text-sm leading-tight mb-2 line-clamp-2">
-                {item.title}
-              </h4>
-              <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-                {item.summary}
-              </p>
-              <div className="flex items-center justify-between text-xs">
-                <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-normal", getSourceColor(item.source))}>
-                  {item.source}
-                </Badge>
-                <span className="flex items-center gap-1 text-muted-foreground">
-                  <Clock className="w-3 h-3" />
-                  {formatRelativeTime(item.timestamp)}
-                </span>
-              </div>
-              <a
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary mt-2 transition-colors"
-              >
-                <ExternalLink className="w-3 h-3" />
-                Read
-              </a>
-            </article>
-          ))}
-        </div>
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="space-y-4 pr-3">
+            {news.map((item) => (
+              <article key={item.id} className="pb-4 border-b border-border last:border-0">
+                <h4 className="font-medium text-foreground text-sm leading-tight mb-2 line-clamp-2">
+                  {item.title}
+                </h4>
+                <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+                  {item.summary}
+                </p>
+                <div className="flex items-center justify-between text-xs">
+                  <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-normal", getSourceColor(item.source))}>
+                    {item.source}
+                  </Badge>
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    <Clock className="w-3 h-3" />
+                    {formatRelativeTime(item.timestamp)}
+                  </span>
+                </div>
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary mt-2 transition-colors"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  Read
+                </a>
+              </article>
+            ))}
+          </div>
+        </ScrollArea>
       )}
     </div>
   );
