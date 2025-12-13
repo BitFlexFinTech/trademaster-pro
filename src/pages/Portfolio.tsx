@@ -14,7 +14,10 @@ import {
   Loader2,
   X,
   Check,
+  RefreshCw,
 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 import {
   Dialog,
   DialogContent,
@@ -35,15 +38,41 @@ const POPULAR_ASSETS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX'
 const EXCHANGES = ['Binance', 'OKX', 'Bybit', 'Kraken', 'Coinbase', 'KuCoin', 'Other'];
 
 export default function Portfolio() {
-  const { holdings, loading, totalValue, totalPnl, addHolding, updateHolding, deleteHolding } = usePortfolioManagement();
+  const { holdings, loading, totalValue, totalPnl, addHolding, updateHolding, deleteHolding, refetch } = usePortfolioManagement();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const { toast } = useToast();
   
   // Form state
   const [assetSymbol, setAssetSymbol] = useState('');
   const [quantity, setQuantity] = useState('');
   const [avgPrice, setAvgPrice] = useState('');
   const [exchange, setExchange] = useState('');
+
+  const handleSyncFromExchanges = async () => {
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-exchange-balances');
+      
+      if (error) throw error;
+      
+      toast({
+        title: 'Balances Synced',
+        description: `Synced ${data.synced} holdings from exchanges`,
+      });
+      refetch();
+    } catch (err) {
+      console.error('Sync error:', err);
+      toast({
+        title: 'Sync Failed',
+        description: 'Failed to sync exchange balances. Make sure you have connected exchanges.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
   
   // Edit state
   const [editQuantity, setEditQuantity] = useState('');
@@ -107,13 +136,27 @@ export default function Portfolio() {
           <span className="live-indicator">{holdings.length} Assets</span>
         </div>
         
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="btn-primary gap-2">
-              <Plus className="w-4 h-4" />
-              Add Holding
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            className="gap-2" 
+            onClick={handleSyncFromExchanges}
+            disabled={syncing}
+          >
+            {syncing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            Sync from Exchanges
+          </Button>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="btn-primary gap-2">
+                <Plus className="w-4 h-4" />
+                Add Holding
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Add New Holding</DialogTitle>
@@ -181,6 +224,7 @@ export default function Portfolio() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Portfolio Summary */}

@@ -23,3 +23,6 @@ verify_jwt = true
 
 [functions.fetch-news]
 verify_jwt = false
+
+[functions.sync-exchange-balances]
+verify_jwt = true
