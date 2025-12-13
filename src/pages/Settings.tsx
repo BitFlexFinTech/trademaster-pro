@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Settings as SettingsIcon, Link, AlertTriangle, CheckCircle2, Unlink } from 'lucide-react';
+import { Settings as SettingsIcon, Link, AlertTriangle, CheckCircle2, Unlink, RefreshCw, Loader2 } from 'lucide-react';
 import { ExchangeConnectModal } from '@/components/exchange/ExchangeConnectModal';
 import { SecurityConfigPanel } from '@/components/settings/SecurityConfigPanel';
 import { supabase } from '@/integrations/supabase/client';
@@ -30,8 +30,33 @@ export default function Settings() {
   const [modalOpen, setModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
+
+  const handleSyncBalances = async () => {
+    if (!user) return;
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-exchange-balances');
+      
+      if (error) throw error;
+      
+      toast({
+        title: 'Balances Synced',
+        description: `Synced ${data.synced} holdings from ${data.exchanges?.length || 0} exchanges`,
+      });
+    } catch (err) {
+      console.error('Sync error:', err);
+      toast({
+        title: 'Sync Failed',
+        description: 'Failed to sync exchange balances',
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -119,9 +144,24 @@ export default function Settings() {
           <SettingsIcon className="w-6 h-6 text-primary" />
           <h1 className="text-xl font-bold text-foreground">Exchange Settings</h1>
         </div>
-        <span className="text-sm text-muted-foreground">
-          {connectedCount} of {EXCHANGES.length} exchanges connected
-        </span>
+        <div className="flex items-center gap-3">
+          <Button 
+            variant="outline" 
+            className="gap-2" 
+            onClick={handleSyncBalances}
+            disabled={syncing || connectedCount === 0}
+          >
+            {syncing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            Sync Balances
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            {connectedCount} of {EXCHANGES.length} exchanges connected
+          </span>
+        </div>
       </div>
 
       {/* Exchange Cards Grid */}

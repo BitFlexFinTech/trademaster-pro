@@ -23,21 +23,21 @@ export default function Dashboard() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Top Row - Stats Cards with fixed height */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 flex-shrink-0 mb-4" style={{ height: '140px' }}>
-        <div className="lg:col-span-2 h-full min-h-0 overflow-hidden">
+      {/* Top Row - Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 flex-shrink-0 mb-4">
+        <div className="lg:col-span-2 h-[140px] overflow-hidden">
           <PortfolioCard />
         </div>
-        <div className="lg:col-span-2 h-full min-h-0 overflow-hidden">
+        <div className="lg:col-span-2 h-[140px] overflow-hidden">
           <OpportunitiesCard opportunities={opportunities} loading={loading} />
         </div>
-        <div className="lg:col-span-2 h-full min-h-0 overflow-hidden">
+        <div className="lg:col-span-2 h-[140px] overflow-hidden">
           <AutoEarnCard />
         </div>
-        <div className="lg:col-span-3 h-full min-h-0 overflow-hidden">
+        <div className="lg:col-span-3 h-[140px] overflow-hidden">
           <AiSummaryCard />
         </div>
-        <div className="lg:col-span-3 h-full min-h-0 overflow-hidden">
+        <div className="lg:col-span-3 h-[220px] overflow-hidden">
           <VideoHighlights />
         </div>
       </div>
