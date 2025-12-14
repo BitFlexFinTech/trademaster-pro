@@ -58,7 +58,7 @@ export function BotCard({
   const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger } = useTradingMode();
   const { notifyTrade, notifyTakeProfit, notifyDailyProgress, resetProgressNotifications } = useNotifications();
 
-  const isRunning = !!existingBot;
+  const isRunning = existingBot?.status === 'running';
   const botName = botType === 'spot' ? 'GreenBack Spot' : 'GreenBack Leverage';
 
   const [dailyTarget, setDailyTarget] = useState(existingBot?.dailyTarget || 100);
@@ -176,6 +176,7 @@ export function BotCard({
       const interval = setInterval(executeLiveTrade, 5000);
       
       return () => {
+        console.log('🛑 STOPPING: Live trade execution loop cleanup');
         isCancelled = true;
         clearInterval(interval);
       };
@@ -315,7 +316,10 @@ export function BotCard({
       });
     }, 200);
 
-    return () => clearInterval(interval);
+    return () => {
+      console.log('🛑 STOPPING: Demo trade simulation loop cleanup');
+      clearInterval(interval);
+    };
   }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy]);
 
   const handleStartStop = async () => {

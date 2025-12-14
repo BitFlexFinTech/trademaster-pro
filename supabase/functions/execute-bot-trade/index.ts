@@ -38,6 +38,39 @@ async function fetchPrice(symbol: string): Promise<number> {
   }
 }
 
+// Get Binance lot size filters for proper order sizing
+async function getBinanceLotSize(symbol: string): Promise<{ stepSize: string; minQty: string; minNotional: number }> {
+  try {
+    const response = await fetch(`https://api.binance.com/api/v3/exchangeInfo?symbol=${symbol}`);
+    const data = await response.json();
+    
+    if (!data.symbols || data.symbols.length === 0) {
+      return { stepSize: '0.00001', minQty: '0.00001', minNotional: 10 };
+    }
+    
+    const filters = data.symbols[0].filters;
+    const lotSizeFilter = filters.find((f: { filterType: string }) => f.filterType === 'LOT_SIZE');
+    const notionalFilter = filters.find((f: { filterType: string }) => f.filterType === 'NOTIONAL' || f.filterType === 'MIN_NOTIONAL');
+    
+    return {
+      stepSize: lotSizeFilter?.stepSize || '0.00001',
+      minQty: lotSizeFilter?.minQty || '0.00001',
+      minNotional: parseFloat(notionalFilter?.minNotional || notionalFilter?.notional || '10') || 10
+    };
+  } catch (e) {
+    console.error('Failed to fetch Binance lot size:', e);
+    return { stepSize: '0.00001', minQty: '0.00001', minNotional: 10 };
+  }
+}
+
+// Round quantity to valid step size
+function roundToStepSize(quantity: number, stepSize: string): string {
+  const step = parseFloat(stepSize);
+  const precision = Math.max(0, -Math.floor(Math.log10(step)));
+  const rounded = Math.floor(quantity / step) * step;
+  return rounded.toFixed(precision);
+}
+
 // Top 10 liquid USDT pairs
 const TOP_PAIRS = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT',
@@ -348,7 +381,22 @@ serve(async (req) => {
 
         const symbol = pair.replace("/", "");
         const side = direction === 'long' ? 'BUY' : 'SELL';
-        const quantity = (positionSize / currentPrice).toFixed(6);
+        
+        // Get lot size requirements and calculate proper quantity
+        const lotInfo = await getBinanceLotSize(symbol);
+        console.log(`Lot size info for ${symbol}:`, lotInfo);
+        
+        // Ensure minimum notional value is met
+        let adjustedPositionSize = positionSize;
+        if (adjustedPositionSize < lotInfo.minNotional) {
+          adjustedPositionSize = lotInfo.minNotional * 1.1; // Add 10% buffer
+          console.log(`Position size increased to meet min notional: $${adjustedPositionSize}`);
+        }
+        
+        // Calculate and round quantity to step size
+        const rawQuantity = adjustedPositionSize / currentPrice;
+        const quantity = roundToStepSize(rawQuantity, lotInfo.stepSize);
+        console.log(`Order quantity: ${quantity} (raw: ${rawQuantity}, stepSize: ${lotInfo.stepSize}, minQty: ${lotInfo.minQty})`);
         
         let entryOrder: { orderId: string; status: string; avgPrice: number } | null = null;
 
@@ -411,11 +459,24 @@ serve(async (req) => {
       }
     }
 
-    // ============ SIMULATED TRADE (DEMO MODE OR FALLBACK) ============
-    if (tradeResult.simulated || !tradeResult.realTrade) {
+    // ============ LIVE MODE: NO FALLBACK TO SIMULATION ============
+    if (!isSandbox && !tradeResult.realTrade) {
+      console.error('❌ LIVE MODE FAILURE: Real trade did not execute');
+      console.error('   This is NOT a simulation - returning error to client');
+      return new Response(JSON.stringify({ 
+        error: "Real trade execution failed",
+        reason: "Exchange API error - check exchange connection and API permissions",
+        cannotFallbackToSimulation: true,
+        exchange: selectedExchange.exchange_name
+      }), { 
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      });
+    }
+
+    // ============ SIMULATED TRADE (DEMO MODE ONLY) ============
+    if (isSandbox && !tradeResult.realTrade) {
       console.log('----------------------------------------');
-      console.log(`⚠️ SIMULATION MODE for ${pair}`);
-      console.log(`   Reason: ${isSandbox ? 'Sandbox/Demo mode' : 'Missing API credentials or fallback'}`);
+      console.log(`🟢 DEMO SIMULATION for ${pair}`);
       console.log('----------------------------------------');
       
       // Simulate trade outcome (70% win rate)
@@ -429,6 +490,7 @@ serve(async (req) => {
         ? tradeResult.exitPrice - currentPrice
         : currentPrice - tradeResult.exitPrice;
       tradeResult.pnl = (priceDiff / currentPrice) * positionSize * leverage;
+      tradeResult.simulated = true;
     }
 
     // Record the trade
