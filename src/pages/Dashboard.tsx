@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { PortfolioCard } from '@/components/dashboard/PortfolioCard';
 import { OpportunitiesCard } from '@/components/dashboard/OpportunitiesCard';
-import { AutoEarnCard } from '@/components/dashboard/AutoEarnCard';
+import { BotSummaryCard } from '@/components/dashboard/BotSummaryCard';
 import { AiSummaryCard } from '@/components/dashboard/AiSummaryCard';
 import { VideoHighlights } from '@/components/dashboard/VideoHighlights';
 import { GreenBackWidget } from '@/components/dashboard/GreenBackWidget';
@@ -23,7 +23,7 @@ export default function Dashboard() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Top Row - Stats Cards */}
+      {/* Top Row - Stats Cards + Video Highlights */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 flex-shrink-0 mb-4">
         <div className="lg:col-span-2 h-[140px] overflow-hidden">
           <PortfolioCard />
@@ -32,7 +32,7 @@ export default function Dashboard() {
           <OpportunitiesCard opportunities={opportunities} loading={loading} />
         </div>
         <div className="lg:col-span-2 h-[140px] overflow-hidden">
-          <AutoEarnCard />
+          <BotSummaryCard />
         </div>
         <div className="lg:col-span-3 h-[140px] overflow-hidden">
           <AiSummaryCard />
@@ -44,7 +44,7 @@ export default function Dashboard() {
 
       {/* Main Content - Takes remaining space */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
-        {/* GreenBack Bot Widget - replaces Arbitrage table */}
+        {/* GreenBack Bot Widget */}
         <div className="lg:col-span-9 min-h-0 overflow-hidden">
           <GreenBackWidget />
         </div>

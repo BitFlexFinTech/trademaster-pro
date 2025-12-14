@@ -43,14 +43,15 @@ interface ExchangeConfig {
   name: string;
   maxLeverage: number;
   confidence: 'High' | 'Medium' | 'Low';
+  notes: string;
 }
 
 const EXCHANGE_CONFIGS: ExchangeConfig[] = [
-  { name: 'Binance', maxLeverage: 20, confidence: 'High' },
-  { name: 'OKX', maxLeverage: 20, confidence: 'High' },
-  { name: 'Bybit', maxLeverage: 25, confidence: 'Medium' },
-  { name: 'Kraken', maxLeverage: 5, confidence: 'Medium' },
-  { name: 'Nexo', maxLeverage: 3, confidence: 'Low' },
+  { name: 'Binance', maxLeverage: 20, confidence: 'High', notes: 'Best liquidity, lowest fees' },
+  { name: 'OKX', maxLeverage: 20, confidence: 'High', notes: 'Fast execution, good depth' },
+  { name: 'Bybit', maxLeverage: 25, confidence: 'Medium', notes: 'High leverage available' },
+  { name: 'Kraken', maxLeverage: 5, confidence: 'Medium', notes: 'Reliable, US-friendly' },
+  { name: 'Nexo', maxLeverage: 3, confidence: 'Low', notes: 'Limited pairs, higher fees' },
 ];
 
 export default function Bots() {
@@ -426,6 +427,46 @@ export default function Bots() {
                   <span className="text-[10px] font-mono text-muted-foreground w-6">{leverages[ex.name]}×</span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Recommended USDT Allocation - Show when bot is NOT running */}
+          {!isRunning && (
+            <div className="mb-3">
+              <label className="text-[10px] text-muted-foreground block mb-2">
+                Recommended USDT Allocation (Total: ${suggestedUSDT.toLocaleString()})
+              </label>
+              <div className="bg-secondary/30 rounded overflow-hidden text-[10px]">
+                <div className="grid grid-cols-4 gap-1 px-2 py-1.5 bg-muted/50 text-muted-foreground font-medium">
+                  <span>Exchange</span>
+                  <span>USDT</span>
+                  <span>Confidence</span>
+                  <span>Notes</span>
+                </div>
+                {EXCHANGE_CONFIGS.map(ex => {
+                  const exchangeAllocation = Math.round(
+                    suggestedUSDT * (ex.confidence === 'High' ? 0.30 : ex.confidence === 'Medium' ? 0.20 : 0.10)
+                  );
+                  return (
+                    <div key={ex.name} className="grid grid-cols-4 gap-1 px-2 py-1.5 border-t border-border/50">
+                      <span className="text-foreground">{ex.name}</span>
+                      <span className="font-mono text-primary">${exchangeAllocation.toLocaleString()}</span>
+                      <Badge 
+                        variant="outline" 
+                        className={cn(
+                          'text-[8px] w-fit h-4',
+                          ex.confidence === 'High' && 'border-primary text-primary',
+                          ex.confidence === 'Medium' && 'border-warning text-warning',
+                          ex.confidence === 'Low' && 'border-muted-foreground text-muted-foreground'
+                        )}
+                      >
+                        {ex.confidence}
+                      </Badge>
+                      <span className="text-muted-foreground truncate">{ex.notes}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

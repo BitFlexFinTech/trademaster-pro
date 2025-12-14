@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePortfolioManagement } from '@/hooks/usePortfolioManagement';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -38,6 +39,7 @@ const POPULAR_ASSETS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX'
 const EXCHANGES = ['Binance', 'OKX', 'Bybit', 'Kraken', 'Coinbase', 'KuCoin', 'Other'];
 
 export default function Portfolio() {
+  const { user } = useAuth();
   const { holdings, loading, totalValue, totalPnl, addHolding, updateHolding, deleteHolding, refetch } = usePortfolioManagement();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -123,6 +125,50 @@ export default function Portfolio() {
     setAvgPrice('');
     setExchange('');
   };
+
+  // WebSocket realtime subscription for live updates
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('portfolio-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'portfolio_holdings',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => refetch()
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'price_cache'
+        },
+        () => refetch()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, refetch]);
+
+  // Auto-sync on mount and periodically
+  useEffect(() => {
+    if (!user) return;
+
+    // Auto-sync on mount
+    handleSyncFromExchanges();
+
+    // Sync every 5 minutes
+    const interval = setInterval(handleSyncFromExchanges, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   const totalPnlPercent = totalValue > 0 ? (totalPnl / (totalValue - totalPnl)) * 100 : 0;
 
