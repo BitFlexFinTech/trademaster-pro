@@ -223,19 +223,43 @@ export function generateSignalScore(
  */
 export function meetsHitRateCriteria(
   signal: SignalScore, 
-  targetHitRate: number = 0.80
+  targetHitRate: number = 0.80,
+  customThresholds?: { minScore?: number; minConfluence?: number; minVolume?: number }
 ): boolean {
+  // Use custom thresholds if provided
+  if (customThresholds) {
+    return (
+      signal.score >= (customThresholds.minScore ?? 0.85) &&
+      signal.confluence >= (customThresholds.minConfluence ?? 2) &&
+      signal.indicators.volumeRatio >= (customThresholds.minVolume ?? 1.2)
+    );
+  }
+  
   // Adjust thresholds based on target hit rate
   // Higher target = stricter requirements
   if (targetHitRate >= 0.95) {
     // Elite: Need very high confluence
     return (
-      signal.score >= 0.90 &&
+      signal.score >= 0.92 &&
       signal.confluence >= 3 &&
       signal.indicators.volumeRatio >= 1.5
     );
+  } else if (targetHitRate >= 0.90) {
+    // Aggressive: Strict requirements
+    return (
+      signal.score >= 0.90 &&
+      signal.confluence >= 3 &&
+      signal.indicators.volumeRatio >= 1.4
+    );
+  } else if (targetHitRate >= 0.85) {
+    // Balanced: Moderate requirements
+    return (
+      signal.score >= 0.88 &&
+      signal.confluence >= 3 &&
+      signal.indicators.volumeRatio >= 1.3
+    );
   } else if (targetHitRate >= 0.80) {
-    // Standard 80% target: Balanced requirements
+    // Standard 80% target
     return (
       signal.score >= 0.85 &&
       signal.confluence >= 2 &&
@@ -256,24 +280,24 @@ export function meetsHitRateCriteria(
  * Used to achieve target hit rate of 80%
  */
 export function calculateWinProbability(signal: SignalScore): number {
-  // Base probability starts at 50%
-  let probability = 0.50;
+  // Base probability starts at 55% (increased from 50%)
+  let probability = 0.55;
   
-  // Add based on signal score (max +30%)
-  probability += (signal.score - 0.50) * 0.60;
+  // Add based on signal score (max +35%, increased from +30%)
+  probability += (signal.score - 0.50) * 0.70;
   
-  // Add based on confluence (max +15%)
-  probability += signal.confluence * 0.0375;
+  // Add based on confluence (max +20%, increased from +15%)
+  probability += signal.confluence * 0.05;
   
   // Add based on volume confirmation (max +5%)
   if (signal.indicators.volumeRatio >= 1.5) {
     probability += 0.05;
   } else if (signal.indicators.volumeRatio >= 1.2) {
-    probability += 0.025;
+    probability += 0.03;
   }
   
-  // Clamp between 0.55 and 0.95
-  return Math.max(0.55, Math.min(0.95, probability));
+  // Clamp between 0.70 and 0.95 (minimum increased from 0.55 to 0.70)
+  return Math.max(0.70, Math.min(0.95, probability));
 }
 
 /**

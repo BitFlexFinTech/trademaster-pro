@@ -72,8 +72,9 @@ export function HitRateDashboardWidget({
   }, [user, mode]);
 
   const getStatus = () => {
-    if (currentHitRate >= 90) return { label: 'EXCELLENT', color: 'text-primary border-primary bg-primary/10' };
-    if (currentHitRate >= 80) return { label: 'ON TARGET', color: 'text-yellow-500 border-yellow-500 bg-yellow-500/10' };
+    if (currentHitRate >= targetHitRate + 10) return { label: 'EXCELLENT', color: 'text-primary border-primary bg-primary/10' };
+    if (currentHitRate >= targetHitRate) return { label: 'ON TARGET', color: 'text-yellow-500 border-yellow-500 bg-yellow-500/10' };
+    if (currentHitRate >= targetHitRate - 5) return { label: 'CLOSE', color: 'text-orange-500 border-orange-500 bg-orange-500/10' };
     return { label: 'BELOW TARGET', color: 'text-destructive border-destructive bg-destructive/10' };
   };
 
@@ -101,8 +102,8 @@ export function HitRateDashboardWidget({
       <div className="text-center py-4">
         <span className={cn(
           "text-5xl font-bold font-mono",
-          currentHitRate >= 90 ? 'text-primary' :
-          currentHitRate >= 80 ? 'text-yellow-500' :
+          currentHitRate >= targetHitRate + 10 ? 'text-primary' :
+          currentHitRate >= targetHitRate ? 'text-yellow-500' :
           'text-destructive'
         )}>
           {currentHitRate.toFixed(1)}%
@@ -112,30 +113,40 @@ export function HitRateDashboardWidget({
         </p>
       </div>
 
-      {/* Progress bar with zones */}
+      {/* Progress bar with dynamic zones based on target */}
       <div className="relative h-3 bg-secondary rounded-full overflow-hidden">
-        {/* Zone backgrounds */}
+        {/* Zone backgrounds - dynamic based on target */}
         <div className="absolute inset-0 flex">
-          <div className="w-[80%] bg-destructive/20" />
-          <div className="w-[10%] bg-yellow-500/20" />
-          <div className="w-[10%] bg-primary/20" />
+          <div 
+            className="bg-destructive/20" 
+            style={{ width: `${Math.max(0, targetHitRate - 5)}%` }} 
+          />
+          <div 
+            className="bg-yellow-500/20" 
+            style={{ width: `${Math.min(15, 100 - targetHitRate + 5)}%` }} 
+          />
+          <div 
+            className="bg-primary/20" 
+            style={{ width: `${Math.max(0, 100 - targetHitRate - 10)}%` }} 
+          />
         </div>
         
         {/* Progress fill */}
         <div
           className={cn(
             "absolute inset-y-0 left-0 rounded-full transition-all duration-500",
-            currentHitRate >= 90 ? 'bg-primary' :
-            currentHitRate >= 80 ? 'bg-yellow-500' :
+            currentHitRate >= targetHitRate + 10 ? 'bg-primary' :
+            currentHitRate >= targetHitRate ? 'bg-yellow-500' :
             'bg-destructive'
           )}
           style={{ width: `${Math.min(currentHitRate, 100)}%` }}
         />
         
-        {/* Target marker at 80% */}
+        {/* Target marker at user-defined target */}
         <div 
-          className="absolute top-0 bottom-0 w-0.5 bg-foreground/50" 
-          style={{ left: '80%' }} 
+          className="absolute top-0 bottom-0 w-0.5 bg-foreground/70" 
+          style={{ left: `${targetHitRate}%` }} 
+          title={`Target: ${targetHitRate}%`}
         />
       </div>
 

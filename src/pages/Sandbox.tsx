@@ -6,7 +6,9 @@ import { usePaperTestHistory } from '@/hooks/usePaperTestHistory';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { FlaskConical, Play, RotateCcw, Calendar, Loader2, Pencil, Check, X, DollarSign, Trash2, Beaker } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
+import { FlaskConical, Play, RotateCcw, Calendar, Loader2, Pencil, Check, X, DollarSign, Trash2, Beaker, SlidersHorizontal, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES } from '@/lib/exchangeConfig';
@@ -161,6 +163,132 @@ export default function Sandbox() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Signal Threshold Configuration */}
+        <div className="card-terminal p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="w-5 h-5 text-primary" />
+              <h3 className="font-semibold text-foreground">Signal Thresholds</h3>
+            </div>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setThresholds({ minSignalScore: 0.80, minConfluence: 2, minVolumeRatio: 1.0, targetHitRate: 75 })}
+                className="text-xs"
+              >
+                Conservative
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setThresholds({ minSignalScore: 0.85, minConfluence: 2, minVolumeRatio: 1.2, targetHitRate: 80 })}
+                className="text-xs"
+              >
+                Balanced
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setThresholds({ minSignalScore: 0.90, minConfluence: 3, minVolumeRatio: 1.4, targetHitRate: 90 })}
+                className="text-xs"
+              >
+                Aggressive
+              </Button>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            {/* Target Hit Rate */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs flex items-center gap-1">
+                  <Target className="w-3 h-3" />
+                  Target Hit Rate
+                </Label>
+                <span className="font-mono text-sm text-primary font-bold">{thresholds.targetHitRate}%</span>
+              </div>
+              <Slider
+                value={[thresholds.targetHitRate]}
+                onValueChange={([value]) => setThresholds(prev => ({ ...prev, targetHitRate: value }))}
+                min={70}
+                max={99}
+                step={1}
+                className="w-full"
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>70%</span>
+                <span>85%</span>
+                <span>99%</span>
+              </div>
+            </div>
+            
+            {/* Min Signal Score */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Min Signal Score</Label>
+                <span className="font-mono text-sm text-primary">{Math.round(thresholds.minSignalScore * 100)}%</span>
+              </div>
+              <Slider
+                value={[thresholds.minSignalScore * 100]}
+                onValueChange={([value]) => setThresholds(prev => ({ ...prev, minSignalScore: value / 100 }))}
+                min={70}
+                max={98}
+                step={1}
+                className="w-full"
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>70%</span>
+                <span>84%</span>
+                <span>98%</span>
+              </div>
+            </div>
+            
+            {/* Min Confluence */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Min Confluence</Label>
+                <span className="font-mono text-sm text-primary">{thresholds.minConfluence} indicators</span>
+              </div>
+              <Slider
+                value={[thresholds.minConfluence]}
+                onValueChange={([value]) => setThresholds(prev => ({ ...prev, minConfluence: value }))}
+                min={1}
+                max={4}
+                step={1}
+                className="w-full"
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>1</span>
+                <span>2</span>
+                <span>3</span>
+                <span>4</span>
+              </div>
+            </div>
+            
+            {/* Min Volume Ratio */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Min Volume Ratio</Label>
+                <span className="font-mono text-sm text-primary">{thresholds.minVolumeRatio.toFixed(1)}x</span>
+              </div>
+              <Slider
+                value={[thresholds.minVolumeRatio * 10]}
+                onValueChange={([value]) => setThresholds(prev => ({ ...prev, minVolumeRatio: value / 10 }))}
+                min={10}
+                max={25}
+                step={1}
+                className="w-full"
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>1.0x</span>
+                <span>1.8x</span>
+                <span>2.5x</span>
+              </div>
+            </div>
           </div>
         </div>
 

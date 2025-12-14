@@ -1,8 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNotifications } from './useNotifications';
+import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
+import { calculateNetProfit, MIN_NET_PROFIT, calculateMinExitPrice } from '@/lib/exchangeFees';
+import { hitRateTracker } from '@/lib/sandbox/hitRateTracker';
 
 const EXCHANGE_CONFIGS = [
   { name: 'Binance', maxLeverage: 20, confidence: 'High' },
@@ -43,6 +46,7 @@ interface UseBotTradingProps {
   prices: Array<{ symbol: string; price: number; change_24h?: number }>;
   usdtFloat: Array<{ exchange: string; amount: number }>;
   onMetricsUpdate: (metrics: BotMetrics) => void;
+  targetHitRate?: number;
 }
 
 export function useBotTrading({
@@ -55,6 +59,7 @@ export function useBotTrading({
   prices,
   usdtFloat,
   onMetricsUpdate,
+  targetHitRate = 80,
 }: UseBotTradingProps) {
   const { user } = useAuth();
   const { mode: tradingMode, setVirtualBalance } = useTradingMode();
@@ -65,6 +70,7 @@ export function useBotTrading({
   const [tradePulse, setTradePulse] = useState(false);
   
   const lastPricesRef = useRef<Record<string, number>>({});
+  const pricesHistoryRef = useRef<Record<string, number[]>>({});
   const metricsRef = useRef<BotMetrics>({
     currentPnL: 0,
     tradesExecuted: 0,
@@ -86,8 +92,11 @@ export function useBotTrading({
       };
       winsRef.current = 0;
       lastPricesRef.current = {};
+      pricesHistoryRef.current = {};
+      hitRateTracker.reset();
+      hitRateTracker.setTargetHitRate(targetHitRate);
     }
-  }, [isRunning, botId]);
+  }, [isRunning, botId, targetHitRate]);
 
   // Main trading simulation - single source of truth
   useEffect(() => {
@@ -124,23 +133,34 @@ export function useBotTrading({
       const currentPrice = priceData.price;
       const lastPrice = lastPricesRef.current[symbol] || currentPrice;
       
-      // Calculate real price movement percentage
-      const priceMovementPercent = lastPrice > 0 
-        ? ((currentPrice - lastPrice) / lastPrice) * 100 
-        : 0;
+      // Build price history for signal generation (need 26 data points minimum)
+      const priceHistory = pricesHistoryRef.current[symbol] || [];
+      priceHistory.push(currentPrice);
+      if (priceHistory.length > 50) priceHistory.shift();
+      pricesHistoryRef.current[symbol] = priceHistory;
       
       lastPricesRef.current[symbol] = currentPrice;
 
-      // Skip if price hasn't moved enough (need at least 0.001% movement)
-      if (Math.abs(priceMovementPercent) < 0.001) return;
+      // Skip if not enough price history for signal generation
+      if (priceHistory.length < 26) return;
 
-      // Determine trade direction based on momentum
-      const direction: 'long' | 'short' = priceMovementPercent >= 0 ? 'long' : 'short';
+      // Generate signal score from technical analysis
+      const volumes = priceHistory.map(() => 1000 + Math.random() * 500); // Simulated volume
+      const signal = generateSignalScore(priceHistory, volumes);
       
-      // Win probability based on volatility (higher volatility = more opportunity)
-      const volatilityBonus = Math.min(Math.abs(priceMovementPercent) * 10, 10);
-      const baseWinRate = 0.65;
-      const isWin = Math.random() < (baseWinRate + volatilityBonus / 100);
+      if (!signal) return;
+      
+      // Check if signal meets hit rate criteria based on user's target
+      if (!meetsHitRateCriteria(signal, targetHitRate / 100)) {
+        return; // Skip trade - doesn't meet quality threshold
+      }
+      
+      // Use signal direction instead of price momentum
+      const direction = signal.direction;
+      
+      // Calculate win probability from signal quality
+      const winProbability = calculateWinProbability(signal);
+      const isWin = Math.random() < winProbability;
       
       // Calculate leverage for leverage bot
       const leverage = botType === 'leverage' ? (leverages[currentExchange] || 1) : 1;
@@ -148,23 +168,44 @@ export function useBotTrading({
       // Position size - fixed at $100 per trade
       const positionSize = 100;
       
-      // Calculate P&L based on actual position and target profit
-      // If win: achieve target profit per trade (scaled by leverage)
-      // If loss: fixed stop loss at -$0.60 (scaled by leverage for leverage bot)
-      const leverageMultiplier = botType === 'leverage' ? Math.min(leverage / 5, 2) : 1;
-      const tradePnl = isWin 
-        ? profitPerTrade * leverageMultiplier 
-        : -0.60 * leverageMultiplier;
+      // Calculate minimum exit price needed for $0.50 net profit after fees
+      const minExitPriceForProfit = calculateMinExitPrice(currentPrice, positionSize, currentExchange, MIN_NET_PROFIT);
+      const requiredPriceMove = Math.abs(minExitPriceForProfit - currentPrice) / currentPrice;
       
-      // Calculate exit price based on P&L and position size
-      // P&L = positionSize * (exitPrice - entryPrice) / entryPrice * leverage
-      // So: exitPrice = entryPrice * (1 + P&L / (positionSize * leverage))
-      const priceChangePercent = tradePnl / (positionSize * leverage);
-      const exitPrice = direction === 'long'
-        ? currentPrice * (1 + priceChangePercent)
-        : currentPrice * (1 - priceChangePercent);
+      // Calculate actual trade P&L
+      const leverageMultiplier = botType === 'leverage' ? Math.min(leverage / 5, 2) : 1;
+      
+      let exitPrice: number;
+      let tradePnl: number;
+      
+      if (isWin) {
+        // Ensure minimum profit target is met ($0.50 after fees)
+        const targetGrossProfit = Math.max(profitPerTrade, MIN_NET_PROFIT + 0.10) * leverageMultiplier;
+        const priceChangePercent = targetGrossProfit / (positionSize * leverage);
+        exitPrice = direction === 'long'
+          ? currentPrice * (1 + priceChangePercent)
+          : currentPrice * (1 - priceChangePercent);
+        
+        // Calculate actual net profit after fees
+        tradePnl = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange) * leverage;
+        
+        // Skip if net profit is below minimum threshold
+        if (tradePnl < MIN_NET_PROFIT) {
+          return; // Skip trade - insufficient profit after fees
+        }
+      } else {
+        // Loss case - fixed stop loss at -$0.60
+        tradePnl = -0.60 * leverageMultiplier;
+        const lossPercent = Math.abs(tradePnl) / (positionSize * leverage);
+        exitPrice = direction === 'long'
+          ? currentPrice * (1 - lossPercent)
+          : currentPrice * (1 + lossPercent);
+      }
 
       const pair = `${symbol}/USDT`;
+      
+      // Track hit rate
+      hitRateTracker.recordTrade(isWin);
 
       // Update metrics atomically
       const prevMetrics = metricsRef.current;

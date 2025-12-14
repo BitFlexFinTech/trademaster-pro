@@ -11,7 +11,7 @@ import {
 
 interface HitRateGaugeProps {
   currentHitRate: number;
-  targetHitRate?: number;
+  targetHitRate: number; // Required - no longer optional
   requiredHitRate?: number;
   tradesCount: number;
   className?: string;
@@ -19,24 +19,24 @@ interface HitRateGaugeProps {
 
 export function HitRateGauge({
   currentHitRate,
-  targetHitRate = 95,
+  targetHitRate,
   requiredHitRate,
   tradesCount,
   className,
 }: HitRateGaugeProps) {
-  // Determine zone color based on hit rate
+  // Determine zone color based on hit rate relative to target
   const zoneInfo = useMemo(() => {
-    if (currentHitRate >= 98) {
+    if (currentHitRate >= targetHitRate + 3) {
       return { zone: 'elite', color: 'text-yellow-400', bgColor: 'bg-yellow-400', label: 'ELITE', icon: Trophy };
     }
-    if (currentHitRate >= 95) {
+    if (currentHitRate >= targetHitRate) {
       return { zone: 'target', color: 'text-primary', bgColor: 'bg-primary', label: 'ON TARGET', icon: Target };
     }
-    if (currentHitRate >= 90) {
+    if (currentHitRate >= targetHitRate - 5) {
       return { zone: 'warning', color: 'text-yellow-500', bgColor: 'bg-yellow-500', label: 'WARNING', icon: TrendingUp };
     }
     return { zone: 'critical', color: 'text-destructive', bgColor: 'bg-destructive', label: 'CRITICAL', icon: AlertTriangle };
-  }, [currentHitRate]);
+  }, [currentHitRate, targetHitRate]);
 
   const Icon = zoneInfo.icon;
 
@@ -97,14 +97,24 @@ export function HitRateGauge({
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="relative h-2 bg-secondary rounded-full overflow-hidden">
-                {/* Zone colors background */}
+                {/* Dynamic zone colors background based on target */}
                 <div className="absolute inset-0 flex">
-                  <div className="w-[40%] bg-destructive/30" /> {/* 50-70% = critical */}
-                  <div className="w-[20%] bg-yellow-500/30" /> {/* 70-80% = warning */}
-                  <div className="w-[10%] bg-yellow-500/20" /> {/* 80-90% = warning */}
-                  <div className="w-[10%] bg-primary/30" /> {/* 90-95% = approaching */}
-                  <div className="w-[6%] bg-primary/40" /> {/* 95-98% = target */}
-                  <div className="w-[4%] bg-yellow-400/40" /> {/* 98-100% = elite */}
+                  <div 
+                    className="bg-destructive/30" 
+                    style={{ width: `${Math.max(0, ((targetHitRate - 10) - 50) / 50 * 100)}%` }} 
+                  />
+                  <div 
+                    className="bg-yellow-500/30" 
+                    style={{ width: `${10 / 50 * 100}%` }} 
+                  />
+                  <div 
+                    className="bg-primary/40" 
+                    style={{ width: `${6 / 50 * 100}%` }} 
+                  />
+                  <div 
+                    className="bg-yellow-400/40" 
+                    style={{ width: `${(100 - targetHitRate - 3) / 50 * 100}%` }} 
+                  />
                 </div>
 
                 {/* Current fill */}
@@ -126,10 +136,10 @@ export function HitRateGauge({
                   </div>
                 )}
 
-                {/* Target marker (95%) */}
+                {/* Target marker - dynamic position */}
                 <div
                   className="absolute top-0 bottom-0 w-0.5 bg-primary/60"
-                  style={{ left: '90%' }}
+                  style={{ left: `${((targetHitRate - 50) / 50) * 100}%` }}
                 />
               </div>
             </TooltipTrigger>
@@ -178,8 +188,8 @@ export function HitRateGauge({
         </div>
       </div>
 
-      {/* AI Status message - only show when critical */}
-      {currentHitRate < 90 && (
+      {/* AI Status message - only show when below target */}
+      {currentHitRate < targetHitRate - 5 && (
         <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-destructive/10 border border-destructive/20">
           <AlertTriangle className="w-2.5 h-2.5 text-destructive flex-shrink-0" />
           <span className="text-[9px] text-destructive">AI adjusting thresholds</span>
