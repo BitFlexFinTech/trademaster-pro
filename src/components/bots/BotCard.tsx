@@ -366,6 +366,19 @@ export function BotCard({
       resetProgressNotifications();
     } else {
       resetProgressNotifications();
+      
+      // In live mode, sync balances before starting bot
+      if (tradingMode === 'live') {
+        const { toast } = await import('sonner');
+        toast.info('Syncing exchange balances...');
+        try {
+          await supabase.functions.invoke('sync-exchange-balances');
+        } catch (err) {
+          console.error('Pre-start sync failed:', err);
+          // Continue anyway - bot will use cached balances
+        }
+      }
+      
       await onStartBot(botName, botType, dailyTarget, profitPerTrade, tradingMode === 'demo');
     }
   };
