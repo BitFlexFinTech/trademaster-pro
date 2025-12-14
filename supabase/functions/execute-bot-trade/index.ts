@@ -45,7 +45,8 @@ const TOP_PAIRS = [
 ];
 
 // Safety limits
-const MAX_POSITION_SIZE = 100; // Max $100 per trade for safety
+const DEFAULT_POSITION_SIZE = 100; // Default $100 per trade
+const MAX_POSITION_SIZE_CAP = 5000; // Hard cap at $5000 for safety
 const DAILY_LOSS_LIMIT = -5; // Stop if daily loss exceeds $5
 
 interface BotTradeRequest {
@@ -55,6 +56,7 @@ interface BotTradeRequest {
   exchanges: string[];
   leverages?: Record<string, number>;
   isSandbox: boolean;
+  maxPositionSize?: number; // NEW: user-configurable position size
 }
 
 // ============ EXCHANGE ORDER PLACEMENT FUNCTIONS ============
@@ -234,7 +236,10 @@ serve(async (req) => {
       });
     }
 
-    const { botId, mode, profitTarget, exchanges, leverages, isSandbox }: BotTradeRequest = await req.json();
+    const { botId, mode, profitTarget, exchanges, leverages, isSandbox, maxPositionSize }: BotTradeRequest = await req.json();
+    
+    // Apply user-configured position size with hard cap
+    const userPositionSize = Math.min(maxPositionSize || DEFAULT_POSITION_SIZE, MAX_POSITION_SIZE_CAP);
     
     console.log('========================================');
     console.log(`🤖 BOT TRADE EXECUTION REQUEST`);
@@ -242,6 +247,7 @@ serve(async (req) => {
     console.log(`   Mode: ${mode}`);
     console.log(`   Sandbox: ${isSandbox}`);
     console.log(`   Profit Target: $${profitTarget}`);
+    console.log(`   Max Position Size: $${userPositionSize} (requested: $${maxPositionSize || 'default'})`);
     console.log(`   Exchanges: ${exchanges.join(', ')}`);
     console.log('========================================');
 
@@ -293,10 +299,10 @@ serve(async (req) => {
     // Determine direction based on simple momentum (simulated AI decision)
     const direction = Math.random() > 0.5 ? 'long' : 'short';
     
-    // Calculate position size - capped at MAX_POSITION_SIZE for safety
+    // Calculate position size - use user-configured value, capped for safety
     const expectedMove = 0.005; // 0.5% average move
     const leverage = mode === 'leverage' ? (leverages?.[connections[0].exchange_name] || 5) : 1;
-    let positionSize = Math.min(profitTarget / (expectedMove * leverage), MAX_POSITION_SIZE);
+    let positionSize = Math.min(profitTarget / (expectedMove * leverage), userPositionSize);
     
     const selectedExchange = connections[0];
     const exchangeName = selectedExchange.exchange_name.toLowerCase();

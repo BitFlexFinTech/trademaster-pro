@@ -76,6 +76,7 @@ export function GreenBackWidget() {
 
   const [activeExchange, setActiveExchange] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [isExecutingTrade, setIsExecutingTrade] = useState(false);
   const [lastTrade, setLastTrade] = useState<LastTrade | null>(null);
   const [tradePulse, setTradePulse] = useState(false);
   const lastPricesRef = useRef<Record<string, number>>({});
@@ -118,12 +119,65 @@ export function GreenBackWidget() {
     const activeBot = spotBot || leverageBot;
     if (!activeBot) return;
 
-    // ===== LIVE MODE: Display only - no local simulation =====
+    // ===== LIVE MODE: Execute real trades via edge function =====
     if (tradingMode === 'live') {
-      console.log('🔴 LIVE MODE: Widget reads ONLY from database - no local simulation');
-      // In Live mode, metrics are synced from useBotRuns which has Realtime subscription
-      // We just display what's in the database
-      return;
+      console.log('🔴 LIVE MODE: Executing real trades via edge function every 5 seconds');
+      
+      let isCancelled = false;
+      
+      const executeLiveTrade = async () => {
+        if (isCancelled) return;
+        
+        try {
+          console.log('📤 Calling execute-bot-trade edge function...');
+          const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
+            body: {
+              botId: activeBot.id,
+              mode: activeBot.mode || 'spot',
+              profitTarget: profitPerTrade,
+              exchanges: activeExchangeConfigs.map(e => e.name),
+              leverages: { Binance: 5, OKX: 5, Bybit: 5, Kraken: 2, Nexo: 2 },
+              isSandbox: false,
+              maxPositionSize: 100,
+            }
+          });
+          
+          if (error) {
+            console.error('❌ Live trade error:', error);
+            return;
+          }
+          
+          console.log('✅ Live trade result:', data);
+          
+          if (data?.exchange) {
+            setActiveExchange(data.exchange);
+          }
+          
+          if (data?.pair && data?.direction) {
+            setTradePulse(true);
+            setTimeout(() => setTradePulse(false), 600);
+            setLastTrade({
+              pair: data.pair,
+              direction: data.direction,
+              pnl: data.pnl || 0,
+              exchange: data.exchange,
+              timestamp: Date.now(),
+            });
+            notifyTrade(data.exchange, data.pair, data.direction, data.pnl || 0);
+          }
+        } catch (err) {
+          console.error('❌ Failed to execute live trade:', err);
+        }
+      };
+      
+      // Execute first trade immediately, then every 5 seconds
+      executeLiveTrade();
+      const interval = setInterval(executeLiveTrade, 5000);
+      
+      return () => {
+        isCancelled = true;
+        clearInterval(interval);
+      };
     }
 
     // ===== DEMO MODE: Local simulation =====
@@ -270,6 +324,59 @@ export function GreenBackWidget() {
       sonnerToast.error('Withdrawal failed. Try again.');
     } finally {
       setWithdrawing(false);
+    }
+  };
+
+  // Manual trade execution for Live mode
+  const handleExecuteTradeNow = async () => {
+    if (!anyBotRunning || tradingMode !== 'live') return;
+    const activeBot = spotBot || leverageBot;
+    if (!activeBot) return;
+    
+    setIsExecutingTrade(true);
+    
+    try {
+      sonnerToast.info('Executing trade...');
+      
+      const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
+        body: {
+          botId: activeBot.id,
+          mode: activeBot.mode || 'spot',
+          profitTarget: profitPerTrade,
+          exchanges: activeExchangeConfigs.map(e => e.name),
+          leverages: { Binance: 5, OKX: 5, Bybit: 5, Kraken: 2, Nexo: 2 },
+          isSandbox: false,
+          maxPositionSize: 100,
+        }
+      });
+      
+      if (error) throw error;
+      
+      if (data?.exchange) {
+        setActiveExchange(data.exchange);
+      }
+      
+      if (data?.pair && data?.direction) {
+        setTradePulse(true);
+        setTimeout(() => setTradePulse(false), 600);
+        setLastTrade({
+          pair: data.pair,
+          direction: data.direction,
+          pnl: data.pnl || 0,
+          exchange: data.exchange,
+          timestamp: Date.now(),
+        });
+        notifyTrade(data.exchange, data.pair, data.direction, data.pnl || 0);
+      }
+      
+      sonnerToast.success(`Trade Executed: ${data.pair} ${data.direction}`, {
+        description: `P&L: $${(data.pnl || 0).toFixed(2)} on ${data.exchange}`,
+      });
+    } catch (err) {
+      console.error('Manual trade execution failed:', err);
+      sonnerToast.error('Trade execution failed');
+    } finally {
+      setIsExecutingTrade(false);
     }
   };
 
@@ -597,6 +704,19 @@ export function GreenBackWidget() {
           {leverageBot ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
           {leverageBot ? 'Stop Lev' : 'Start Leverage'}
         </Button>
+        {/* Manual Execute Trade Now button for Live mode */}
+        {anyBotRunning && tradingMode === 'live' && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={handleExecuteTradeNow}
+            disabled={isExecutingTrade}
+          >
+            {isExecutingTrade ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+            Trade
+          </Button>
+        )}
         {metrics.currentPnL > 0 && (
           <Button variant="outline" size="sm" className="gap-1" onClick={handleWithdrawProfits} disabled={withdrawing}>
             {withdrawing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Banknote className="w-3 h-3" />}

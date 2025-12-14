@@ -79,6 +79,7 @@ export function BotCard({
   });
 
   const [tradingStrategy, setTradingStrategy] = useState<TradingStrategy>('profit');
+  const [isExecutingTrade, setIsExecutingTrade] = useState(false);
   const lastPricesRef = useRef<Record<string, number>>({});
   const priceHistoryRef = useRef<Map<string, { prices: number[], volumes: number[] }>>(new Map());
   const tradeTimestampsRef = useRef<number[]>([]);
@@ -126,12 +127,58 @@ export function BotCard({
       return;
     }
 
-    // ===== LIVE MODE: Subscribe to database changes only =====
+    // ===== LIVE MODE: Execute real trades via edge function =====
     if (tradingMode === 'live') {
-      console.log('🔴 LIVE MODE: Bot reads ONLY from database - no local simulation');
-      // In Live mode, BotCard only displays data from useBotRuns which has Realtime subscription
-      // Trading happens via execute-bot-trade edge function triggered by a separate mechanism
-      return;
+      console.log('🔴 LIVE MODE: Executing real trades via edge function every 5 seconds');
+      
+      let isCancelled = false;
+      
+      const executeLiveTrade = async () => {
+        if (isCancelled) return;
+        
+        try {
+          console.log('📤 Calling execute-bot-trade edge function...');
+          const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
+            body: {
+              botId: existingBot.id,
+              mode: botType,
+              profitTarget: profitPerTrade,
+              exchanges: EXCHANGE_CONFIGS.map(e => e.name),
+              leverages,
+              isSandbox: false,
+              maxPositionSize: 100, // TODO: Pass from settings
+            }
+          });
+          
+          if (error) {
+            console.error('❌ Live trade error:', error);
+            return;
+          }
+          
+          console.log('✅ Live trade result:', data);
+          
+          // Update active exchange indicator
+          if (data?.exchange) {
+            setActiveExchange(data.exchange);
+          }
+          
+          // Notify on trade
+          if (data?.pair && data?.direction) {
+            notifyTrade(data.exchange, data.pair, data.direction, data.pnl || 0);
+          }
+        } catch (err) {
+          console.error('❌ Failed to execute live trade:', err);
+        }
+      };
+      
+      // Execute first trade immediately, then every 5 seconds
+      executeLiveTrade();
+      const interval = setInterval(executeLiveTrade, 5000);
+      
+      return () => {
+        isCancelled = true;
+        clearInterval(interval);
+      };
     }
 
     // ===== DEMO MODE: Local simulation =====
@@ -303,6 +350,47 @@ export function BotCard({
       toast.error('Withdrawal failed. Try again.');
     } finally {
       setWithdrawing(false);
+    }
+  };
+
+  // Manual trade execution for Live mode
+  const handleExecuteTradeNow = async () => {
+    if (!existingBot || tradingMode !== 'live') return;
+    setIsExecutingTrade(true);
+    
+    try {
+      const { toast } = await import('sonner');
+      toast.info('Executing trade...');
+      
+      const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
+        body: {
+          botId: existingBot.id,
+          mode: botType,
+          profitTarget: profitPerTrade,
+          exchanges: EXCHANGE_CONFIGS.map(e => e.name),
+          leverages,
+          isSandbox: false,
+          maxPositionSize: 100,
+        }
+      });
+      
+      if (error) throw error;
+      
+      if (data?.exchange) {
+        setActiveExchange(data.exchange);
+      }
+      
+      notifyTrade(data.exchange, data.pair, data.direction, data.pnl || 0);
+      
+      toast.success(`Trade Executed: ${data.pair} ${data.direction}`, {
+        description: `P&L: $${(data.pnl || 0).toFixed(2)} on ${data.exchange}`,
+      });
+    } catch (err) {
+      console.error('Manual trade execution failed:', err);
+      const { toast } = await import('sonner');
+      toast.error('Trade execution failed');
+    } finally {
+      setIsExecutingTrade(false);
     }
   };
 
@@ -526,6 +614,18 @@ export function BotCard({
           {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
           {isRunning ? 'Stop' : 'Start'}
         </Button>
+        {/* Manual Execute Trade Now button for Live mode */}
+        {isRunning && tradingMode === 'live' && (
+          <Button
+            variant="outline"
+            className="gap-1"
+            onClick={handleExecuteTradeNow}
+            disabled={isExecutingTrade}
+          >
+            {isExecutingTrade ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+            Trade
+          </Button>
+        )}
         {metrics.currentPnL > 0 && (
           <Button variant="outline" className="gap-1" onClick={handleWithdrawProfits} disabled={withdrawing}>
             {withdrawing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Banknote className="w-3 h-3" />}

@@ -64,6 +64,7 @@ export default function Bots() {
   const [botConfig, setBotConfig] = useState({
     profitPerTrade: 1,
     amountPerTrade: 100,
+    maxPositionSize: 100, // NEW: configurable max trade size
     dailyStopLoss: 5,
     perTradeStopLoss: 0.60,
     focusPairs: [...TOP_PAIRS],

@@ -14,6 +14,7 @@ interface BotSettings {
   perTradeStopLoss: number;
   profitPerTrade: number;
   amountPerTrade: number;
+  maxPositionSize: number; // NEW: configurable max trade size
   focusPairs: string[];
   leverageDefaults: Record<string, number>;
 }
@@ -149,6 +150,49 @@ export function BotSettingsDrawer({ settings, onSettingsChange, disabled }: BotS
                 />
                 <span className="text-[10px] text-muted-foreground">Max loss per trade</span>
               </div>
+            </div>
+          </div>
+
+          {/* Position Size Configuration - PROMINENT */}
+          <div className="space-y-4 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <DollarSign className="w-4 h-4 text-warning" />
+              Max Position Size (Live Mode)
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Maximum Trade Size ($)</Label>
+              <Input
+                type="number"
+                value={localSettings.maxPositionSize}
+                onChange={(e) => setLocalSettings(prev => ({ 
+                  ...prev, 
+                  maxPositionSize: Math.min(Math.max(parseFloat(e.target.value) || 100, 10), 1000)
+                }))}
+                min={10}
+                max={1000}
+                step={10}
+                className="h-8 text-sm"
+              />
+              <Slider
+                value={[localSettings.maxPositionSize]}
+                min={10}
+                max={1000}
+                step={10}
+                onValueChange={([value]) => setLocalSettings(prev => ({ ...prev, maxPositionSize: value }))}
+                className="w-full"
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>$10</span>
+                <span className="font-mono">${localSettings.maxPositionSize}</span>
+                <span>$1000</span>
+              </div>
+              {localSettings.maxPositionSize > 100 && (
+                <div className="flex items-center gap-1 text-[10px] text-warning mt-1">
+                  <Zap className="w-3 h-3" />
+                  Higher position sizes increase both profit potential and risk
+                </div>
+              )}
             </div>
           </div>
 
