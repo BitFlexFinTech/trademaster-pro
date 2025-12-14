@@ -1,6 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useBotRuns } from '@/hooks/useBotRuns';
 import { useAuth } from '@/hooks/useAuth';
+import { useRealtimePrices } from '@/hooks/useRealtimePrices';
+import { useNotifications } from '@/hooks/useNotifications';
+import { useTradingMode } from '@/contexts/TradingModeContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Bot, DollarSign, AlertTriangle, Loader2, Zap, Play, Square, Target, Activity, Clock, Banknote, FileText } from 'lucide-react';
@@ -54,10 +57,16 @@ const EXCHANGE_CONFIGS: ExchangeConfig[] = [
   { name: 'Nexo', maxLeverage: 3, confidence: 'Low', notes: 'Limited pairs, higher fees' },
 ];
 
+const TOP_PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'DOT', 'LINK'];
+
 export default function Bots() {
   const { user } = useAuth();
   const { bots, stats, loading, startBot, stopBot, updateBotPnl, refetch } = useBotRuns();
   const { toast } = useToast();
+  const { prices } = useRealtimePrices();
+  const { notifyTrade, notifyTakeProfit } = useNotifications();
+  const { mode: tradingMode, setMode: setTradingMode, virtualBalance, setVirtualBalance } = useTradingMode();
+  
   const [usdtFloat, setUsdtFloat] = useState<UsdtFloat[]>([]);
   const [loadingFloat, setLoadingFloat] = useState(true);
   const [analysisOpen, setAnalysisOpen] = useState(false);
@@ -84,6 +93,9 @@ export default function Bots() {
     avgTimeToTP: 12.3,
     maxDrawdown: existingBot?.maxDrawdown || 0,
   });
+
+  // Track last prices for price change calculation
+  const lastPricesRef = useRef<Record<string, number>>({});
 
   // Calculate dynamic USDT allocation based on daily target
   const calculateSuggestedUSDT = (target: number, profitPer: number): number => {
@@ -148,45 +160,115 @@ export default function Bots() {
     }
   }, [existingBot]);
 
-  // Simulate trading and show active exchange
+  // Real price-based trading simulation with sound notifications
   useEffect(() => {
     if (!isRunning || !existingBot) {
       setActiveExchange(null);
       return;
     }
 
-    const connectedExchanges = usdtFloat.filter(e => e.amount > 0).map(e => e.exchange);
-    if (connectedExchanges.length === 0) return;
+    // Demo mode: Use all exchanges with virtual balance
+    // Live mode: Use only connected exchanges with real balance
+    const activeExchanges = tradingMode === 'demo'
+      ? EXCHANGE_CONFIGS.map(e => e.name)
+      : usdtFloat.filter(e => e.amount > 0).map(e => e.exchange);
+
+    if (activeExchanges.length === 0) {
+      toast({
+        title: 'No Exchanges Available',
+        description: tradingMode === 'live' ? 'Connect exchanges or switch to Demo mode' : 'No exchanges configured',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Initialize last prices from current prices
+    prices.forEach(p => {
+      if (!lastPricesRef.current[p.symbol]) {
+        lastPricesRef.current[p.symbol] = p.price;
+      }
+    });
 
     let idx = 0;
     const interval = setInterval(() => {
-      setActiveExchange(connectedExchanges[idx % connectedExchanges.length]);
+      const currentExchange = activeExchanges[idx % activeExchanges.length];
+      setActiveExchange(currentExchange);
       idx++;
-      
-      // Simulate metrics
+
+      // Pick random pair from available prices
+      const symbol = TOP_PAIRS[Math.floor(Math.random() * TOP_PAIRS.length)];
+      const priceData = prices.find(p => p.symbol.toUpperCase() === symbol);
+      if (!priceData) return;
+
+      const currentPrice = priceData.price;
+      const lastPrice = lastPricesRef.current[symbol] || currentPrice;
+      const priceChange = lastPrice > 0 ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
+      lastPricesRef.current[symbol] = currentPrice;
+
+      // Skip if no meaningful price movement
+      if (Math.abs(priceChange) < 0.001) return;
+
+      // Determine trade direction and outcome based on price movement
+      const direction = priceChange >= 0 ? 'long' : 'short';
+      const isWin = Math.random() < 0.70; // 70% win rate
+      const tradePnl = isWin ? profitPerTrade : -0.60;
+      const pair = `${symbol}/USDT`;
+
       setMetrics(prev => {
-        const newPnl = Math.min(prev.currentPnL + (Math.random() * 0.5 - 0.1), dailyTarget * 1.5);
-        const newTrades = prev.tradesExecuted + (Math.random() > 0.7 ? 1 : 0);
-        const newHitRate = newTrades > 0 ? 60 + Math.random() * 20 : 0;
-        
-        if (newTrades !== prev.tradesExecuted && existingBot) {
-          updateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
+        const newPnl = Math.min(Math.max(prev.currentPnL + tradePnl, -5), dailyTarget * 1.5);
+        const newTrades = prev.tradesExecuted + 1;
+        const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
+        const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
+        const newMaxDrawdown = Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown);
+
+        // Play sound and show notification for trade
+        notifyTrade(currentExchange, pair, direction, tradePnl);
+
+        // Check TP levels (simulate hitting TP1, TP2, TP3)
+        if (isWin && Math.random() > 0.6) {
+          const tpLevel = Math.ceil(Math.random() * 3);
+          setTimeout(() => notifyTakeProfit(tpLevel, pair, tradePnl * (tpLevel / 3)), 500);
         }
 
-        // Check if daily target reached - send notification but keep running
+        // Daily target notification
         if (newPnl >= dailyTarget && prev.currentPnL < dailyTarget) {
           toast({
             title: '🎯 Daily Target Reached!',
             description: `GreenBack hit $${dailyTarget} target! Bot continues running.`,
           });
         }
-        
-        return { ...prev, currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate };
+
+        // Daily stop loss
+        if (newPnl <= -5 && prev.currentPnL > -5) {
+          toast({
+            title: '⚠️ Daily Stop Loss Hit',
+            description: 'Bot paused due to -$5 daily loss limit.',
+            variant: 'destructive',
+          });
+        }
+
+        // Update in demo mode virtual balance
+        if (tradingMode === 'demo') {
+          setVirtualBalance(virtualBalance + tradePnl);
+        }
+
+        // Update database
+        if (existingBot) {
+          updateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
+        }
+
+        return {
+          ...prev,
+          currentPnL: newPnl,
+          tradesExecuted: newTrades,
+          hitRate: newHitRate,
+          maxDrawdown: newMaxDrawdown,
+        };
       });
-    }, 2000);
+    }, 3000); // Trade every 3 seconds for demo
 
     return () => clearInterval(interval);
-  }, [isRunning, dailyTarget, existingBot, updateBotPnl, usdtFloat, toast]);
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, notifyTrade, notifyTakeProfit, toast, usdtFloat, updateBotPnl, setVirtualBalance]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
@@ -258,13 +340,45 @@ export default function Bots() {
           <h1 className="text-lg font-bold text-foreground">Trading Bots</h1>
           <span className="live-indicator text-xs">{activeBotCount} Active</span>
         </div>
+        
+        {/* Demo/Live Toggle */}
+        <div className="flex items-center gap-2">
+          <Badge variant={tradingMode === 'demo' ? 'secondary' : 'destructive'} className="text-[10px]">
+            {tradingMode === 'demo' ? 'DEMO MODE' : 'LIVE TRADING'}
+          </Badge>
+          <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-1">
+            <Button 
+              size="sm" 
+              variant={tradingMode === 'demo' ? 'default' : 'ghost'}
+              onClick={() => setTradingMode('demo')}
+              className="h-6 text-xs px-3"
+              disabled={isRunning}
+            >
+              Demo
+            </Button>
+            <Button 
+              size="sm" 
+              variant={tradingMode === 'live' ? 'destructive' : 'ghost'}
+              onClick={() => setTradingMode('live')}
+              className="h-6 text-xs px-3"
+              disabled={isRunning}
+            >
+              Live
+            </Button>
+          </div>
+          {tradingMode === 'demo' && (
+            <span className="text-xs text-muted-foreground font-mono">
+              Virtual: ${virtualBalance.toFixed(2)}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* USDT Float by Exchange - Top */}
       <div className="card-terminal p-3 mb-3 flex-shrink-0">
         <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
           <DollarSign className="w-3 h-3 text-muted-foreground" />
-          USDT Float by Exchange
+          {tradingMode === 'demo' ? 'Virtual USDT Allocation' : 'USDT Float by Exchange'}
           <span className="text-muted-foreground font-normal">
             (Suggested: ${suggestedUSDT.toLocaleString()} total)
           </span>
@@ -276,20 +390,43 @@ export default function Bots() {
           </div>
         ) : (
           <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-            {usdtFloat.map((item) => (
-              <div
-                key={item.exchange}
-                className="flex flex-col items-center p-2 rounded bg-secondary/50"
-              >
-                <div className="flex items-center gap-1 mb-0.5">
-                  <span className={cn('w-1.5 h-1.5 rounded-full', item.warning ? 'bg-warning' : 'bg-primary')} />
-                  <span className="text-[10px] text-foreground">{item.exchange}</span>
+            {tradingMode === 'demo' ? (
+              // Demo mode: Show virtual balance spread across all exchanges
+              EXCHANGE_CONFIGS.map((config) => {
+                const allocation = config.confidence === 'High' ? 0.30 : config.confidence === 'Medium' ? 0.20 : 0.10;
+                const amount = Math.round(virtualBalance * allocation);
+                return (
+                  <div
+                    key={config.name}
+                    className="flex flex-col items-center p-2 rounded bg-secondary/50"
+                  >
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                      <span className="text-[10px] text-foreground">{config.name}</span>
+                    </div>
+                    <span className="font-mono text-xs font-bold text-primary">
+                      ${amount.toLocaleString()}
+                    </span>
+                  </div>
+                );
+              })
+            ) : (
+              // Live mode: Show real balances
+              usdtFloat.map((item) => (
+                <div
+                  key={item.exchange}
+                  className="flex flex-col items-center p-2 rounded bg-secondary/50"
+                >
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <span className={cn('w-1.5 h-1.5 rounded-full', item.warning ? 'bg-warning' : 'bg-primary')} />
+                    <span className="text-[10px] text-foreground">{item.exchange}</span>
+                  </div>
+                  <span className={cn('font-mono text-xs font-bold', item.warning ? 'text-warning' : 'text-primary')}>
+                    ${item.amount.toLocaleString()}
+                  </span>
                 </div>
-                <span className={cn('font-mono text-xs font-bold', item.warning ? 'text-warning' : 'text-primary')}>
-                  ${item.amount.toLocaleString()}
-                </span>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         )}
       </div>
