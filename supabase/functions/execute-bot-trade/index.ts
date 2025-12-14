@@ -589,8 +589,101 @@ serve(async (req) => {
     }
 
     
-    const selectedExchange = connections[0];
-    const exchangeName = selectedExchange.exchange_name.toLowerCase();
+    // ============ FIND SUITABLE EXCHANGE ============
+    // Try each connected exchange to find one with sufficient balance
+    let selectedExchange = null;
+    let exchangeName = '';
+    let apiKey = '';
+    let apiSecret = '';
+    let passphrase = '';
+    let freeBalance = 0;
+    let lotInfo = { stepSize: '0.00001', minQty: '0.00001', minNotional: 5 };
+    const symbol = pair.replace("/", "");
+    const insufficientBalanceExchanges: string[] = [];
+    
+    for (const exchange of connections) {
+      const exName = exchange.exchange_name.toLowerCase();
+      const hasApiCredentials = exchange.encrypted_api_key &&
+        exchange.encrypted_api_secret &&
+        exchange.encryption_iv;
+      
+      if (!hasApiCredentials) {
+        console.log(`Skipping ${exchange.exchange_name}: missing API credentials`);
+        continue;
+      }
+      
+      if (!isSandbox && encryptionKey) {
+        try {
+          const decryptedKey = await decryptSecret(exchange.encrypted_api_key, exchange.encryption_iv, encryptionKey);
+          const decryptedSecret = await decryptSecret(exchange.encrypted_api_secret, exchange.encryption_iv, encryptionKey);
+          const decryptedPassphrase = exchange.encrypted_passphrase 
+            ? await decryptSecret(exchange.encrypted_passphrase, exchange.encryption_iv, encryptionKey)
+            : "";
+          
+          // Check balance on this exchange
+          if (exName === "binance") {
+            const exchangeLotInfo = await getBinanceLotSize(symbol);
+            const balance = await getBinanceFreeStableBalance(decryptedKey, decryptedSecret);
+            console.log(`${exchange.exchange_name} free USDT: $${balance}, min notional: $${exchangeLotInfo.minNotional}`);
+            
+            const minRequired = exchangeLotInfo.minNotional * 1.1;
+            if (balance >= minRequired) {
+              // This exchange has sufficient balance
+              selectedExchange = exchange;
+              exchangeName = exName;
+              apiKey = decryptedKey;
+              apiSecret = decryptedSecret;
+              passphrase = decryptedPassphrase;
+              freeBalance = balance;
+              lotInfo = exchangeLotInfo;
+              console.log(`✅ Selected ${exchange.exchange_name} with $${balance} available`);
+              break;
+            } else {
+              insufficientBalanceExchanges.push(`${exchange.exchange_name} ($${balance.toFixed(2)})`);
+            }
+          } else {
+            // For other exchanges, try to use them (no balance check implemented yet)
+            selectedExchange = exchange;
+            exchangeName = exName;
+            apiKey = decryptedKey;
+            apiSecret = decryptedSecret;
+            passphrase = decryptedPassphrase;
+            freeBalance = 100; // Assume sufficient for non-Binance
+            console.log(`✅ Selected ${exchange.exchange_name} (balance check not implemented)`);
+            break;
+          }
+        } catch (e) {
+          console.error(`Failed to check ${exchange.exchange_name}:`, e);
+        }
+      }
+    }
+    
+    // If no exchange with sufficient balance found in LIVE mode
+    if (!isSandbox && !selectedExchange) {
+      const message = insufficientBalanceExchanges.length > 0
+        ? `All exchanges have insufficient balance: ${insufficientBalanceExchanges.join(', ')}. Minimum required: $5 USDT.`
+        : "No exchanges with valid API credentials found.";
+      
+      console.error(`❌ ${message}`);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Insufficient balance on all exchanges",
+          reason: message,
+          insufficientExchanges: insufficientBalanceExchanges,
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+    
+    // Fallback to first exchange for sandbox mode
+    if (!selectedExchange) {
+      selectedExchange = connections[0];
+      exchangeName = selectedExchange.exchange_name.toLowerCase();
+    }
     
     let tradeResult = {
       success: true,
@@ -611,15 +704,13 @@ serve(async (req) => {
     const hasApiCredentials = selectedExchange.encrypted_api_key &&
       selectedExchange.encrypted_api_secret &&
       selectedExchange.encryption_iv;
-    const canExecuteRealTrade = !isSandbox && encryptionKey && hasApiCredentials;
+    const canExecuteRealTrade = !isSandbox && encryptionKey && hasApiCredentials && apiKey && apiSecret;
     
     console.log('----------------------------------------');
     console.log(`🔍 TRADE EXECUTION CHECK:`);
     console.log(`   isSandbox: ${isSandbox}`);
-    console.log(`   encryptionKey exists: ${!!encryptionKey}`);
-    console.log(`   API Key exists: ${!!selectedExchange.encrypted_api_key}`);
-    console.log(`   API Secret exists: ${!!selectedExchange.encrypted_api_secret}`);
-    console.log(`   IV exists: ${!!selectedExchange.encryption_iv}`);
+    console.log(`   Selected Exchange: ${selectedExchange.exchange_name}`);
+    console.log(`   Free Balance: $${freeBalance}`);
     console.log(`   => CAN EXECUTE REAL TRADE: ${canExecuteRealTrade}`);
     console.log('----------------------------------------');
 
@@ -628,9 +719,9 @@ serve(async (req) => {
       console.error('❌ Live mode enabled but no valid API credentials or encryption key.');
       return new Response(
         JSON.stringify({
+          success: false,
           error: "Cannot execute live trade",
-          reason:
-            "Live mode requires valid exchange API credentials and encryption key. Please verify your exchange connection and permissions.",
+          reason: "Live mode requires valid exchange API credentials. Please verify your exchange connection.",
           exchange: selectedExchange.exchange_name,
         }),
         {
@@ -644,80 +735,22 @@ serve(async (req) => {
       console.log(`✅ REAL TRADE MODE ACTIVATED for ${exchangeName.toUpperCase()}`);
       
       try {
-        const apiKey = await decryptSecret(selectedExchange.encrypted_api_key, selectedExchange.encryption_iv, encryptionKey);
-        const apiSecret = await decryptSecret(selectedExchange.encrypted_api_secret, selectedExchange.encryption_iv, encryptionKey);
-        const passphrase = selectedExchange.encrypted_passphrase 
-          ? await decryptSecret(selectedExchange.encrypted_passphrase, selectedExchange.encryption_iv, encryptionKey)
-          : "";
-
-        const symbol = pair.replace("/", "");
         const side = direction === 'long' ? 'BUY' : 'SELL';
         
-        // Get lot size requirements and calculate proper quantity
-        const lotInfo = await getBinanceLotSize(symbol);
         console.log(`Lot size info for ${symbol}:`, lotInfo);
 
         // Determine final position size for order
         let adjustedPositionSize = positionSize;
 
-        // In LIVE SPOT mode on Binance, cap by real free USDT balance from the exchange
-        if (!isSandbox && exchangeName === "binance") {
-          const freeStable = await getBinanceFreeStableBalance(apiKey, apiSecret);
-          console.log(`Binance free USDT balance: $${freeStable}`);
-          if (freeStable <= 0) {
-            // Business-level error: not enough free balance to trade
-            return new Response(
-              JSON.stringify({
-                success: false,
-                error: "Insufficient free Binance balance",
-                reason:
-                  "Your free USDT balance on Binance is 0. Deposit or free up funds to trade.",
-                exchange: selectedExchange.exchange_name,
-              }),
-              {
-                status: 200,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-              },
-            );
-          }
-
-          const maxByFree = freeStable * 0.8; // keep 20% buffer for fees / other orders
-          const minRequired = lotInfo.minNotional * 1.1;
-
-          if (maxByFree < minRequired) {
-            console.error(
-              `Free Binance balance $${freeStable} is below minimum notional requirement $${lotInfo.minNotional}`,
-            );
-            // Business-level error: user balance too low for Binance minimum size
-            return new Response(
-              JSON.stringify({
-                success: false,
-                error: "Balance below Binance minimum order size",
-                reason:
-                  `Free Binance USDT balance ($${freeStable.toFixed(
-                    4,
-                  )}) is below minimum notional requirement ($${lotInfo.minNotional})`,
-                exchange: selectedExchange.exchange_name,
-              }),
-              {
-                status: 200,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-              },
-            );
-          }
-
-          adjustedPositionSize = Math.min(adjustedPositionSize, maxByFree);
-          console.log(
-            `Adjusted position size by free balance: $${adjustedPositionSize} (max by free: $${maxByFree})`,
-          );
-        }
+        // Cap by free balance with 20% buffer for fees
+        const maxByFree = freeBalance * 0.8;
+        adjustedPositionSize = Math.min(adjustedPositionSize, maxByFree);
+        console.log(`Adjusted position size by free balance: $${adjustedPositionSize} (max by free: $${maxByFree})`);
 
         // Ensure minimum notional value is met
         if (adjustedPositionSize < lotInfo.minNotional) {
           adjustedPositionSize = lotInfo.minNotional * 1.1; // Add 10% buffer
-          console.log(
-            `Position size increased to meet min notional: $${adjustedPositionSize}`,
-          );
+          console.log(`Position size increased to meet min notional: $${adjustedPositionSize}`);
         }
 
         // Calculate and round quantity to step size

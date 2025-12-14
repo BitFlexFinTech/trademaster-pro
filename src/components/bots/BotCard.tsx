@@ -146,7 +146,7 @@ export function BotCard({
               exchanges: EXCHANGE_CONFIGS.map(e => e.name),
               leverages,
               isSandbox: false,
-              maxPositionSize: 100, // TODO: Pass from settings
+              maxPositionSize: 100,
             }
           });
           
@@ -157,9 +157,46 @@ export function BotCard({
           
           console.log('✅ Live trade result:', data);
           
+          // Handle failure responses from edge function
+          if (data?.success === false) {
+            console.warn('⚠️ Trade not executed:', data.reason || data.error);
+            const { toast } = await import('sonner');
+            
+            // Show error toast but don't spam - only show once per error type
+            if (data.error?.includes('Insufficient') || data.error?.includes('Balance below')) {
+              toast.error('Insufficient Balance', {
+                description: data.reason || 'Deposit more USDT to your exchange to continue trading.',
+                id: 'insufficient-balance', // Prevent duplicate toasts
+              });
+            }
+            return;
+          }
+          
           // Update active exchange indicator
           if (data?.exchange) {
             setActiveExchange(data.exchange);
+          }
+          
+          // Update metrics from successful trade
+          if (data?.success && data?.pnl !== undefined) {
+            setMetrics(prev => {
+              const newPnl = prev.currentPnL + data.pnl;
+              const newTrades = prev.tradesExecuted + 1;
+              const isWin = data.pnl > 0;
+              const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
+              const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
+              
+              return {
+                ...prev,
+                currentPnL: newPnl,
+                tradesExecuted: newTrades,
+                hitRate: newHitRate,
+                maxDrawdown: Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown),
+              };
+            });
+            
+            // Sync to database
+            onUpdateBotPnl(existingBot.id, data.pnl, 1, data.pnl > 0 ? 100 : 0);
           }
           
           // Notify on trade
