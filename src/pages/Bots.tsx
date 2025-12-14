@@ -5,13 +5,14 @@ import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useTradingMode, MAX_USDT_ALLOCATION } from '@/contexts/TradingModeContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Bot, DollarSign, Loader2 } from 'lucide-react';
+import { Bot, DollarSign, Loader2, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { BotHistory } from '@/components/bots/BotHistory';
 import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
 import { BotCard } from '@/components/bots/BotCard';
 import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
+import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboard';
 import { DailyPnLChart } from '@/components/bots/DailyPnLChart';
 import { BotAnalysisModal } from '@/components/bots/BotAnalysisModal';
 import { toast } from 'sonner';
@@ -57,7 +58,7 @@ export default function Bots() {
     analyzedBotName,
   } = useBotRuns();
   const { prices } = useRealtimePrices();
-  const { mode: tradingMode, setMode: setTradingMode, virtualBalance } = useTradingMode();
+  const { mode: tradingMode, setMode: setTradingMode, virtualBalance, triggerSync, lastSyncTime } = useTradingMode();
 
   const [usdtFloat, setUsdtFloat] = useState<UsdtFloat[]>([]);
   const [loadingFloat, setLoadingFloat] = useState(true);
@@ -186,6 +187,25 @@ export default function Bots() {
           <Badge variant={tradingMode === 'demo' ? 'secondary' : 'destructive'} className="text-[10px]">
             {tradingMode === 'demo' ? 'DEMO MODE' : 'LIVE TRADING'}
           </Badge>
+          {/* Live Mode Sync Info */}
+          {tradingMode === 'live' && lastSyncTime && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground">
+                Last sync: {lastSyncTime.toLocaleTimeString()}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  triggerSync();
+                  toast.success('Syncing exchange balances...');
+                }}
+                className="h-5 w-5 p-0"
+              >
+                <RefreshCw className="w-3 h-3" />
+              </Button>
+            </div>
+          )}
           <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-1">
             <Button
               size="sm"
@@ -314,12 +334,15 @@ export default function Bots() {
           />
         </div>
 
-        {/* Middle Column - Analytics Dashboard + Daily P&L Chart */}
+        {/* Middle Column - Analytics Dashboard + Performance Dashboard */}
         <div className="lg:col-span-4 flex flex-col gap-3 overflow-hidden">
           <div className="flex-1 min-h-0">
             <BotAnalyticsDashboard />
           </div>
-          <div className="h-[200px] flex-shrink-0">
+          <div className="flex-1 min-h-0">
+            <BotPerformanceDashboard />
+          </div>
+          <div className="h-[160px] flex-shrink-0">
             <DailyPnLChart />
           </div>
         </div>

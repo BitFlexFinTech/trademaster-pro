@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useAuth } from '@/hooks/useAuth';
-import { useTradingMode } from '@/contexts/TradingModeContext';
+import { useTradingMode, DEFAULT_VIRTUAL_BALANCE } from '@/contexts/TradingModeContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
+import { DemoPortfolioSettings } from '@/components/settings/DemoPortfolioSettings';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,7 +54,7 @@ export default function DemoAccount() {
     setResetting(true);
     try {
       await resetDemo(user.id);
-      toast.success('Demo account reset to $5,000');
+      toast.success(`Demo account reset to $${DEFAULT_VIRTUAL_BALANCE.toLocaleString()}`);
     } catch (err) {
       console.error('Reset failed:', err);
       toast.error('Failed to reset demo account');
@@ -127,7 +128,10 @@ export default function DemoAccount() {
 
       <ScrollArea className="flex-1 min-h-0">
         <div className="space-y-6 pr-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+            {/* Demo Portfolio Settings - NEW */}
+            <DemoPortfolioSettings />
+
             {/* Exchange Connections */}
             <div className="card-terminal p-4">
               <div className="flex items-center gap-2 mb-4">
@@ -319,7 +323,7 @@ export default function DemoAccount() {
                   <AlertDialogHeader>
                     <AlertDialogTitle>Reset Demo Account?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This will reset your virtual balance to $5,000 and clear all demo trades, bot history, and backtests. This action cannot be undone.
+                      This will reset your virtual balance to ${DEFAULT_VIRTUAL_BALANCE.toLocaleString()} and clear all demo trades, bot history, and backtests. This action cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>

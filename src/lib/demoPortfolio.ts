@@ -14,45 +14,60 @@ interface PriceData {
   change_24h?: number;
 }
 
-// Allocation percentages for demo portfolio
-const DEMO_ALLOCATIONS = [
-  { symbol: 'USDT', percent: 50 },
-  { symbol: 'BTC', percent: 25 },
-  { symbol: 'ETH', percent: 15 },
-  { symbol: 'SOL', percent: 10 },
-];
+interface DemoAllocation {
+  USDT: number;
+  BTC: number;
+  ETH: number;
+  SOL: number;
+}
+
+// Default allocation percentages for demo portfolio
+export const DEFAULT_DEMO_ALLOCATIONS: DemoAllocation = {
+  USDT: 50,
+  BTC: 25,
+  ETH: 15,
+  SOL: 10,
+};
 
 export function generateDemoPortfolio(
   virtualBalance: number,
-  prices: PriceData[]
+  prices: PriceData[],
+  allocation: DemoAllocation = DEFAULT_DEMO_ALLOCATIONS
 ): DemoHolding[] {
   const holdings: DemoHolding[] = [];
   
-  DEMO_ALLOCATIONS.forEach(allocation => {
-    const value = (virtualBalance * allocation.percent) / 100;
+  const allocations = [
+    { symbol: 'USDT', percent: allocation.USDT },
+    { symbol: 'BTC', percent: allocation.BTC },
+    { symbol: 'ETH', percent: allocation.ETH },
+    { symbol: 'SOL', percent: allocation.SOL },
+  ];
+
+  allocations.forEach(alloc => {
+    const value = (virtualBalance * alloc.percent) / 100;
     
-    if (allocation.symbol === 'USDT') {
+    if (alloc.symbol === 'USDT') {
       // USDT is 1:1, no price lookup needed
       holdings.push({
         symbol: 'USDT',
         quantity: value,
         value,
-        percent: allocation.percent,
+        percent: alloc.percent,
         averageBuyPrice: 1,
       });
     } else {
       // Find real price for crypto asset
       const priceData = prices.find(p => 
-        p.symbol.toUpperCase() === allocation.symbol.toUpperCase()
+        p.symbol.toUpperCase() === alloc.symbol.toUpperCase()
       );
       
       if (priceData && priceData.price > 0) {
         const quantity = value / priceData.price;
         holdings.push({
-          symbol: allocation.symbol,
+          symbol: alloc.symbol,
           quantity,
           value,
-          percent: allocation.percent,
+          percent: alloc.percent,
           averageBuyPrice: priceData.price * 0.95, // Simulate 5% gain average
         });
       }
@@ -65,9 +80,10 @@ export function generateDemoPortfolio(
 // Calculate demo portfolio total value with real-time prices
 export function calculateDemoPortfolioValue(
   virtualBalance: number,
-  prices: PriceData[]
+  prices: PriceData[],
+  allocation: DemoAllocation = DEFAULT_DEMO_ALLOCATIONS
 ): { totalValue: number; change24h: number; changePercent: number } {
-  const holdings = generateDemoPortfolio(virtualBalance, prices);
+  const holdings = generateDemoPortfolio(virtualBalance, prices, allocation);
   
   let totalValue = 0;
   let totalChange = 0;
