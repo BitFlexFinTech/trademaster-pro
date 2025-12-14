@@ -340,15 +340,64 @@ serve(async (req) => {
     // Calculate position size - use user-configured value, capped for safety
     const expectedMove = 0.005; // 0.5% average move
     const leverage = mode === 'leverage' ? (leverages?.[connections[0].exchange_name] || 5) : 1;
-    
-    // For spot mode, use a smaller position size (max 50% of available balance)
-    // to ensure we have enough funds
+
+    // Base position size from target and user cap
     let positionSize = Math.min(profitTarget / (expectedMove * leverage), userPositionSize);
+
+    // In SPOT mode, start with a conservative cap (e.g. $30)
     if (mode === 'spot') {
-      // Use 30% of max position size for safety in spot mode
       positionSize = Math.min(positionSize, 30);
-      console.log(`SPOT mode: Using conservative position size: $${positionSize}`);
+      console.log(`SPOT mode: Base conservative position size: $${positionSize}`);
     }
+
+    // In LIVE mode, further cap by available stablecoin balance on the selected exchange
+    let availableBalance = 0;
+    try {
+      const { data: holdings, error: holdingsError } = await supabase
+        .from("portfolio_holdings")
+        .select("asset_symbol, quantity")
+        .eq("user_id", user.id)
+        .eq("exchange_name", connections[0].exchange_name)
+        .in("asset_symbol", ["USDT", "USDC", "USD"]);
+
+      if (holdingsError) {
+        console.error("Failed to fetch portfolio holdings for position sizing:", holdingsError);
+      } else if (holdings && holdings.length > 0) {
+        availableBalance = holdings.reduce(
+          (sum: number, h: { quantity: number | null }) => sum + (h.quantity || 0),
+          0,
+        );
+      }
+    } catch (e) {
+      console.error("Unexpected error fetching portfolio holdings for position sizing:", e);
+    }
+
+    if (!isSandbox) {
+      console.log(
+        `Available stable balance on ${connections[0].exchange_name}: $${availableBalance}`,
+      );
+
+      if (availableBalance <= 0) {
+        return new Response(
+          JSON.stringify({
+            error: "Insufficient stablecoin balance",
+            reason: `No USDT/USDC/USD balance on ${connections[0].exchange_name} for live trade`,
+            exchange: connections[0].exchange_name,
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      const maxByBalance = availableBalance * 0.9; // keep 10% buffer
+      positionSize = Math.min(positionSize, maxByBalance);
+      console.log(
+        `LIVE MODE: Position size capped by available balance: $${positionSize} (max by balance: $${maxByBalance})`,
+      );
+    }
+
     
     const selectedExchange = connections[0];
     const exchangeName = selectedExchange.exchange_name.toLowerCase();
