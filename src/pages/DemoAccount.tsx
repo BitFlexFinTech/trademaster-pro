@@ -53,7 +53,7 @@ export default function DemoAccount() {
     setResetting(true);
     try {
       await resetDemo(user.id);
-      toast.success('Demo account reset to $15,000');
+      toast.success('Demo account reset to $5,000');
     } catch (err) {
       console.error('Reset failed:', err);
       toast.error('Failed to reset demo account');
@@ -319,7 +319,7 @@ export default function DemoAccount() {
                   <AlertDialogHeader>
                     <AlertDialogTitle>Reset Demo Account?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This will reset your virtual balance to $15,000 and clear all demo trades and bot history. This action cannot be undone.
+                      This will reset your virtual balance to $5,000 and clear all demo trades, bot history, and backtests. This action cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
