@@ -139,10 +139,50 @@ export function useNotifications() {
     });
   }, [user]);
 
+  const notifyTrade = useCallback((
+    exchange: string,
+    pair: string,
+    direction: 'long' | 'short',
+    profit: number
+  ) => {
+    playSound();
+    
+    const isProfit = profit >= 0;
+    toast({
+      title: `💰 Trade on ${exchange}`,
+      description: `${direction.toUpperCase()} ${pair}: ${isProfit ? '+' : ''}$${profit.toFixed(2)}`,
+      duration: 5000,
+      variant: isProfit ? 'default' : 'destructive',
+    });
+
+    if (settingsRef.current.pushEnabled) {
+      sendPushNotification(
+        `Trade Executed`,
+        `${direction.toUpperCase()} ${pair} on ${exchange}: ${isProfit ? '+' : ''}$${profit.toFixed(2)}`
+      );
+    }
+  }, [playSound, toast, sendPushNotification]);
+
+  const notifyTakeProfit = useCallback((
+    level: number,
+    pair: string,
+    profit: number
+  ) => {
+    playSound();
+    
+    toast({
+      title: `🎯 Take Profit ${level} Hit!`,
+      description: `${pair}: +$${profit.toFixed(2)} locked in`,
+      duration: 5000,
+    });
+  }, [playSound, toast]);
+
   return {
     notify,
     notifyHighProfit,
     notifySignal,
+    notifyTrade,
+    notifyTakeProfit,
     playSound,
     requestPushPermission,
     saveAlert,

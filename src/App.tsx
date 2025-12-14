@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./hooks/useAuth";
 import { SubscriptionProvider } from "./contexts/SubscriptionContext";
+import { TradingModeProvider } from "./contexts/TradingModeContext";
 import { ProtectedRoute } from "./components/layout/ProtectedRoute";
 import { MainLayout } from "./components/layout/MainLayout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -38,43 +39,45 @@ const App = () => (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <SubscriptionProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <Routes>
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                <Route path="/auth" element={<Auth />} />
-                <Route path="/terms" element={<Terms />} />
-                <Route path="/privacy" element={<Privacy />} />
-                <Route path="/risk-disclaimer" element={<RiskDisclaimer />} />
-                <Route element={
-                  <ProtectedRoute>
-                    <MainLayout />
-                  </ProtectedRoute>
-                }>
-                  <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/portfolio" element={<Portfolio />} />
-                  <Route path="/signals" element={<Signals />} />
-                  <Route path="/auto-earn" element={<AutoEarn />} />
-                  <Route path="/bots" element={<Bots />} />
-                  <Route path="/airdrops" element={<Airdrops />} />
-                  <Route path="/analytics" element={<Analytics />} />
-                  <Route path="/risk" element={<Risk />} />
-                  <Route path="/sandbox" element={<Sandbox />} />
-                  <Route path="/charts" element={<Charts />} />
-                  <Route path="/arbitrage" element={<Arbitrage />} />
-                  <Route path="/news" element={<News />} />
-                  <Route path="/research" element={<Research />} />
-                  <Route path="/notifications" element={<Notifications />} />
-                  <Route path="/settings" element={<Settings />} />
-                  <Route path="/demo-account" element={<DemoAccount />} />
-                  <Route path="/admin" element={<Admin />} />
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </TooltipProvider>
+          <TradingModeProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/auth" element={<Auth />} />
+                  <Route path="/terms" element={<Terms />} />
+                  <Route path="/privacy" element={<Privacy />} />
+                  <Route path="/risk-disclaimer" element={<RiskDisclaimer />} />
+                  <Route element={
+                    <ProtectedRoute>
+                      <MainLayout />
+                    </ProtectedRoute>
+                  }>
+                    <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/portfolio" element={<Portfolio />} />
+                    <Route path="/signals" element={<Signals />} />
+                    <Route path="/auto-earn" element={<AutoEarn />} />
+                    <Route path="/bots" element={<Bots />} />
+                    <Route path="/airdrops" element={<Airdrops />} />
+                    <Route path="/analytics" element={<Analytics />} />
+                    <Route path="/risk" element={<Risk />} />
+                    <Route path="/sandbox" element={<Sandbox />} />
+                    <Route path="/charts" element={<Charts />} />
+                    <Route path="/arbitrage" element={<Arbitrage />} />
+                    <Route path="/news" element={<News />} />
+                    <Route path="/research" element={<Research />} />
+                    <Route path="/notifications" element={<Notifications />} />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route path="/demo-account" element={<DemoAccount />} />
+                    <Route path="/admin" element={<Admin />} />
+                  </Route>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </BrowserRouter>
+            </TooltipProvider>
+          </TradingModeProvider>
         </SubscriptionProvider>
       </AuthProvider>
     </QueryClientProvider>

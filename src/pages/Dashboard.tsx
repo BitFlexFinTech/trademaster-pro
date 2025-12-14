@@ -23,8 +23,8 @@ export default function Dashboard() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Top Row - Stats Cards + Video Highlights */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 flex-shrink-0 mb-4">
+      {/* Top Row - Stats Cards - All same height */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 flex-shrink-0 mb-3">
         <div className="lg:col-span-2 h-[140px] overflow-hidden">
           <PortfolioCard />
         </div>
@@ -37,7 +37,7 @@ export default function Dashboard() {
         <div className="lg:col-span-3 h-[140px] overflow-hidden">
           <AiSummaryCard />
         </div>
-        <div className="lg:col-span-3 h-[220px] overflow-hidden">
+        <div className="lg:col-span-3 h-[140px] overflow-hidden">
           <VideoHighlights />
         </div>
       </div>

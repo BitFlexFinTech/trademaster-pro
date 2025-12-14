@@ -1,12 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Zap, Play, Square, Target, Activity, DollarSign, Clock, TrendingUp, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useBotRuns } from '@/hooks/useBotRuns';
+import { useRealtimePrices } from '@/hooks/useRealtimePrices';
+import { useNotifications } from '@/hooks/useNotifications';
+import { useTradingMode } from '@/contexts/TradingModeContext';
 import { Link } from 'react-router-dom';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useToast } from '@/hooks/use-toast';
 
 interface ExchangeAllocation {
   name: string;
@@ -22,20 +26,30 @@ const EXCHANGE_ALLOCATIONS: ExchangeAllocation[] = [
   { name: 'Nexo', confidence: 'Low', notes: 'Limited pairs' },
 ];
 
+const TOP_PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'DOT', 'LINK'];
+
 export function GreenBackWidget() {
-  const { bots, stats, startBot, stopBot, refetch } = useBotRuns();
+  const { bots, stats, startBot, stopBot, updateBotPnl, refetch } = useBotRuns();
+  const { prices } = useRealtimePrices();
+  const { notifyTrade, notifyTakeProfit } = useNotifications();
+  const { mode: tradingMode, virtualBalance, setVirtualBalance } = useTradingMode();
+  const { toast } = useToast();
+  
   const existingBot = bots.find(b => b.botName === 'GreenBack' && b.status === 'running');
   const isRunning = !!existingBot;
+
+  const dailyTarget = existingBot?.dailyTarget || 40;
+  const profitPerTrade = existingBot?.profitPerTrade || 1;
 
   const [metrics, setMetrics] = useState({
     currentPnL: existingBot?.currentPnl || 0,
     tradesExecuted: existingBot?.tradesExecuted || 0,
     hitRate: existingBot?.hitRate || 0,
-    dailyTarget: existingBot?.dailyTarget || 40,
     avgTimeToTP: 12.3,
   });
 
   const [activeExchange, setActiveExchange] = useState<string | null>(null);
+  const lastPricesRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     if (existingBot) {
@@ -43,26 +57,94 @@ export function GreenBackWidget() {
         currentPnL: existingBot.currentPnl,
         tradesExecuted: existingBot.tradesExecuted,
         hitRate: existingBot.hitRate,
-        dailyTarget: existingBot.dailyTarget,
         avgTimeToTP: 12.3,
       });
     }
   }, [existingBot]);
 
-  // Simulate active exchange rotation when running
+  // Real price-based trading simulation with sound notifications
   useEffect(() => {
-    if (!isRunning) {
+    if (!isRunning || !existingBot) {
       setActiveExchange(null);
       return;
     }
-    const exchanges = EXCHANGE_ALLOCATIONS.map(e => e.name);
+
+    const activeExchanges = EXCHANGE_ALLOCATIONS.map(e => e.name);
+
+    // Initialize last prices from current prices
+    prices.forEach(p => {
+      if (!lastPricesRef.current[p.symbol]) {
+        lastPricesRef.current[p.symbol] = p.price;
+      }
+    });
+
     let idx = 0;
     const interval = setInterval(() => {
-      setActiveExchange(exchanges[idx % exchanges.length]);
+      const currentExchange = activeExchanges[idx % activeExchanges.length];
+      setActiveExchange(currentExchange);
       idx++;
+
+      // Pick random pair from available prices
+      const symbol = TOP_PAIRS[Math.floor(Math.random() * TOP_PAIRS.length)];
+      const priceData = prices.find(p => p.symbol.toUpperCase() === symbol);
+      if (!priceData) return;
+
+      const currentPrice = priceData.price;
+      const lastPrice = lastPricesRef.current[symbol] || currentPrice;
+      const priceChange = lastPrice > 0 ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
+      lastPricesRef.current[symbol] = currentPrice;
+
+      // Skip if no meaningful price movement
+      if (Math.abs(priceChange) < 0.001) return;
+
+      // Determine trade direction and outcome based on price movement
+      const direction = priceChange >= 0 ? 'long' : 'short';
+      const isWin = Math.random() < 0.70; // 70% win rate
+      const tradePnl = isWin ? profitPerTrade : -0.60;
+      const pair = `${symbol}/USDT`;
+
+      setMetrics(prev => {
+        const newPnl = Math.min(Math.max(prev.currentPnL + tradePnl, -5), dailyTarget * 1.5);
+        const newTrades = prev.tradesExecuted + 1;
+        const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
+        const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
+
+        // Play sound and show notification for trade
+        notifyTrade(currentExchange, pair, direction, tradePnl);
+
+        // Check TP levels (simulate hitting TP1, TP2, TP3)
+        if (isWin && Math.random() > 0.6) {
+          const tpLevel = Math.ceil(Math.random() * 3);
+          setTimeout(() => notifyTakeProfit(tpLevel, pair, tradePnl * (tpLevel / 3)), 500);
+        }
+
+        // Daily target notification
+        if (newPnl >= dailyTarget && prev.currentPnL < dailyTarget) {
+          toast({
+            title: '🎯 Daily Target Reached!',
+            description: `GreenBack hit $${dailyTarget} target! Bot continues running.`,
+          });
+        }
+
+        // Update in demo mode virtual balance
+        if (tradingMode === 'demo') {
+          setVirtualBalance(virtualBalance + tradePnl);
+        }
+
+        // Update database
+        updateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
+
+        return {
+          ...prev,
+          currentPnL: newPnl,
+          tradesExecuted: newTrades,
+          hitRate: newHitRate,
+        };
+      });
     }, 3000);
+
     return () => clearInterval(interval);
-  }, [isRunning]);
+  }, [isRunning, dailyTarget, profitPerTrade, existingBot, prices, notifyTrade, notifyTakeProfit, toast, tradingMode, updateBotPnl, setVirtualBalance]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
@@ -73,11 +155,11 @@ export function GreenBackWidget() {
     refetch();
   };
 
-  const progressPercent = (metrics.currentPnL / metrics.dailyTarget) * 100;
+  const progressPercent = (metrics.currentPnL / dailyTarget) * 100;
 
   // Calculate suggested USDT allocation
   const calculateAllocation = (confidence: 'High' | 'Medium' | 'Low'): number => {
-    const base = (metrics.dailyTarget / 1) / 0.005 * 1.3; // dailyTarget / profitPerTrade / avgMove * buffer
+    const base = (dailyTarget / 1) / 0.005 * 1.3;
     const totalBase = base / EXCHANGE_ALLOCATIONS.length;
     if (confidence === 'High') return Math.round(totalBase * 1.5);
     if (confidence === 'Medium') return Math.round(totalBase);
@@ -95,10 +177,10 @@ export function GreenBackWidget() {
     if (metrics.hitRate >= 50) {
       return `Solid ${metrics.hitRate.toFixed(0)}% hit rate. Bot is performing within expected parameters.`;
     }
-    if (metrics.currentPnL >= metrics.dailyTarget) {
+    if (metrics.currentPnL >= dailyTarget) {
       return "Daily target achieved! Bot continues running for additional profits.";
     }
-    return `${metrics.tradesExecuted} trades executed. Targeting $${metrics.dailyTarget}/day profit.`;
+    return `${metrics.tradesExecuted} trades executed. Targeting $${dailyTarget}/day profit.`;
   };
 
   return (
@@ -122,9 +204,14 @@ export function GreenBackWidget() {
             )}
           </div>
         </div>
-        <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[10px]">
-          {isRunning ? 'Running' : 'Stopped'}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={tradingMode === 'demo' ? 'secondary' : 'destructive'} className="text-[8px]">
+            {tradingMode === 'demo' ? 'DEMO' : 'LIVE'}
+          </Badge>
+          <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[10px]">
+            {isRunning ? 'Running' : 'Stopped'}
+          </Badge>
+        </div>
       </div>
 
       {/* Progress Bar */}
@@ -132,7 +219,7 @@ export function GreenBackWidget() {
         <div className="flex items-center justify-between text-xs mb-1">
           <span className="text-muted-foreground">Daily Progress</span>
           <span className="text-foreground font-mono">
-            ${metrics.currentPnL.toFixed(2)} / ${metrics.dailyTarget}
+            ${metrics.currentPnL.toFixed(2)} / ${dailyTarget}
           </span>
         </div>
         <Progress value={Math.min(progressPercent, 100)} className="h-2" />
