@@ -204,6 +204,13 @@ export function useBotTrading({
       // ===== LIVE MODE: Execute real trades via edge function =====
       if (tradingMode === 'live') {
         try {
+          // Ensure we have a valid session before calling edge function
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) {
+            console.error('No valid session for live trading');
+            return; // Skip - user needs to re-authenticate
+          }
+          
           const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
             body: {
               botId,
@@ -220,6 +227,12 @@ export function useBotTrading({
           if (error) {
             console.error('Live trade failed:', error);
             return; // Skip this trade
+          }
+          
+          // Handle user-facing errors (like insufficient balance)
+          if (data?.errorType === 'EXCHANGE_USER_ERROR') {
+            console.warn('Exchange error:', data?.message);
+            return; // Skip - exchange constraint not met
           }
           
           tradePnl = data?.pnl || 0;
