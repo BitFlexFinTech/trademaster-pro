@@ -34,8 +34,32 @@ export function BotSettingsDrawer({ settings, onSettingsChange, disabled }: BotS
   }, [settings]);
 
   const handleSave = () => {
+    // Save to localStorage for persistence
+    localStorage.setItem('greenback-bot-settings', JSON.stringify(localSettings));
+    
+    // Generate change summary
+    const changes: string[] = [];
+    if (settings.dailyStopLoss !== localSettings.dailyStopLoss) {
+      changes.push(`Daily Stop: $${settings.dailyStopLoss} → $${localSettings.dailyStopLoss}`);
+    }
+    if (settings.profitPerTrade !== localSettings.profitPerTrade) {
+      changes.push(`Profit/Trade: $${settings.profitPerTrade} → $${localSettings.profitPerTrade}`);
+    }
+    if (settings.focusPairs.length !== localSettings.focusPairs.length) {
+      changes.push(`Focus Pairs: ${settings.focusPairs.length} → ${localSettings.focusPairs.length}`);
+    }
+    
     onSettingsChange(localSettings);
     setOpen(false);
+    
+    // Show confirmation toast with changes
+    if (changes.length > 0) {
+      import('sonner').then(({ toast }) => {
+        toast.success('Bot Settings Updated', {
+          description: changes.join(' • '),
+        });
+      });
+    }
   };
 
   const handleLeverageChange = (exchange: string, value: number[]) => {

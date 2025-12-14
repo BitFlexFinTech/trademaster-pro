@@ -38,3 +38,9 @@ verify_jwt = true
 
 [functions.convert-to-usdt]
 verify_jwt = true
+
+[functions.ai-trading-engine]
+verify_jwt = false
+
+[functions.apply-ai-suggestion]
+verify_jwt = true
