@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { useBotRuns } from '@/hooks/useBotRuns';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useNotifications } from '@/hooks/useNotifications';
-import { useTradingMode } from '@/contexts/TradingModeContext';
+import { useTradingMode, MAX_USDT_ALLOCATION } from '@/contexts/TradingModeContext';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
@@ -247,14 +247,16 @@ export function GreenBackWidget() {
 
   const progressPercent = (metrics.currentPnL / dailyTarget) * 100;
 
-  // Calculate suggested USDT allocation using real prices
+  // Calculate suggested USDT allocation using real prices - CAPPED at $5000
   const calculateAllocation = (confidence: 'High' | 'Medium' | 'Low'): number => {
     const avgVolatility = prices.length > 0
       ? prices.slice(0, 10).reduce((sum, p) => sum + Math.abs(p.change_24h || 0), 0) / Math.min(prices.length, 10) / 24
       : 0.5;
     const avgMovePercent = Math.max(avgVolatility / 100, 0.001);
-    const base = (dailyTarget / profitPerTrade) / avgMovePercent * (tradingMode === 'demo' ? 1.3 : 1.5);
-    const totalBase = base / EXCHANGE_ALLOCATIONS.length;
+    const rawBase = (dailyTarget / profitPerTrade) / avgMovePercent * (tradingMode === 'demo' ? 1.3 : 1.5);
+    // Cap total at MAX_USDT_ALLOCATION ($5000)
+    const cappedBase = Math.min(rawBase, MAX_USDT_ALLOCATION);
+    const totalBase = cappedBase / EXCHANGE_ALLOCATIONS.length;
     if (confidence === 'High') return Math.round(totalBase * 1.5);
     if (confidence === 'Medium') return Math.round(totalBase);
     return Math.round(totalBase * 0.6);

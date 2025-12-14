@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useBotRuns } from '@/hooks/useBotRuns';
 import { useAuth } from '@/hooks/useAuth';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
-import { useTradingMode } from '@/contexts/TradingModeContext';
+import { useTradingMode, MAX_USDT_ALLOCATION } from '@/contexts/TradingModeContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Bot, DollarSign, Loader2 } from 'lucide-react';
@@ -74,11 +74,10 @@ export default function Bots() {
   const spotBot = bots.find(b => b.botName === 'GreenBack Spot' && b.status === 'running');
   const leverageBot = bots.find(b => b.botName === 'GreenBack Leverage' && b.status === 'running');
 
-  // Calculate suggested USDT using real prices
+  // Calculate suggested USDT using real prices - CAPPED at $5000
   const suggestedUSDT = useMemo(() => {
     const dailyTarget = 40;
     const profitPerTrade = 1;
-    const tradesNeeded = Math.ceil(dailyTarget / profitPerTrade);
 
     // Use real volatility from prices
     const avgVolatility = prices.length > 0
@@ -89,7 +88,9 @@ export default function Bots() {
     const avgPositionSize = profitPerTrade / avgMovePercent;
     const buffer = tradingMode === 'live' ? 1.5 : 1.3;
 
-    return Math.ceil(avgPositionSize * buffer);
+    const rawValue = Math.ceil(avgPositionSize * buffer);
+    // Cap at MAX_USDT_ALLOCATION ($5000)
+    return Math.min(rawValue, MAX_USDT_ALLOCATION);
   }, [prices, tradingMode]);
 
   // Fetch USDT float
@@ -131,24 +132,34 @@ export default function Bots() {
 
   const activeBotCount = bots.filter(b => b.status === 'running').length;
 
-  // Handle applying recommendations from analysis
+  // Handle applying recommendations from analysis with old vs new notification
   const handleApplyRecommendation = async (type: string, value: any) => {
+    const oldConfig = { ...botConfig };
+    
     switch (type) {
       case 'profit_per_trade':
         setBotConfig(prev => ({ ...prev, profitPerTrade: value }));
-        toast.success(`Profit per trade updated to $${value.toFixed(2)}`);
+        toast.success(`Profit Per Trade Updated`, {
+          description: `Changed from $${oldConfig.profitPerTrade.toFixed(2)} → $${value.toFixed(2)}`,
+        });
         break;
       case 'amount_per_trade':
         setBotConfig(prev => ({ ...prev, amountPerTrade: value }));
-        toast.success(`Amount per trade updated to $${value.toFixed(0)}`);
+        toast.success(`Amount Per Trade Updated`, {
+          description: `Changed from $${oldConfig.amountPerTrade.toFixed(0)} → $${value.toFixed(0)}`,
+        });
         break;
       case 'stop_loss':
         setBotConfig(prev => ({ ...prev, stopLoss: value }));
-        toast.success(`Stop loss updated to -$${value.toFixed(2)}`);
+        toast.success(`Stop Loss Updated`, {
+          description: `Changed from -$${oldConfig.stopLoss.toFixed(2)} → -$${value.toFixed(2)}`,
+        });
         break;
       case 'focus_pairs':
         setBotConfig(prev => ({ ...prev, focusPairs: value }));
-        toast.success(`Now focusing on ${value.join(', ')}`);
+        toast.success(`Focus Pairs Updated`, {
+          description: `Changed from ${oldConfig.focusPairs.slice(0, 3).join(', ')}... → ${value.join(', ')}`,
+        });
         break;
       default:
         toast.info(`Recommendation noted: ${type}`);
@@ -320,6 +331,7 @@ export default function Bots() {
         stats={analysisData.stats}
         onApplyRecommendation={handleApplyRecommendation}
         loading={analysisLoading}
+        currentConfig={botConfig}
       />
     </div>
   );

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useBacktest } from '@/hooks/useBacktest';
+import { useTradingMode } from '@/contexts/TradingModeContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FlaskConical, Play, RotateCcw, Calendar, Loader2 } from 'lucide-react';
@@ -10,10 +11,17 @@ const assets = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'AVAX/USDT'];
 
 export default function Sandbox() {
   const { currentBacktest, monthlyBreakdown, running, runBacktest, resetBacktest } = useBacktest();
-  const [virtualBalance, setVirtualBalance] = useState(10000);
+  const { virtualBalance, resetTrigger } = useTradingMode();
   const [selectedAsset, setSelectedAsset] = useState('BTC/USDT');
   const [startDate, setStartDate] = useState('2024-01-01');
   const [endDate, setEndDate] = useState('2024-06-30');
+
+  // Reset backtest when demo is reset
+  useEffect(() => {
+    if (resetTrigger > 0) {
+      resetBacktest();
+    }
+  }, [resetTrigger, resetBacktest]);
 
   const handleRunBacktest = () => {
     runBacktest(selectedAsset, startDate, endDate, virtualBalance);
@@ -33,13 +41,15 @@ export default function Sandbox() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="card-terminal p-4">
+        <div className="card-terminal p-4">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-primary">$</span>
               <h3 className="text-sm text-muted-foreground">Virtual Balance</h3>
             </div>
-            <Input type="number" value={virtualBalance} onChange={(e) => setVirtualBalance(Number(e.target.value))} className="bg-secondary border-border text-lg font-mono" />
-            <p className="text-xs text-muted-foreground mt-2">Risk-free testing environment</p>
+            <div className="text-lg font-mono text-primary bg-secondary border border-border rounded px-3 py-2">
+              ${virtualBalance.toLocaleString()}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">Shared with Demo Mode (reset via Demo Account)</p>
           </div>
 
           <div className="card-terminal p-4">

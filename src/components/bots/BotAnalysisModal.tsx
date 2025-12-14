@@ -45,6 +45,13 @@ interface BotStats {
   hitRate: number;
 }
 
+interface CurrentConfig {
+  profitPerTrade: number;
+  amountPerTrade: number;
+  stopLoss: number;
+  focusPairs: string[];
+}
+
 interface BotAnalysisModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -53,6 +60,7 @@ interface BotAnalysisModalProps {
   stats: BotStats | null;
   onApplyRecommendation: (type: string, value: any) => void;
   loading?: boolean;
+  currentConfig?: CurrentConfig;
 }
 
 export function BotAnalysisModal({
@@ -63,14 +71,15 @@ export function BotAnalysisModal({
   stats,
   onApplyRecommendation,
   loading = false,
+  currentConfig,
 }: BotAnalysisModalProps) {
   const [applying, setApplying] = useState<string | null>(null);
 
   const handleApply = async (type: string, value: any) => {
     setApplying(type);
     try {
+      // Show notification handled by parent with old vs new values
       await onApplyRecommendation(type, value);
-      toast.success(`Applied: ${type.replace(/_/g, ' ')}`);
     } catch (err) {
       toast.error('Failed to apply recommendation');
     } finally {
@@ -190,7 +199,7 @@ export function BotAnalysisModal({
                         <div>
                           <h4 className="font-medium text-foreground text-sm">Adjust Profit Target</h4>
                           <p className="text-xs text-muted-foreground">
-                            Set profit per trade to ${analysis.recommendedProfitPerTrade.toFixed(2)}
+                            Current: ${currentConfig?.profitPerTrade?.toFixed(2) || '1.00'} → New: ${analysis.recommendedProfitPerTrade.toFixed(2)}
                           </p>
                         </div>
                       </div>
@@ -221,7 +230,7 @@ export function BotAnalysisModal({
                         <div>
                           <h4 className="font-medium text-foreground text-sm">Adjust Position Size</h4>
                           <p className="text-xs text-muted-foreground">
-                            Set amount per trade to ${analysis.recommendedAmountPerTrade.toFixed(0)}
+                            Current: ${currentConfig?.amountPerTrade?.toFixed(0) || '100'} → New: ${analysis.recommendedAmountPerTrade.toFixed(0)}
                           </p>
                         </div>
                       </div>
@@ -253,7 +262,7 @@ export function BotAnalysisModal({
                         <div>
                           <h4 className="font-medium text-foreground text-sm">Tighter Stop Loss</h4>
                           <p className="text-xs text-muted-foreground">
-                            Reduce stop loss from -$0.60 to -$0.45 to lock in profits faster
+                            Current: -${currentConfig?.stopLoss?.toFixed(2) || '0.60'} → New: -$0.45
                           </p>
                         </div>
                       </div>
@@ -285,7 +294,7 @@ export function BotAnalysisModal({
                         <div>
                           <h4 className="font-medium text-foreground text-sm">Focus High-Volume Pairs</h4>
                           <p className="text-xs text-muted-foreground">
-                            Limit to BTC, ETH, SOL for better execution (+8% fill rate)
+                            Current: {currentConfig?.focusPairs?.slice(0, 3).join(', ') || 'BTC, ETH, SOL'}... → New: BTC, ETH, SOL only
                           </p>
                         </div>
                       </div>

@@ -195,7 +195,7 @@ export function BotCard({
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, virtualBalance]);
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, onUpdateBotPnl, setVirtualBalance, usdtFloat]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {

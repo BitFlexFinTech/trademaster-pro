@@ -1,21 +1,24 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
+export const DEFAULT_VIRTUAL_BALANCE = 5000;
+export const MAX_USDT_ALLOCATION = 5000;
+
 interface TradingModeContextType {
   mode: 'demo' | 'live';
   setMode: (mode: 'demo' | 'live') => void;
   virtualBalance: number;
   setVirtualBalance: (balance: number | ((prev: number) => number)) => void;
   resetDemo: (userId: string) => Promise<void>;
+  resetTrigger: number;
 }
 
 const TradingModeContext = createContext<TradingModeContextType | null>(null);
 
-const DEFAULT_VIRTUAL_BALANCE = 15000;
-
 export function TradingModeProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<'demo' | 'live'>('demo');
   const [virtualBalance, setVirtualBalanceState] = useState(DEFAULT_VIRTUAL_BALANCE);
+  const [resetTrigger, setResetTrigger] = useState(0);
 
   const setVirtualBalance = useCallback((balance: number | ((prev: number) => number)) => {
     if (typeof balance === 'function') {
@@ -26,7 +29,7 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const resetDemo = useCallback(async (userId: string) => {
-    // Reset virtual balance to $15,000
+    // Reset virtual balance to $5,000
     setVirtualBalanceState(DEFAULT_VIRTUAL_BALANCE);
     localStorage.setItem('virtualBalance', String(DEFAULT_VIRTUAL_BALANCE));
 
@@ -35,6 +38,12 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
 
     // Reset all bot runs for user
     await supabase.from('bot_runs').delete().eq('user_id', userId);
+
+    // Reset backtest runs
+    await supabase.from('backtest_runs').delete().eq('user_id', userId);
+
+    // Trigger reset event for all components
+    setResetTrigger(prev => prev + 1);
   }, []);
 
   // Load from localStorage on mount
@@ -54,7 +63,7 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
   }, [virtualBalance]);
 
   return (
-    <TradingModeContext.Provider value={{ mode, setMode, virtualBalance, setVirtualBalance, resetDemo }}>
+    <TradingModeContext.Provider value={{ mode, setMode, virtualBalance, setVirtualBalance, resetDemo, resetTrigger }}>
       {children}
     </TradingModeContext.Provider>
   );
