@@ -18,11 +18,12 @@ interface PortfolioData {
   change24h: number;
   changePercent: number;
   holdings: Holding[];
+  availableUSDT: number; // NEW: Available USDT for trading
 }
 
 export function usePortfolio() {
   const { user } = useAuth();
-  const { mode: tradingMode, virtualBalance, resetTrigger } = useTradingMode();
+  const { mode: tradingMode, virtualBalance, resetTrigger, lastSyncTime, demoAllocation } = useTradingMode();
   const { prices } = useRealtimePrices();
   
   const [portfolio, setPortfolio] = useState<PortfolioData>({
@@ -30,6 +31,7 @@ export function usePortfolio() {
     change24h: 0,
     changePercent: 0,
     holdings: [],
+    availableUSDT: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -42,11 +44,15 @@ export function usePortfolio() {
       const demoHoldings = generateDemoPortfolio(virtualBalance, prices);
       const { totalValue, change24h, changePercent } = calculateDemoPortfolioValue(virtualBalance, prices);
       
+      // Calculate available USDT from demo allocation
+      const availableUSDT = virtualBalance * (demoAllocation.USDT / 100);
+      
       setPortfolio({
         totalValue,
         change24h,
         changePercent,
         holdings: demoHoldings,
+        availableUSDT,
       });
       
       setLoading(false);
@@ -73,23 +79,38 @@ export function usePortfolio() {
       
       let totalValue = 0;
       let totalChange = 0;
+      let availableUSDT = 0;
       const calculatedHoldings: Holding[] = [];
 
       holdings?.forEach(holding => {
-        const priceData = priceMap.get(holding.asset_symbol);
-        if (priceData) {
-          const value = holding.quantity * priceData.price;
-          const changeAmount = value * (priceData.change || 0) / 100;
-          totalValue += value;
-          totalChange += changeAmount;
-          
+        // Track USDT/USDC/USD as available for trading
+        if (['USDT', 'USDC', 'USD'].includes(holding.asset_symbol)) {
+          availableUSDT += holding.quantity;
+          // Still add to total value (stablecoins = $1)
+          totalValue += holding.quantity;
           calculatedHoldings.push({
             symbol: holding.asset_symbol,
             quantity: holding.quantity,
-            value,
-            percent: 0, // Will calculate after total
-            averageBuyPrice: holding.average_buy_price || 0,
+            value: holding.quantity,
+            percent: 0,
+            averageBuyPrice: 1,
           });
+        } else {
+          const priceData = priceMap.get(holding.asset_symbol);
+          if (priceData) {
+            const value = holding.quantity * priceData.price;
+            const changeAmount = value * (priceData.change || 0) / 100;
+            totalValue += value;
+            totalChange += changeAmount;
+            
+            calculatedHoldings.push({
+              symbol: holding.asset_symbol,
+              quantity: holding.quantity,
+              value,
+              percent: 0, // Will calculate after total
+              averageBuyPrice: holding.average_buy_price || 0,
+            });
+          }
         }
       });
 
@@ -106,18 +127,19 @@ export function usePortfolio() {
         change24h: totalChange,
         changePercent: totalValue > 0 ? (totalChange / (totalValue - totalChange)) * 100 : 0,
         holdings: calculatedHoldings.slice(0, 5), // Top 5
+        availableUSDT,
       });
     } catch (error) {
       console.error('Error fetching portfolio:', error);
     } finally {
       setLoading(false);
     }
-  }, [user, tradingMode, virtualBalance, prices]);
+  }, [user, tradingMode, virtualBalance, prices, demoAllocation]);
 
   // Refetch when mode, virtualBalance, prices, or resetTrigger changes
   useEffect(() => {
     fetchPortfolio();
   }, [fetchPortfolio, resetTrigger]);
 
-  return { portfolio, loading, refetch: fetchPortfolio, tradingMode };
+  return { portfolio, loading, refetch: fetchPortfolio, tradingMode, lastSyncTime };
 }
