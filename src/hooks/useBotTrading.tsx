@@ -205,11 +205,31 @@ export function useBotTrading({
       // ===== LIVE MODE: Execute real trades via edge function =====
       if (tradingMode === 'live') {
         try {
-          // Try to refresh session before trading to prevent JWT expiry
-          const { data: { session }, error: sessionError } = await supabase.auth.refreshSession();
+          // Try to refresh session with exponential backoff retry
+          let session = null;
+          let lastError = null;
+          const maxRetries = 3;
           
-          if (sessionError || !session) {
-            console.error('Session refresh failed:', sessionError?.message);
+          for (let attempt = 0; attempt < maxRetries; attempt++) {
+            const { data, error: sessionError } = await supabase.auth.refreshSession();
+            
+            if (!sessionError && data.session) {
+              session = data.session;
+              break;
+            }
+            
+            lastError = sessionError;
+            
+            // Exponential backoff: 1s, 2s, 4s
+            if (attempt < maxRetries - 1) {
+              const delay = Math.pow(2, attempt) * 1000;
+              console.log(`Session refresh attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+          }
+          
+          if (!session) {
+            console.error('Session refresh failed after retries:', lastError?.message);
             toast.error('Session expired', {
               description: 'Please re-login to continue live trading',
               action: {
