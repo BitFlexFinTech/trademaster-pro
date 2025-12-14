@@ -36,7 +36,7 @@ export function GreenBackWidget() {
   // Find BOTH spot and leverage bots
   const spotBot = getSpotBot();
   const leverageBot = getLeverageBot();
-  const anyBotRunning = !!spotBot || !!leverageBot;
+  const anyBotRunning = spotBot?.status === 'running' || leverageBot?.status === 'running';
   const runningBotCount = (spotBot ? 1 : 0) + (leverageBot ? 1 : 0);
 
   // Combined metrics from both bots
@@ -175,6 +175,7 @@ export function GreenBackWidget() {
       const interval = setInterval(executeLiveTrade, 5000);
       
       return () => {
+        console.log('🛑 STOPPING: Live trade execution loop cleanup (Widget)');
         isCancelled = true;
         clearInterval(interval);
       };
@@ -285,7 +286,10 @@ export function GreenBackWidget() {
       });
     }, 3000);
 
-    return () => clearInterval(interval);
+    return () => {
+      console.log('🛑 STOPPING: Demo trade simulation loop cleanup (Widget)');
+      clearInterval(interval);
+    };
   }, [anyBotRunning, dailyTarget, profitPerTrade, spotBot, leverageBot, prices, notifyTrade, notifyTakeProfit, tradingMode, updateBotPnl, setVirtualBalance, user, stopBot, metrics.currentPnL, activeExchangeConfigs]);
 
   const handleStartSpot = async () => {

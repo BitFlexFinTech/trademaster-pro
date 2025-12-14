@@ -269,23 +269,34 @@ export function useBotRuns() {
 
   // Analyze bot performance
   const analyzeBot = async (botId: string, botName: string) => {
+    console.log(`📊 Starting AI analysis for bot ${botName} (${botId})...`);
     setAnalysisLoading(true);
     setShowAnalysisModal(true);
     setAnalyzedBotName(botName);
     
     try {
+      console.log('📤 Invoking analyze-bot-performance edge function...');
       const { data, error } = await supabase.functions.invoke('analyze-bot-performance', {
         body: { botId }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ AI analysis edge function error:', error);
+        throw error;
+      }
+
+      console.log('✅ AI analysis completed:', data);
+      
+      if (data?.analysis) {
+        toast.success('AI analysis ready');
+      }
 
       setAnalysisData({
         analysis: data.analysis,
         stats: data.stats,
       });
     } catch (err) {
-      console.error('Analysis failed:', err);
+      console.error('❌ Analysis failed:', err);
       toast.error('Failed to analyze bot performance');
       setAnalysisData({ analysis: null, stats: null });
     } finally {
@@ -297,6 +308,8 @@ export function useBotRuns() {
   const stopBotWithAnalysis = async (botId: string, botName: string) => {
     if (!user) return;
 
+    console.log(`🛑 Stopping bot ${botName} (${botId})...`);
+
     try {
       const { error } = await supabase
         .from('bot_runs')
@@ -307,15 +320,19 @@ export function useBotRuns() {
         .eq('id', botId)
         .eq('user_id', user.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Failed to update bot status:', error);
+        throw error;
+      }
       
-      toast.success('Bot stopped');
+      console.log('✅ Bot stopped successfully, triggering AI analysis...');
+      toast.success(`${botName} stopped`);
       fetchBots();
       
       // Trigger analysis after stopping
       await analyzeBot(botId, botName);
     } catch (error) {
-      console.error('Error stopping bot:', error);
+      console.error('❌ Error stopping bot:', error);
       toast.error('Failed to stop bot');
     }
   };
