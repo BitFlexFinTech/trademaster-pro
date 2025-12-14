@@ -120,7 +120,17 @@ export function GreenBackWidget() {
     });
 
     let idx = 0;
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
+      // CRITICAL: Enforce daily stop loss at -$5
+      if (metrics.currentPnL <= -5) {
+        sonnerToast.error('⚠️ Daily Stop Loss Hit', {
+          description: 'GreenBack stopped: -$5 daily limit reached.',
+        });
+        const botToStop = spotBot || leverageBot;
+        if (botToStop) await stopBot(botToStop.id);
+        return;
+      }
+
       const currentExchange = activeExchanges[idx % activeExchanges.length];
       setActiveExchange(currentExchange);
       idx++;
@@ -220,7 +230,7 @@ export function GreenBackWidget() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [anyBotRunning, dailyTarget, profitPerTrade, spotBot, leverageBot, prices, notifyTrade, notifyTakeProfit, tradingMode, updateBotPnl, setVirtualBalance, user]);
+  }, [anyBotRunning, dailyTarget, profitPerTrade, spotBot, leverageBot, prices, notifyTrade, notifyTakeProfit, tradingMode, updateBotPnl, setVirtualBalance, user, stopBot, metrics.currentPnL]);
 
   const handleStartSpot = async () => {
     if (spotBot) {

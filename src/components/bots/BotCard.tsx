@@ -114,7 +114,17 @@ export function BotCard({
     });
 
     let idx = 0;
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
+      // CRITICAL: Enforce daily stop loss at -$5
+      if (metrics.currentPnL <= -5) {
+        const { toast } = await import('sonner');
+        toast.error('⚠️ Daily Stop Loss Hit', {
+          description: 'GreenBack stopped: -$5 daily limit reached.',
+        });
+        onStopBot(existingBot.id);
+        return;
+      }
+
       const currentExchange = activeExchanges[idx % activeExchanges.length];
       setActiveExchange(currentExchange);
       idx++;
