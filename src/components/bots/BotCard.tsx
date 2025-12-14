@@ -204,14 +204,24 @@ export function BotCard({
   };
 
   const handleWithdrawProfits = async () => {
-    if (!existingBot || metrics.currentPnL <= 0) return;
+    if (metrics.currentPnL <= 0) return;
     setWithdrawing(true);
     try {
-      await supabase.functions.invoke('withdraw-bot-profits', {
-        body: { botId: existingBot.id }
+      const { data, error } = await supabase.functions.invoke('withdraw-bot-profits', {
+        body: { botId: existingBot?.id }
       });
+      if (error) throw error;
+      
+      // Reset local P&L after successful withdrawal
+      setMetrics(prev => ({ ...prev, currentPnL: 0 }));
+      
+      // Show success notification via sonner
+      const { toast } = await import('sonner');
+      toast.success(`💰 Withdrew $${data?.withdrawnAmount?.toFixed(2) || metrics.currentPnL.toFixed(2)}`);
     } catch (err) {
       console.error('Withdraw failed:', err);
+      const { toast } = await import('sonner');
+      toast.error('Withdrawal failed. Try again.');
     } finally {
       setWithdrawing(false);
     }
@@ -383,10 +393,10 @@ export function BotCard({
           {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
           {isRunning ? 'Stop' : 'Start'}
         </Button>
-        {isRunning && metrics.currentPnL > 0 && (
+        {metrics.currentPnL > 0 && (
           <Button variant="outline" className="gap-1" onClick={handleWithdrawProfits} disabled={withdrawing}>
             {withdrawing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Banknote className="w-3 h-3" />}
-            Withdraw
+            ${metrics.currentPnL.toFixed(2)}
           </Button>
         )}
       </div>

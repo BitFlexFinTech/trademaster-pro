@@ -1,11 +1,24 @@
 import { useState, useEffect } from 'react';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useAuth } from '@/hooks/useAuth';
+import { useTradingMode } from '@/contexts/TradingModeContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import {
   User,
   Link,
@@ -18,6 +31,7 @@ import {
   Activity,
   Loader2,
   CheckCircle,
+  RotateCcw,
 } from 'lucide-react';
 
 interface ExchangeConnection {
@@ -29,8 +43,24 @@ interface ExchangeConnection {
 export default function DemoAccount() {
   const { user } = useAuth();
   const { wallets, supportedWallets, connectWallet, connecting, loading: walletsLoading } = useWalletConnect();
+  const { virtualBalance, resetDemo } = useTradingMode();
   const [exchanges, setExchanges] = useState<ExchangeConnection[]>([]);
   const [loadingExchanges, setLoadingExchanges] = useState(true);
+  const [resetting, setResetting] = useState(false);
+
+  const handleResetDemo = async () => {
+    if (!user) return;
+    setResetting(true);
+    try {
+      await resetDemo(user.id);
+      toast.success('Demo account reset to $15,000');
+    } catch (err) {
+      console.error('Reset failed:', err);
+      toast.error('Failed to reset demo account');
+    } finally {
+      setResetting(false);
+    }
+  };
   const [visibility, setVisibility] = useState({
     portfolio: true,
     opportunities: true,
@@ -277,7 +307,27 @@ export default function DemoAccount() {
               <h3 className="font-semibold text-foreground">Quick Actions</h3>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" className="h-16 flex-col gap-2">
+                    {resetting ? <Loader2 className="w-5 h-5 animate-spin" /> : <RotateCcw className="w-5 h-5" />}
+                    <span className="text-xs">Reset Demo</span>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Reset Demo Account?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will reset your virtual balance to $15,000 and clear all demo trades and bot history. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleResetDemo}>Reset Account</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
               <Button variant="outline" className="h-16 flex-col gap-2">
                 <FlaskConical className="w-5 h-5" />
                 <span className="text-xs">Sandbox Mode</span>
@@ -295,6 +345,9 @@ export default function DemoAccount() {
                 <span className="text-xs">View All</span>
               </Button>
             </div>
+            <p className="text-xs text-muted-foreground mt-3">
+              Current Virtual Balance: <span className="text-primary font-mono">${virtualBalance.toLocaleString()}</span>
+            </p>
           </div>
         </div>
       </ScrollArea>
