@@ -71,6 +71,46 @@ function roundToStepSize(quantity: number, stepSize: string): string {
   return rounded.toFixed(precision);
 }
 
+// Fetch free USDT balance from Binance account (for live position sizing)
+async function getBinanceFreeStableBalance(
+  apiKey: string,
+  apiSecret: string,
+): Promise<number> {
+  try {
+    const timestamp = Date.now();
+    const params = `timestamp=${timestamp}`;
+    const signature = await hmacSha256(apiSecret, params);
+
+    const response = await fetch(
+      `https://api.binance.com/api/v3/account?${params}&signature=${signature}`,
+      {
+        method: "GET",
+        headers: { "X-MBX-APIKEY": apiKey },
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      console.error("Failed to fetch Binance account balance:", error);
+      return 0;
+    }
+
+    const data = await response.json();
+    if (!data.balances || !Array.isArray(data.balances)) return 0;
+
+    const usdt = data.balances.find(
+      (b: { asset: string }) => b.asset === "USDT",
+    );
+    if (!usdt) return 0;
+
+    const free = parseFloat(usdt.free ?? "0");
+    return Number.isFinite(free) ? free : 0;
+  } catch (e) {
+    console.error("Error fetching Binance account balance:", e);
+    return 0;
+  }
+}
+
 // Top 10 liquid USDT pairs
 const TOP_PAIRS = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT',
@@ -447,19 +487,71 @@ serve(async (req) => {
         // Get lot size requirements and calculate proper quantity
         const lotInfo = await getBinanceLotSize(symbol);
         console.log(`Lot size info for ${symbol}:`, lotInfo);
-        
-        // Ensure minimum notional value is met
+
+        // Determine final position size for order
         let adjustedPositionSize = positionSize;
+
+        // In LIVE SPOT mode on Binance, cap by real free USDT balance from the exchange
+        if (!isSandbox && exchangeName === "binance") {
+          const freeStable = await getBinanceFreeStableBalance(apiKey, apiSecret);
+          console.log(`Binance free USDT balance: $${freeStable}`);
+          if (freeStable <= 0) {
+            return new Response(
+              JSON.stringify({
+                error: "Insufficient free Binance balance",
+                reason:
+                  "Your free USDT balance on Binance is 0. Deposit or free up funds to trade.",
+                exchange: selectedExchange.exchange_name,
+              }),
+              {
+                status: 400,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
+          }
+
+          const maxByFree = freeStable * 0.8; // keep 20% buffer for fees / other orders
+          const minRequired = lotInfo.minNotional * 1.1;
+
+          if (maxByFree < minRequired) {
+            console.error(
+              `Free Binance balance $${freeStable} is below minimum notional requirement $${lotInfo.minNotional}`,
+            );
+            return new Response(
+              JSON.stringify({
+                error: "Balance below Binance minimum order size",
+                reason:
+                  `Free Binance USDT balance ($${freeStable.toFixed(
+                    4,
+                  )}) is below minimum notional requirement ($${lotInfo.minNotional})`,
+                exchange: selectedExchange.exchange_name,
+              }),
+              {
+                status: 400,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
+          }
+
+          adjustedPositionSize = Math.min(adjustedPositionSize, maxByFree);
+          console.log(
+            `Adjusted position size by free balance: $${adjustedPositionSize} (max by free: $${maxByFree})`,
+          );
+        }
+
+        // Ensure minimum notional value is met
         if (adjustedPositionSize < lotInfo.minNotional) {
           adjustedPositionSize = lotInfo.minNotional * 1.1; // Add 10% buffer
-          console.log(`Position size increased to meet min notional: $${adjustedPositionSize}`);
+          console.log(
+            `Position size increased to meet min notional: $${adjustedPositionSize}`,
+          );
         }
-        
+
         // Calculate and round quantity to step size
         const rawQuantity = adjustedPositionSize / currentPrice;
         const quantity = roundToStepSize(rawQuantity, lotInfo.stepSize);
         console.log(`Order quantity: ${quantity} (raw: ${rawQuantity}, stepSize: ${lotInfo.stepSize}, minQty: ${lotInfo.minQty})`);
-        
+
         let entryOrder: { orderId: string; status: string; avgPrice: number } | null = null;
 
         // Place ENTRY order
