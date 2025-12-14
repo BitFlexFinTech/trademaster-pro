@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { BotHistory } from '@/components/bots/BotHistory';
+import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
 import { useToast } from '@/hooks/use-toast';
 import {
   Select,
@@ -221,6 +222,32 @@ export default function Bots() {
         const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
         const newMaxDrawdown = Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown);
 
+        // Calculate exit price based on direction and P&L
+        const exitPrice = direction === 'long'
+          ? currentPrice * (1 + (tradePnl / 100))
+          : currentPrice * (1 - (tradePnl / 100));
+
+        // Save trade to database for persistent logging
+        if (user) {
+          supabase.from('trades').insert({
+            user_id: user.id,
+            pair,
+            direction,
+            entry_price: currentPrice,
+            exit_price: exitPrice,
+            amount: 100, // Default trade size
+            leverage: mode === 'leverage' ? (leverages[currentExchange] || 1) : 1,
+            profit_loss: tradePnl,
+            profit_percentage: (tradePnl / 100) * 100,
+            exchange_name: currentExchange,
+            is_sandbox: tradingMode === 'demo',
+            status: 'closed',
+            closed_at: new Date().toISOString(),
+          }).then(({ error }) => {
+            if (error) console.error('Failed to log trade:', error);
+          });
+        }
+
         // Play sound and show notification for trade
         notifyTrade(currentExchange, pair, direction, tradePnl);
 
@@ -268,7 +295,7 @@ export default function Bots() {
     }, 3000); // Trade every 3 seconds for demo
 
     return () => clearInterval(interval);
-  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, notifyTrade, notifyTakeProfit, toast, usdtFloat, updateBotPnl, setVirtualBalance]);
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, notifyTrade, notifyTakeProfit, toast, usdtFloat, updateBotPnl, setVirtualBalance, user, mode, leverages, virtualBalance]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
@@ -642,14 +669,29 @@ export default function Bots() {
           </div>
         </div>
 
-        {/* Bot History - Takes 1/3 */}
-        <div className="card-terminal p-3 flex flex-col overflow-hidden">
-          <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2 flex-shrink-0">
-            <FileText className="w-3 h-3 text-muted-foreground" />
-            Bot History
-          </h3>
-          <div className="flex-1 min-h-0">
-            <BotHistory bots={bots} />
+        {/* Right Column - Bot History & Recent Trades */}
+        <div className="flex flex-col gap-3 overflow-hidden">
+          {/* Recent Bot Trades */}
+          <div className="card-terminal p-3 flex flex-col overflow-hidden flex-1">
+            <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2 flex-shrink-0">
+              <Activity className="w-3 h-3 text-primary" />
+              Recent Trades
+              <Badge variant="outline" className="text-[8px] ml-auto">Live</Badge>
+            </h3>
+            <div className="flex-1 min-h-0">
+              <RecentBotTrades />
+            </div>
+          </div>
+
+          {/* Bot History */}
+          <div className="card-terminal p-3 flex flex-col overflow-hidden flex-1">
+            <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2 flex-shrink-0">
+              <FileText className="w-3 h-3 text-muted-foreground" />
+              Bot History
+            </h3>
+            <div className="flex-1 min-h-0">
+              <BotHistory bots={bots} />
+            </div>
           </div>
         </div>
       </div>

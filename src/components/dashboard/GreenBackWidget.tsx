@@ -8,6 +8,8 @@ import { useBotRuns } from '@/hooks/useBotRuns';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTradingMode } from '@/contexts/TradingModeContext';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
@@ -33,6 +35,7 @@ export function GreenBackWidget() {
   const { prices } = useRealtimePrices();
   const { notifyTrade, notifyTakeProfit } = useNotifications();
   const { mode: tradingMode, virtualBalance, setVirtualBalance } = useTradingMode();
+  const { user } = useAuth();
   const { toast } = useToast();
   
   const existingBot = bots.find(b => b.botName === 'GreenBack' && b.status === 'running');
@@ -109,6 +112,32 @@ export function GreenBackWidget() {
         const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
         const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
 
+        // Calculate exit price based on direction and P&L
+        const exitPrice = direction === 'long'
+          ? currentPrice * (1 + (tradePnl / 100))
+          : currentPrice * (1 - (tradePnl / 100));
+
+        // Save trade to database for persistent logging
+        if (user) {
+          supabase.from('trades').insert({
+            user_id: user.id,
+            pair,
+            direction,
+            entry_price: currentPrice,
+            exit_price: exitPrice,
+            amount: 100,
+            leverage: 1,
+            profit_loss: tradePnl,
+            profit_percentage: (tradePnl / 100) * 100,
+            exchange_name: currentExchange,
+            is_sandbox: tradingMode === 'demo',
+            status: 'closed',
+            closed_at: new Date().toISOString(),
+          }).then(({ error }) => {
+            if (error) console.error('Failed to log trade:', error);
+          });
+        }
+
         // Play sound and show notification for trade
         notifyTrade(currentExchange, pair, direction, tradePnl);
 
@@ -144,7 +173,7 @@ export function GreenBackWidget() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isRunning, dailyTarget, profitPerTrade, existingBot, prices, notifyTrade, notifyTakeProfit, toast, tradingMode, updateBotPnl, setVirtualBalance]);
+  }, [isRunning, dailyTarget, profitPerTrade, existingBot, prices, notifyTrade, notifyTakeProfit, toast, tradingMode, updateBotPnl, setVirtualBalance, user, virtualBalance]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
