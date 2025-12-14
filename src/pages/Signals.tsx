@@ -16,7 +16,6 @@ interface ExchangeConnection {
   is_connected: boolean;
 }
 
-// Exchange liquidity scores for pair matching
 const EXCHANGE_LIQUIDITY: Record<string, Record<string, number>> = {
   'BTC/USDT': { Binance: 100, OKX: 90, Bybit: 85, Kraken: 70, KuCoin: 65 },
   'ETH/USDT': { Binance: 100, OKX: 88, Bybit: 82, Kraken: 75, KuCoin: 68 },
@@ -41,7 +40,6 @@ export default function Signals() {
   const [, setTick] = useState(0);
   const [connectedExchanges, setConnectedExchanges] = useState<string[]>([]);
 
-  // Fetch connected exchanges
   useEffect(() => {
     const fetchConnections = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -60,13 +58,11 @@ export default function Signals() {
     fetchConnections();
   }, []);
 
-  // Force re-render every second to update countdown timers
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Generate signals on mount
   useEffect(() => {
     if (signals.length === 0) {
       generateSignals();
@@ -75,12 +71,9 @@ export default function Signals() {
 
   const getRecommendedExchange = (pair: string): string => {
     const liquidityMap = EXCHANGE_LIQUIDITY[pair] || DEFAULT_LIQUIDITY;
-    
-    // Filter to only connected exchanges and sort by liquidity
     const available = connectedExchanges
       .map(ex => ({ name: ex, score: liquidityMap[ex] || 0 }))
       .sort((a, b) => b.score - a.score);
-    
     return available[0]?.name || 'Binance';
   };
 
@@ -113,29 +106,17 @@ export default function Signals() {
 
     if (trade) {
       toast({
-        title: '🚀 Trade Executed',
-        description: `${signal.direction.toUpperCase()} ${signal.pair} on ${exchange} at $${signal.entry.toFixed(2)}`,
+        title: 'Trade Executed',
+        description: `${signal.direction.toUpperCase()} ${signal.pair} on ${exchange}`,
       });
     }
   };
 
   const getRiskBadge = (confidence: string) => {
-    const riskMap: Record<string, string> = {
-      High: 'LOW',
-      Medium: 'MEDIUM',
-      Low: 'HIGH',
-    };
-    const risk = riskMap[confidence] || 'MEDIUM';
-    const classes = {
-      LOW: 'risk-low',
-      MEDIUM: 'risk-medium',
-      HIGH: 'risk-high',
-    }[risk];
-    return (
-      <span className={cn('text-xs px-2 py-0.5 rounded font-medium', classes)}>
-        ○ {risk}
-      </span>
-    );
+    const riskMap: Record<string, string> = { High: 'LOW', Medium: 'MED', Low: 'HIGH' };
+    const risk = riskMap[confidence] || 'MED';
+    const classes = { LOW: 'risk-low', MED: 'risk-medium', HIGH: 'risk-high' }[risk];
+    return <span className={cn('text-[9px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap', classes)}>{risk}</span>;
   };
 
   const calculateProfitPotential = (signal: Signal, amount: number, leverage: number) => {
@@ -147,203 +128,187 @@ export default function Signals() {
   };
 
   return (
-    <div className="min-h-0 flex flex-col">
-      <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
-        <div className="flex items-center gap-3">
-          <Sparkles className="w-6 h-6 text-primary" />
-          <h1 className="text-xl font-bold text-foreground">AI Trading Signals</h1>
-          <span className="live-indicator">{signals.length} Active</span>
+    <div className="h-full flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-3 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-primary" />
+          <h1 className="text-lg font-bold text-foreground">AI Trading Signals</h1>
+          <span className="live-indicator text-[10px]">{signals.length} Active</span>
         </div>
-        <div className="flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-3 text-xs">
           <span className="text-muted-foreground">
-            Win Rate: <span className="text-primary font-mono">{stats.winRate.toFixed(1)}%</span>
+            Win: <span className="text-primary font-mono">{stats.winRate.toFixed(0)}%</span>
           </span>
           <span className="text-muted-foreground">
-            Total P&L: <span className={cn('font-mono', stats.totalPnL >= 0 ? 'text-primary' : 'text-destructive')}>
-              {stats.totalPnL >= 0 ? '+' : ''}${stats.totalPnL.toFixed(2)}
+            P&L: <span className={cn('font-mono', stats.totalPnL >= 0 ? 'text-primary' : 'text-destructive')}>
+              {stats.totalPnL >= 0 ? '+' : ''}${stats.totalPnL.toFixed(0)}
             </span>
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={generateSignals}
-            disabled={loading}
-            className="gap-2"
-          >
-            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-            Generate New
+          <Button variant="outline" size="sm" onClick={generateSignals} disabled={loading} className="gap-1 h-7 text-xs">
+            <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
+            Refresh
           </Button>
         </div>
       </div>
 
-      {/* Alert Banner */}
-      <div className="flex items-center gap-2 p-3 bg-warning/10 border border-warning/20 rounded-lg mb-4">
-        <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0" />
-        <p className="text-sm text-warning">
-          <strong>Quick Execution Mode:</strong> Signals expire in 5 minutes. AI generates 5 LONG and 5 SHORT signals targeting 1.4-2.5% profit per trade.
+      <div className="flex items-center gap-2 p-2 bg-warning/10 border border-warning/20 rounded mb-3 flex-shrink-0">
+        <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0" />
+        <p className="text-[10px] text-warning">
+          <strong>Quick Mode:</strong> 5-min expiry | 5 LONG + 5 SHORT signals | 1.4-2.5% target
         </p>
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 card-terminal overflow-hidden">
         <ScrollArea className="h-full">
-          <div className="card-terminal overflow-x-auto">
-            <table className="table-terminal">
-              <thead>
-                <tr className="bg-secondary/50">
-                  <th>Pair</th>
-                  <th>Direction</th>
-                  <th>Exchange</th>
-                  <th>Entry</th>
-                  <th>TP1</th>
-                  <th>TP2</th>
-                  <th>TP3</th>
-                  <th>SL</th>
-                  <th>Amount</th>
-                  <th>Leverage</th>
-                  <th>Risk</th>
-                  <th>Profit</th>
-                  <th>Expires</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading && signals.length === 0 ? (
-                  Array.from({ length: 10 }).map((_, i) => (
-                    <tr key={i}>
-                      {Array.from({ length: 14 }).map((_, j) => (
-                        <td key={j}><Skeleton className="h-4 w-full" /></td>
-                      ))}
-                    </tr>
-                  ))
-                ) : signals.length === 0 ? (
-                  <tr>
-                    <td colSpan={14} className="text-center py-8 text-muted-foreground">
-                      No active signals. Click "Generate New" to create AI-powered trading signals.
-                    </td>
+          <table className="w-full text-[10px]">
+            <thead className="sticky top-0 z-10 bg-secondary/95 backdrop-blur-sm">
+              <tr>
+                <th className="text-left py-1.5 px-1.5 text-muted-foreground font-medium">Pair</th>
+                <th className="text-left py-1.5 px-1.5 text-muted-foreground font-medium">Dir</th>
+                <th className="text-left py-1.5 px-1.5 text-muted-foreground font-medium">Exch</th>
+                <th className="text-right py-1.5 px-1.5 text-muted-foreground font-medium">Entry</th>
+                <th className="text-right py-1.5 px-1.5 text-muted-foreground font-medium">TP1</th>
+                <th className="text-right py-1.5 px-1.5 text-muted-foreground font-medium">TP2</th>
+                <th className="text-right py-1.5 px-1.5 text-muted-foreground font-medium">TP3</th>
+                <th className="text-right py-1.5 px-1.5 text-muted-foreground font-medium">SL</th>
+                <th className="text-center py-1.5 px-1.5 text-muted-foreground font-medium">Amt</th>
+                <th className="text-center py-1.5 px-1.5 text-muted-foreground font-medium">Lev</th>
+                <th className="text-center py-1.5 px-1.5 text-muted-foreground font-medium">Risk</th>
+                <th className="text-right py-1.5 px-1.5 text-muted-foreground font-medium">Profit</th>
+                <th className="text-center py-1.5 px-1.5 text-muted-foreground font-medium">Exp</th>
+                <th className="text-center py-1.5 px-1.5 text-muted-foreground font-medium">Act</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && signals.length === 0 ? (
+                Array.from({ length: 10 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 14 }).map((_, j) => (
+                      <td key={j} className="py-1.5 px-1.5"><Skeleton className="h-4 w-full" /></td>
+                    ))}
                   </tr>
-                ) : (
-                  signals.map((signal) => {
-                    const amount = amounts[signal.id] || 100;
-                    const leverage = leverages[signal.id] || 1;
-                    const profit = calculateProfitPotential(signal, amount, leverage);
-                    const timeRemaining = getTimeRemaining(signal.expiresAt);
-                    const isExpired = timeRemaining === 'Expired';
-                    const recommendedExchange = getRecommendedExchange(signal.pair);
+                ))
+              ) : signals.length === 0 ? (
+                <tr>
+                  <td colSpan={14} className="text-center py-8 text-muted-foreground text-xs">
+                    No active signals. Click "Refresh" to generate AI-powered signals.
+                  </td>
+                </tr>
+              ) : (
+                signals.map((signal) => {
+                  const amount = amounts[signal.id] || 100;
+                  const leverage = leverages[signal.id] || 1;
+                  const profit = calculateProfitPotential(signal, amount, leverage);
+                  const timeRemaining = getTimeRemaining(signal.expiresAt);
+                  const isExpired = timeRemaining === 'Expired';
+                  const recommendedExchange = getRecommendedExchange(signal.pair);
 
-                    return (
-                      <tr key={signal.id} className={cn('hover:bg-secondary/30', isExpired && 'opacity-50')}>
-                        <td className="font-medium text-foreground">{signal.pair}</td>
-                        <td>
-                          <span className={signal.direction === 'long' ? 'badge-long' : 'badge-short'}>
-                            {signal.direction === 'long' ? (
-                              <TrendingUp className="w-3 h-3" />
-                            ) : (
-                              <TrendingDown className="w-3 h-3" />
-                            )}
-                            {signal.direction.toUpperCase()}
-                          </span>
-                        </td>
-                        <td>
-                          <Badge variant="outline" className="text-[10px] font-mono">
-                            {recommendedExchange}
-                          </Badge>
-                        </td>
-                        <td className="font-mono text-foreground">
-                          ${signal.entry.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="font-mono text-primary">
-                          ${signal.tp1.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="font-mono text-primary">
-                          ${signal.tp2.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="font-mono text-primary">
-                          ${signal.tp3.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="font-mono text-destructive">
-                          ${signal.sl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                        <td>
-                          <Input
-                            type="number"
-                            value={amount}
-                            onChange={(e) => handleAmountChange(signal.id, Number(e.target.value))}
-                            className="w-20 h-8 text-sm font-mono bg-secondary border-border"
-                            min={10}
-                          />
-                        </td>
-                        <td>
-                          <Input
-                            type="number"
-                            value={leverage}
-                            onChange={(e) => handleLeverageChange(signal.id, Number(e.target.value))}
-                            className="w-16 h-8 text-sm font-mono bg-secondary border-border"
-                            min={1}
-                            max={100}
-                          />
-                        </td>
-                        <td>{getRiskBadge(signal.confidence)}</td>
-                        <td className="font-mono text-primary">
-                          +{profit.percent.toFixed(1)}%<br />
-                          <span className="text-xs text-muted-foreground">${profit.usd.toFixed(2)}</span>
-                        </td>
-                        <td>
-                          <span className={cn(
-                            'flex items-center gap-1 font-mono',
-                            isExpired ? 'text-destructive' : 'text-warning'
-                          )}>
-                            <Clock className="w-3 h-3" />
-                            {timeRemaining}
-                          </span>
-                        </td>
-                        <td>
-                          <Button
-                            size="sm"
-                            className="btn-primary h-7 px-4"
-                            disabled={isExpired || executing}
-                            onClick={() => handleTrade(signal)}
-                          >
-                            {executing ? '...' : 'Trade'}
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Signal Analysis */}
-          {signals.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              <div className="card-terminal p-4">
-                <h3 className="font-semibold text-foreground mb-3">Signal Breakdown</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Long Signals</span>
-                    <span className="text-primary font-mono">{signals.filter(s => s.direction === 'long').length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Short Signals</span>
-                    <span className="text-destructive font-mono">{signals.filter(s => s.direction === 'short').length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">High Confidence</span>
-                    <span className="font-mono">{signals.filter(s => s.confidence === 'High').length}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="card-terminal p-4">
-                <h3 className="font-semibold text-foreground mb-3">AI Analysis Summary</h3>
-                <p className="text-sm text-muted-foreground">
-                  {signals[0]?.reasoning || 'AI is analyzing current market conditions...'}
-                </p>
-              </div>
-            </div>
-          )}
+                  return (
+                    <tr key={signal.id} className={cn('hover:bg-secondary/30 border-t border-border/50', isExpired && 'opacity-50')}>
+                      <td className="py-1.5 px-1.5 font-medium text-foreground whitespace-nowrap">{signal.pair}</td>
+                      <td className="py-1.5 px-1.5">
+                        <span className={cn('text-[9px] px-1 py-0.5 rounded flex items-center gap-0.5 w-fit', signal.direction === 'long' ? 'bg-primary/20 text-primary' : 'bg-destructive/20 text-destructive')}>
+                          {signal.direction === 'long' ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                          {signal.direction.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-1.5">
+                        <Badge variant="outline" className="text-[8px] font-mono px-1 py-0">
+                          {recommendedExchange.slice(0, 3)}
+                        </Badge>
+                      </td>
+                      <td className="py-1.5 px-1.5 font-mono text-foreground text-right whitespace-nowrap">
+                        ${signal.entry >= 1000 ? signal.entry.toLocaleString() : signal.entry.toFixed(2)}
+                      </td>
+                      <td className="py-1.5 px-1.5 font-mono text-primary text-right whitespace-nowrap">
+                        ${signal.tp1 >= 1000 ? signal.tp1.toLocaleString() : signal.tp1.toFixed(2)}
+                      </td>
+                      <td className="py-1.5 px-1.5 font-mono text-primary text-right whitespace-nowrap">
+                        ${signal.tp2 >= 1000 ? signal.tp2.toLocaleString() : signal.tp2.toFixed(2)}
+                      </td>
+                      <td className="py-1.5 px-1.5 font-mono text-primary text-right whitespace-nowrap">
+                        ${signal.tp3 >= 1000 ? signal.tp3.toLocaleString() : signal.tp3.toFixed(2)}
+                      </td>
+                      <td className="py-1.5 px-1.5 font-mono text-destructive text-right whitespace-nowrap">
+                        ${signal.sl >= 1000 ? signal.sl.toLocaleString() : signal.sl.toFixed(2)}
+                      </td>
+                      <td className="py-1.5 px-1.5 text-center">
+                        <Input
+                          type="number"
+                          value={amount}
+                          onChange={(e) => handleAmountChange(signal.id, Number(e.target.value))}
+                          className="w-12 h-5 text-[9px] font-mono bg-secondary border-border text-center px-0.5"
+                          min={10}
+                        />
+                      </td>
+                      <td className="py-1.5 px-1.5 text-center">
+                        <Input
+                          type="number"
+                          value={leverage}
+                          onChange={(e) => handleLeverageChange(signal.id, Number(e.target.value))}
+                          className="w-10 h-5 text-[9px] font-mono bg-secondary border-border text-center px-0.5"
+                          min={1}
+                          max={100}
+                        />
+                      </td>
+                      <td className="py-1.5 px-1.5 text-center">{getRiskBadge(signal.confidence)}</td>
+                      <td className="py-1.5 px-1.5 text-right">
+                        <span className="font-mono text-primary whitespace-nowrap">+{profit.percent.toFixed(1)}%</span>
+                        <br />
+                        <span className="text-[8px] text-muted-foreground">${profit.usd.toFixed(0)}</span>
+                      </td>
+                      <td className="py-1.5 px-1.5 text-center">
+                        <span className={cn('flex items-center justify-center gap-0.5 font-mono whitespace-nowrap', isExpired ? 'text-destructive' : 'text-warning')}>
+                          <Clock className="w-2.5 h-2.5" />
+                          {timeRemaining}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-1.5 text-center">
+                        <Button
+                          size="sm"
+                          className="btn-primary h-5 px-2 text-[9px]"
+                          disabled={isExpired || executing}
+                          onClick={() => handleTrade(signal)}
+                        >
+                          Trade
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </ScrollArea>
       </div>
+
+      {signals.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 mt-3 flex-shrink-0">
+          <div className="card-terminal p-3">
+            <h3 className="font-semibold text-foreground text-xs mb-2">Signal Breakdown</h3>
+            <div className="space-y-1 text-[10px]">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Long</span>
+                <span className="text-primary font-mono">{signals.filter(s => s.direction === 'long').length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Short</span>
+                <span className="text-destructive font-mono">{signals.filter(s => s.direction === 'short').length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">High Conf</span>
+                <span className="font-mono">{signals.filter(s => s.confidence === 'High').length}</span>
+              </div>
+            </div>
+          </div>
+          <div className="card-terminal p-3">
+            <h3 className="font-semibold text-foreground text-xs mb-2">AI Analysis</h3>
+            <p className="text-[10px] text-muted-foreground line-clamp-3">
+              {signals[0]?.reasoning || 'Analyzing market conditions...'}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

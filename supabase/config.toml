@@ -26,3 +26,15 @@ verify_jwt = false
 
 [functions.sync-exchange-balances]
 verify_jwt = true
+
+[functions.execute-bot-trade]
+verify_jwt = true
+
+[functions.analyze-bot-performance]
+verify_jwt = true
+
+[functions.withdraw-bot-profits]
+verify_jwt = true
+
+[functions.convert-to-usdt]
+verify_jwt = true

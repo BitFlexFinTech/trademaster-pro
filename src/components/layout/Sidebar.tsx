@@ -20,6 +20,7 @@ import {
   BookOpen,
   Wallet,
   Bell,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { UsageBanner } from '@/components/subscription/UsageBanner';
 import { useAuth } from '@/hooks/useAuth';
@@ -33,6 +34,7 @@ const navItems = [
   { to: '/signals', icon: TrendingUp, label: 'Signals' },
   { to: '/auto-earn', icon: Zap, label: 'Auto Earn' },
   { to: '/bots', icon: Bot, label: 'Bots' },
+  { to: '/arbitrage', icon: ArrowRightLeft, label: 'Arbitrage' },
   { to: '/airdrops', icon: Gift, label: 'Airdrops' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/risk', icon: Shield, label: 'Risk' },

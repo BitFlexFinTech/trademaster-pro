@@ -28,6 +28,7 @@ import News from "./pages/News";
 import Research from "./pages/Research";
 import Portfolio from "./pages/Portfolio";
 import Notifications from "./pages/Notifications";
+import Arbitrage from "./pages/Arbitrage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -62,6 +63,7 @@ const App = () => (
                   <Route path="/risk" element={<Risk />} />
                   <Route path="/sandbox" element={<Sandbox />} />
                   <Route path="/charts" element={<Charts />} />
+                  <Route path="/arbitrage" element={<Arbitrage />} />
                   <Route path="/news" element={<News />} />
                   <Route path="/research" element={<Research />} />
                   <Route path="/notifications" element={<Notifications />} />

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff, TrendingUp, Shield, Zap, Crown } from 'lucide-react';
+import { Eye, EyeOff, TrendingUp, Shield, Zap } from 'lucide-react';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -14,7 +14,6 @@ export default function Auth() {
   const [displayName, setDisplayName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [godModeLoading, setGodModeLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -56,77 +55,6 @@ export default function Auth() {
     }
   };
 
-  const handleGodMode = async () => {
-    setGodModeLoading(true);
-    const adminEmail = 'admin@arbterminal.io';
-    const adminPassword = 'GodMode123!';
-
-    try {
-      // Try to sign in first
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: adminEmail,
-        password: adminPassword,
-      });
-
-      if (signInError) {
-        // If sign in fails, create the account
-        if (signInError.message.includes('Invalid login credentials')) {
-          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-            email: adminEmail,
-            password: adminPassword,
-            options: {
-              emailRedirectTo: `${window.location.origin}/dashboard`,
-              data: { display_name: 'Super Admin' },
-            },
-          });
-
-          if (signUpError) throw signUpError;
-
-          // Assign super_admin role
-          if (signUpData.user) {
-            await supabase.from('user_roles').upsert({
-              user_id: signUpData.user.id,
-              role: 'super_admin',
-            }, {
-              onConflict: 'user_id,role',
-            });
-
-            // Create enterprise subscription for admin
-            await supabase.from('subscriptions').upsert({
-              user_id: signUpData.user.id,
-              plan: 'enterprise',
-              status: 'active',
-            }, {
-              onConflict: 'user_id',
-            });
-          }
-
-          toast({ 
-            title: 'GodMode Activated! 👑', 
-            description: 'Super Admin account created. Full access granted.' 
-          });
-        } else {
-          throw signInError;
-        }
-      } else {
-        toast({ 
-          title: 'GodMode Activated! 👑', 
-          description: 'Welcome back, Super Admin.' 
-        });
-      }
-
-      navigate('/dashboard');
-    } catch (error: any) {
-      console.error('GodMode error:', error);
-      toast({ 
-        title: 'GodMode Failed', 
-        description: error.message, 
-        variant: 'destructive' 
-      });
-    } finally {
-      setGodModeLoading(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -255,27 +183,6 @@ export default function Auth() {
                 {loading ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}
               </Button>
             </form>
-
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-border"></div>
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">Or</span>
-              </div>
-            </div>
-
-            {/* GodMode Button */}
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 hover:text-amber-400"
-              onClick={handleGodMode}
-              disabled={godModeLoading}
-            >
-              <Crown className="w-4 h-4 mr-2" />
-              {godModeLoading ? 'Activating GodMode...' : 'GodMode (Super Admin)'}
-            </Button>
 
             <div className="mt-6 text-center">
               <button

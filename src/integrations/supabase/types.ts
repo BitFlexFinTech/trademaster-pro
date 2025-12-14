@@ -145,6 +145,7 @@ export type Database = {
       }
       bot_runs: {
         Row: {
+          analysis_report: Json | null
           bot_name: string
           created_at: string | null
           current_pnl: number | null
@@ -154,6 +155,7 @@ export type Database = {
           max_drawdown: number | null
           mode: string
           profit_per_trade: number | null
+          profits_withdrawn: number | null
           started_at: string | null
           status: string | null
           stopped_at: string | null
@@ -162,6 +164,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          analysis_report?: Json | null
           bot_name: string
           created_at?: string | null
           current_pnl?: number | null
@@ -171,6 +174,7 @@ export type Database = {
           max_drawdown?: number | null
           mode?: string
           profit_per_trade?: number | null
+          profits_withdrawn?: number | null
           started_at?: string | null
           status?: string | null
           stopped_at?: string | null
@@ -179,6 +183,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          analysis_report?: Json | null
           bot_name?: string
           created_at?: string | null
           current_pnl?: number | null
@@ -188,6 +193,7 @@ export type Database = {
           max_drawdown?: number | null
           mode?: string
           profit_per_trade?: number | null
+          profits_withdrawn?: number | null
           started_at?: string | null
           status?: string | null
           stopped_at?: string | null
