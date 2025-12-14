@@ -28,6 +28,12 @@ export function RecentBotTrades() {
   const [trades, setTrades] = useState<BotTrade[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Calculate summary stats - MUST be before any early returns
+  const { totalPnL, tradeCount } = useMemo(() => {
+    const total = trades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
+    return { totalPnL: total, tradeCount: trades.length };
+  }, [trades]);
+
   // Fetch trades function
   const fetchTrades = async () => {
     if (!user) {
@@ -107,12 +113,6 @@ export function RecentBotTrades() {
       </div>
     );
   }
-
-  // Calculate summary stats
-  const { totalPnL, tradeCount } = useMemo(() => {
-    const total = trades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
-    return { totalPnL: total, tradeCount: trades.length };
-  }, [trades]);
 
   return (
     <div className="flex flex-col h-full">
