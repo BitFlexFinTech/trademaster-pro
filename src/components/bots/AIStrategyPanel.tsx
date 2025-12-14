@@ -83,55 +83,52 @@ export function AIStrategyPanel({
         </Badge>
       </div>
 
-      {/* Hit Rate Gauge */}
-      {metrics && (
-        <HitRateGauge
-          currentHitRate={metrics.currentHitRate}
-          targetHitRate={metrics.targetHitRate}
-          requiredHitRate={metrics.requiredHitRate}
-          tradesCount={metrics.tradesExecuted}
-          className="mb-4"
-        />
-      )}
+      {/* Hit Rate Gauge - Always show with defaults */}
+      <HitRateGauge
+        currentHitRate={metrics?.currentHitRate || 0}
+        targetHitRate={metrics?.targetHitRate || 95}
+        requiredHitRate={metrics?.requiredHitRate || 95}
+        tradesCount={metrics?.tradesExecuted || 0}
+        className="mb-4"
+      />
 
-      {/* Strategy Metrics Grid */}
-      {metrics && (
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          <div className="bg-secondary/50 p-2 rounded text-center">
-            <p className="text-[9px] text-muted-foreground">Signal Threshold</p>
-            <p className="text-sm font-bold font-mono text-primary">
-              {(metrics.signalThreshold * 100).toFixed(0)}%
-            </p>
-          </div>
-          <div className="bg-secondary/50 p-2 rounded text-center">
-            <p className="text-[9px] text-muted-foreground">Projected Daily</p>
-            <p className={cn(
-              'text-sm font-bold font-mono',
-              metrics.projectedDailyPnL >= metrics.dailyTarget ? 'text-primary' : 'text-warning'
-            )}>
-              ${metrics.projectedDailyPnL.toFixed(2)}
-            </p>
-          </div>
-          <div className="bg-secondary/50 p-2 rounded text-center">
-            <p className="text-[9px] text-muted-foreground">Progress</p>
-            <p className="text-sm font-bold font-mono text-foreground">
-              ${metrics.currentPnL.toFixed(2)} / ${metrics.dailyTarget}
-            </p>
-          </div>
-          <div className="bg-secondary/50 p-2 rounded text-center">
-            <p className="text-[9px] text-muted-foreground">Status</p>
-            <Badge
-              variant="outline"
-              className={cn(
-                'text-[9px]',
-                metrics.isOnTrack ? 'border-primary text-primary' : 'border-warning text-warning'
-              )}
-            >
-              {metrics.isOnTrack ? 'ON TRACK' : 'ADJUSTING'}
-            </Badge>
-          </div>
+      {/* Strategy Metrics Grid - Show defaults when no metrics */}
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        <div className="bg-secondary/50 p-2 rounded text-center">
+          <p className="text-[9px] text-muted-foreground">Signal Threshold</p>
+          <p className="text-sm font-bold font-mono text-primary">
+            {metrics ? `${(metrics.signalThreshold * 100).toFixed(0)}%` : '90%'}
+          </p>
         </div>
-      )}
+        <div className="bg-secondary/50 p-2 rounded text-center">
+          <p className="text-[9px] text-muted-foreground">Projected Daily</p>
+          <p className={cn(
+            'text-sm font-bold font-mono',
+            metrics && metrics.projectedDailyPnL >= metrics.dailyTarget ? 'text-primary' : 'text-warning'
+          )}>
+            ${metrics?.projectedDailyPnL?.toFixed(2) || '0.00'}
+          </p>
+        </div>
+        <div className="bg-secondary/50 p-2 rounded text-center">
+          <p className="text-[9px] text-muted-foreground">Progress</p>
+          <p className="text-sm font-bold font-mono text-foreground">
+            ${metrics?.currentPnL?.toFixed(2) || '0.00'} / ${metrics?.dailyTarget || 40}
+          </p>
+        </div>
+        <div className="bg-secondary/50 p-2 rounded text-center">
+          <p className="text-[9px] text-muted-foreground">Status</p>
+          <Badge
+            variant="outline"
+            className={cn(
+              'text-[9px]',
+              !metrics ? 'border-muted-foreground text-muted-foreground' :
+              metrics.isOnTrack ? 'border-primary text-primary' : 'border-warning text-warning'
+            )}
+          >
+            {!metrics ? 'IDLE' : metrics.isOnTrack ? 'ON TRACK' : 'ADJUSTING'}
+          </Badge>
+        </div>
+      </div>
 
       {/* AI Recommendations */}
       <div className="flex-1 min-h-0 flex flex-col">

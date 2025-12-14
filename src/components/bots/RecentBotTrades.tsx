@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useTradingMode } from '@/contexts/TradingModeContext';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
@@ -23,29 +24,47 @@ interface BotTrade {
 
 export function RecentBotTrades() {
   const { user } = useAuth();
+  const { resetTrigger, mode } = useTradingMode();
   const [trades, setTrades] = useState<BotTrade[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Fetch trades function
+  const fetchTrades = async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    const { data } = await supabase
+      .from('trades')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_sandbox', mode === 'demo')
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (data) {
+      setTrades(data as BotTrade[]);
+    }
+    setLoading(false);
+  };
+
   // Fetch initial trades
   useEffect(() => {
-    if (!user) return;
-
-    const fetchTrades = async () => {
-      const { data } = await supabase
-        .from('trades')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      if (data) {
-        setTrades(data as BotTrade[]);
-      }
-      setLoading(false);
-    };
-
     fetchTrades();
-  }, [user]);
+  }, [user, mode]);
+
+  // Listen to reset trigger - clear trades
+  useEffect(() => {
+    if (resetTrigger > 0) {
+      setTrades([]);
+      setLoading(true);
+      // Delay refetch to allow database deletes to complete
+      setTimeout(() => {
+        fetchTrades();
+      }, 500);
+    }
+  }, [resetTrigger]);
 
   // Subscribe to real-time trade updates
   useEffect(() => {

@@ -2,7 +2,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Clock, TrendingUp, TrendingDown, Target, Activity, Brain } from 'lucide-react';
+import { Clock, TrendingUp, TrendingDown, Target, Activity, Brain, History } from 'lucide-react';
 
 interface BotRun {
   id: string;
@@ -25,6 +25,17 @@ interface BotHistoryProps {
 
 export function BotHistory({ bots, onViewAnalysis }: BotHistoryProps) {
   const stoppedBots = bots.filter(b => b.status === 'stopped');
+
+  if (stoppedBots.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center p-4">
+        <History className="w-8 h-8 text-muted-foreground mb-2" />
+        <p className="text-xs text-muted-foreground">
+          No bot history yet. Start and stop a bot to see history here.
+        </p>
+      </div>
+    );
+  }
 
   if (stoppedBots.length === 0) {
     return (

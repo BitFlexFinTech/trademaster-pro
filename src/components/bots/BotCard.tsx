@@ -256,7 +256,7 @@ export function BotCard({
   const progressPercent = (metrics.currentPnL / dailyTarget) * 100;
 
   return (
-    <div className="card-terminal p-4 flex flex-col h-full">
+    <div className="card-terminal p-3 flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
@@ -385,13 +385,13 @@ export function BotCard({
         </div>
       </div>
 
-      {/* Leverage Sliders (only for leverage bot) */}
+      {/* Leverage Sliders (only for leverage bot) - Compact */}
       {botType === 'leverage' && (
-        <div className="mb-3 space-y-2">
-          <label className="text-[10px] text-muted-foreground block">Exchange Leverage</label>
-          {EXCHANGE_CONFIGS.map(ex => (
-            <div key={ex.name} className="flex items-center gap-2">
-              <span className="text-[10px] text-foreground w-14">{ex.name}</span>
+        <div className="mb-2 space-y-1">
+          <label className="text-[9px] text-muted-foreground block">Leverage by Exchange</label>
+          {EXCHANGE_CONFIGS.slice(0, 3).map(ex => (
+            <div key={ex.name} className="flex items-center gap-1">
+              <span className="text-[9px] text-foreground w-12 truncate">{ex.name}</span>
               <Slider
                 value={[leverages[ex.name] || 1]}
                 onValueChange={(v) => setLeverages(prev => ({ ...prev, [ex.name]: v[0] }))}
@@ -401,36 +401,25 @@ export function BotCard({
                 disabled={isRunning}
                 className="flex-1"
               />
-              <span className="text-[10px] font-mono text-muted-foreground w-6">{leverages[ex.name]}×</span>
+              <span className="text-[9px] font-mono text-muted-foreground w-5">{leverages[ex.name]}×</span>
             </div>
           ))}
         </div>
       )}
 
-      {/* Recommended USDT Allocation */}
+      {/* Recommended USDT Allocation - Compact */}
       {!isRunning && (
-        <div className="mb-3 flex-1 min-h-0">
-          <label className="text-[10px] text-muted-foreground block mb-2">
-            Recommended USDT: ${suggestedUSDT.toLocaleString()}
+        <div className="mb-2">
+          <label className="text-[9px] text-muted-foreground block mb-1">
+            Recommended: ${suggestedUSDT.toLocaleString()}
           </label>
-          <div className="bg-secondary/30 rounded overflow-hidden text-[10px]">
-            <div className="grid grid-cols-3 gap-1 px-2 py-1.5 bg-muted/50 text-muted-foreground font-medium">
-              <span>Exchange</span>
-              <span>USDT</span>
-              <span>Confidence</span>
-            </div>
-            {EXCHANGE_CONFIGS.slice(0, 3).map(ex => {
+          <div className="bg-secondary/30 rounded overflow-hidden text-[9px]">
+            {EXCHANGE_CONFIGS.slice(0, 2).map(ex => {
               const allocation = Math.round(suggestedUSDT * EXCHANGE_ALLOCATION_PERCENTAGES[ex.confidence]);
               return (
-                <div key={ex.name} className="grid grid-cols-3 gap-1 px-2 py-1 border-t border-border/50">
+                <div key={ex.name} className="flex items-center justify-between px-2 py-1 border-t border-border/50 first:border-t-0">
                   <span className="text-foreground">{ex.name}</span>
                   <span className="font-mono text-primary">${allocation.toLocaleString()}</span>
-                  <Badge variant="outline" className={cn('text-[8px] w-fit h-4',
-                    ex.confidence === 'High' && 'border-primary text-primary',
-                    ex.confidence === 'Medium' && 'border-warning text-warning',
-                  )}>
-                    {ex.confidence}
-                  </Badge>
                 </div>
               );
             })}

@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
+import { useTradingMode } from '@/contexts/TradingModeContext';
 import { toast } from 'sonner';
 
 interface AnalysisReport {
@@ -47,6 +48,7 @@ interface BotStats {
 
 export function useBotRuns() {
   const { user } = useAuth();
+  const { resetTrigger } = useTradingMode();
   const [bots, setBots] = useState<BotRun[]>([]);
   const [stats, setStats] = useState<BotStats>({ totalBots: 0, activeBots: 0, totalPnl: 0, totalTrades: 0 });
   const [loading, setLoading] = useState(true);
@@ -179,6 +181,19 @@ export function useBotRuns() {
   useEffect(() => {
     fetchBots();
   }, [fetchBots]);
+
+  // Listen to reset trigger - clear bots immediately
+  useEffect(() => {
+    if (resetTrigger > 0) {
+      setBots([]);
+      setStats({ totalBots: 0, activeBots: 0, totalPnl: 0, totalTrades: 0 });
+      setAnalysisData({ analysis: null, stats: null });
+      // Delay refetch to allow database deletes to complete
+      setTimeout(() => {
+        fetchBots();
+      }, 500);
+    }
+  }, [resetTrigger, fetchBots]);
 
   // Subscribe to realtime updates for bot_runs table
   useEffect(() => {
