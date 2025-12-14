@@ -22,6 +22,7 @@ interface ExchangeConnection {
   is_connected: boolean;
   permissions: string[];
   last_verified_at?: string;
+  encrypted_api_key?: string | null;
 }
 
 export default function Settings() {
@@ -64,7 +65,7 @@ export default function Settings() {
     try {
       const { data, error } = await supabase
         .from('exchange_connections')
-        .select('exchange_name, is_connected, permissions, last_verified_at')
+        .select('exchange_name, is_connected, permissions, last_verified_at, encrypted_api_key')
         .eq('user_id', user.id);
 
       if (error) throw error;
@@ -136,7 +137,9 @@ export default function Settings() {
   };
 
   const connectedCount = Object.values(connections).filter(c => c.is_connected).length;
-
+  const exchangesNeedingReconnect = Object.values(connections).filter(
+    c => c.is_connected && !c.encrypted_api_key
+  );
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -163,6 +166,25 @@ export default function Settings() {
           </span>
         </div>
       </div>
+
+      {/* Re-connect Banner */}
+      {exchangesNeedingReconnect.length > 0 && (
+        <div className="flex items-start gap-3 p-4 bg-warning/10 border border-warning/30 rounded-lg">
+          <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="font-semibold text-foreground mb-1">Action Required: Re-connect Exchanges</h3>
+            <p className="text-sm text-muted-foreground mb-2">
+              The following exchanges need to be re-connected to enable Live trading mode: {' '}
+              <span className="text-foreground font-medium">
+                {exchangesNeedingReconnect.map(c => c.exchange_name).join(', ')}
+              </span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Click "Disconnect" on each exchange above, then re-connect with your API credentials to update security encryption.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Exchange Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
