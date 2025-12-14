@@ -320,6 +320,72 @@ export type Database = {
         }
         Relationships: []
       }
+      paper_test_runs: {
+        Row: {
+          ai_analysis: Json | null
+          avg_confluence: number | null
+          avg_signal_score: number | null
+          created_at: string
+          failed_trades_breakdown: Json | null
+          hit_rate: number
+          id: string
+          losses: number
+          min_confluence: number
+          min_signal_score: number
+          min_volume_ratio: number
+          num_trades: number
+          passed: boolean
+          target_hit_rate: number
+          total_pnl: number
+          total_trades: number
+          trades_skipped: number
+          user_id: string
+          wins: number
+        }
+        Insert: {
+          ai_analysis?: Json | null
+          avg_confluence?: number | null
+          avg_signal_score?: number | null
+          created_at?: string
+          failed_trades_breakdown?: Json | null
+          hit_rate?: number
+          id?: string
+          losses?: number
+          min_confluence?: number
+          min_signal_score?: number
+          min_volume_ratio?: number
+          num_trades?: number
+          passed?: boolean
+          target_hit_rate?: number
+          total_pnl?: number
+          total_trades?: number
+          trades_skipped?: number
+          user_id: string
+          wins?: number
+        }
+        Update: {
+          ai_analysis?: Json | null
+          avg_confluence?: number | null
+          avg_signal_score?: number | null
+          created_at?: string
+          failed_trades_breakdown?: Json | null
+          hit_rate?: number
+          id?: string
+          losses?: number
+          min_confluence?: number
+          min_signal_score?: number
+          min_volume_ratio?: number
+          num_trades?: number
+          passed?: boolean
+          target_hit_rate?: number
+          total_pnl?: number
+          total_trades?: number
+          trades_skipped?: number
+          user_id?: string
+          wins?: number
+        }
+        Relationships: []
+      }
       portfolio_holdings: {
         Row: {
           asset_symbol: string
