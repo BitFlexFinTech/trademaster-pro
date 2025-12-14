@@ -5,11 +5,12 @@ import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useTradingMode, MAX_USDT_ALLOCATION } from '@/contexts/TradingModeContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useConnectedExchanges } from '@/hooks/useConnectedExchanges';
+import { useNavigate } from 'react-router-dom';
 import { useAIStrategyMonitor } from '@/hooks/useAIStrategyMonitor';
 import { useRecommendationHistory } from '@/hooks/useRecommendationHistory';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle } from 'lucide-react';
+import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { BotHistory } from '@/components/bots/BotHistory';
@@ -54,7 +55,9 @@ export default function Bots() {
   } = useBotRuns();
   const { prices } = useRealtimePrices();
   const { mode: tradingMode, setMode: setTradingMode, virtualBalance, triggerSync, lastSyncTime } = useTradingMode();
-  const { connectedExchangeNames, hasConnections } = useConnectedExchanges();
+  const { connectedExchangeNames, hasConnections, needsReconnection, hasValidCredentials } = useConnectedExchanges();
+  const navigate = useNavigate();
+  
 
   const [usdtFloat, setUsdtFloat] = useState<UsdtFloat[]>([]);
   const [loadingFloat, setLoadingFloat] = useState(true);
@@ -427,6 +430,55 @@ export default function Bots() {
           )}
         </div>
       </div>
+
+      {/* Exchange Re-Connection Warning - Live Mode Only */}
+      {tradingMode === 'live' && needsReconnection.length > 0 && (
+        <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 mb-3 flex-shrink-0">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-destructive">
+                {needsReconnection.length} exchange{needsReconnection.length > 1 ? 's' : ''} need{needsReconnection.length === 1 ? 's' : ''} re-connection
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {needsReconnection.map(e => e.name).join(', ')} - API credentials missing or expired.
+                Live trading will not work until re-connected.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-xs border-destructive/50 text-destructive hover:bg-destructive/10"
+              onClick={() => navigate('/settings')}
+            >
+              Fix in Settings
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* No Valid Credentials Warning - Live Mode Only */}
+      {tradingMode === 'live' && hasConnections && !hasValidCredentials && needsReconnection.length === 0 && (
+        <div className="bg-warning/10 border border-warning/30 rounded-lg p-3 mb-3 flex-shrink-0">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-warning">No exchanges ready for live trading</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Connect at least one exchange with valid API credentials to enable live trading.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-xs"
+              onClick={() => navigate('/settings')}
+            >
+              Connect Exchange
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* USDT Float by Exchange - Top with Cap Indicator */}
       <div className="card-terminal p-3 mb-3 flex-shrink-0">
