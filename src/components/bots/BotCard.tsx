@@ -54,8 +54,8 @@ export function BotCard({
   const isRunning = !!existingBot;
   const botName = botType === 'spot' ? 'GreenBack Spot' : 'GreenBack Leverage';
 
-  const [dailyTarget, setDailyTarget] = useState(existingBot?.dailyTarget || 40);
-  const [profitPerTrade, setProfitPerTrade] = useState(existingBot?.profitPerTrade || 1);
+  const [dailyTarget, setDailyTarget] = useState(existingBot?.dailyTarget || 100);
+  const [profitPerTrade, setProfitPerTrade] = useState(Math.max(existingBot?.profitPerTrade || 1, 1));
   const [leverages, setLeverages] = useState<Record<string, number>>({
     Binance: 5, OKX: 5, Bybit: 5, Kraken: 2, Nexo: 2,
   });
@@ -213,7 +213,7 @@ export function BotCard({
           maxDrawdown: newMaxDrawdown,
         };
       });
-    }, 3000);
+    }, 500); // 500ms for aggressive trading (up to 120 trades/min)
 
     return () => clearInterval(interval);
   }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, usdtFloat, botName, onStopBot, dailyStopLoss, perTradeStopLoss]);
@@ -348,10 +348,10 @@ export function BotCard({
           <Input
             type="number"
             value={profitPerTrade}
-            onChange={(e) => setProfitPerTrade(Math.max(0.1, Number(e.target.value)))}
+            onChange={(e) => setProfitPerTrade(Math.max(1, Number(e.target.value)))}
             disabled={isRunning}
             className="h-8 text-xs font-mono"
-            min={0.1}
+            min={1}
             step={0.1}
           />
         </div>
