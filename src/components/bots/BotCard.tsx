@@ -10,29 +10,13 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNotifications } from '@/hooks/useNotifications';
 import { supabase } from '@/integrations/supabase/client';
+import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-
-interface ExchangeConfig {
-  name: string;
-  maxLeverage: number;
-  confidence: 'High' | 'Medium' | 'Low';
-  notes: string;
-}
-
-const EXCHANGE_CONFIGS: ExchangeConfig[] = [
-  { name: 'Binance', maxLeverage: 20, confidence: 'High', notes: 'Best liquidity' },
-  { name: 'OKX', maxLeverage: 20, confidence: 'High', notes: 'Low fees' },
-  { name: 'Bybit', maxLeverage: 25, confidence: 'Medium', notes: 'Fast execution' },
-  { name: 'Kraken', maxLeverage: 5, confidence: 'Medium', notes: 'Reliable' },
-  { name: 'Nexo', maxLeverage: 3, confidence: 'Low', notes: 'Limited pairs' },
-];
-
-const TOP_PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'DOT', 'LINK'];
 
 interface BotCardProps {
   botType: 'spot' | 'leverage';
@@ -384,7 +368,7 @@ export function BotCard({
               <span>Confidence</span>
             </div>
             {EXCHANGE_CONFIGS.slice(0, 3).map(ex => {
-              const allocation = Math.round(suggestedUSDT * (ex.confidence === 'High' ? 0.35 : ex.confidence === 'Medium' ? 0.20 : 0.10));
+              const allocation = Math.round(suggestedUSDT * EXCHANGE_ALLOCATION_PERCENTAGES[ex.confidence]);
               return (
                 <div key={ex.name} className="grid grid-cols-3 gap-1 px-2 py-1 border-t border-border/50">
                   <span className="text-foreground">{ex.name}</span>

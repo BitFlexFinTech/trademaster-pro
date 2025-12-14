@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 
@@ -82,56 +82,84 @@ export function useBotAnalytics(
   const [trades, setTrades] = useState<TradeData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchTrades() {
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        let query = supabase
-          .from('trades')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('status', 'closed')
-          .order('closed_at', { ascending: false });
-
-        // Apply timeframe filter
-        if (timeframe !== 'all') {
-          const days = timeframe === '7d' ? 7 : timeframe === '30d' ? 30 : 90;
-          const startDate = new Date();
-          startDate.setDate(startDate.getDate() - days);
-          query = query.gte('closed_at', startDate.toISOString());
-        }
-
-        // Apply mode filter
-        if (modeFilter === 'demo') {
-          query = query.eq('is_sandbox', true);
-        } else if (modeFilter === 'live') {
-          query = query.eq('is_sandbox', false);
-        }
-
-        // Apply bot type filter (leverage > 1 = leverage bot)
-        if (botTypeFilter === 'spot') {
-          query = query.eq('leverage', 1);
-        } else if (botTypeFilter === 'leverage') {
-          query = query.gt('leverage', 1);
-        }
-
-        const { data, error } = await query.limit(1000);
-
-        if (error) throw error;
-        setTrades(data || []);
-      } catch (error) {
-        console.error('Error fetching bot analytics:', error);
-      } finally {
-        setLoading(false);
-      }
+  const fetchTrades = useCallback(async () => {
+    if (!user) {
+      setLoading(false);
+      return;
     }
 
-    fetchTrades();
+    try {
+      setLoading(true);
+      let query = supabase
+        .from('trades')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'closed')
+        .order('closed_at', { ascending: false });
+
+      // Apply timeframe filter
+      if (timeframe !== 'all') {
+        const days = timeframe === '7d' ? 7 : timeframe === '30d' ? 30 : 90;
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+        query = query.gte('closed_at', startDate.toISOString());
+      }
+
+      // Apply mode filter
+      if (modeFilter === 'demo') {
+        query = query.eq('is_sandbox', true);
+      } else if (modeFilter === 'live') {
+        query = query.eq('is_sandbox', false);
+      }
+
+      // Apply bot type filter (leverage > 1 = leverage bot)
+      if (botTypeFilter === 'spot') {
+        query = query.eq('leverage', 1);
+      } else if (botTypeFilter === 'leverage') {
+        query = query.gt('leverage', 1);
+      }
+
+      const { data, error } = await query.limit(1000);
+
+      if (error) throw error;
+      setTrades(data || []);
+    } catch (error) {
+      console.error('Error fetching bot analytics:', error);
+    } finally {
+      setLoading(false);
+    }
   }, [user, timeframe, modeFilter, botTypeFilter]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchTrades();
+  }, [fetchTrades]);
+
+  // Real-time subscription for auto-sync
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('analytics-trades-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'trades',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          // Refetch trades when new ones are inserted
+          fetchTrades();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, fetchTrades]);
 
   const analytics = useMemo<BotAnalytics>(() => {
     const defaultStreaks: WinLossStreak = {

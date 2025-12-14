@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 export const DEFAULT_VIRTUAL_BALANCE = 1000;
 export const MAX_USDT_ALLOCATION = 5000;
@@ -72,10 +73,31 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
 
   const triggerSync = useCallback(async () => {
     try {
-      await supabase.functions.invoke('sync-exchange-balances');
+      const { data, error } = await supabase.functions.invoke('sync-exchange-balances');
+      
+      if (error) throw error;
+      
       setLastSyncTime(new Date());
+      
+      // Show notification with count of holdings updated
+      if (data?.synced > 0) {
+        toast.success(`Sync Complete`, {
+          description: `Updated ${data.synced} holdings from ${data.exchanges?.length || 0} exchanges`,
+        });
+      } else if (data?.exchanges?.length === 0) {
+        toast.info('No exchanges connected', {
+          description: 'Connect exchanges in Settings to sync real balances',
+        });
+      } else {
+        toast.info('No holdings to sync', {
+          description: 'Your exchange balances are up to date',
+        });
+      }
     } catch (err) {
       console.error('Sync failed:', err);
+      toast.error('Sync failed', {
+        description: 'Could not sync exchange balances. Try again.',
+      });
     }
   }, []);
 
