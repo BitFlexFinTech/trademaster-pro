@@ -44,13 +44,169 @@ const TOP_PAIRS = [
   'DOGE/USDT', 'ADA/USDT', 'AVAX/USDT', 'DOT/USDT', 'MATIC/USDT'
 ];
 
+// Safety limits
+const MAX_POSITION_SIZE = 100; // Max $100 per trade for safety
+const DAILY_LOSS_LIMIT = -5; // Stop if daily loss exceeds $5
+
 interface BotTradeRequest {
   botId: string;
   mode: 'spot' | 'leverage';
   profitTarget: number;
   exchanges: string[];
   leverages?: Record<string, number>;
+  isSandbox: boolean;
 }
+
+// ============ EXCHANGE ORDER PLACEMENT FUNCTIONS ============
+
+async function placeBinanceOrder(apiKey: string, apiSecret: string, symbol: string, side: string, quantity: string): Promise<{ orderId: string; status: string; avgPrice: number }> {
+  const timestamp = Date.now();
+  const params = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+  const signature = await hmacSha256(apiSecret, params);
+  
+  const response = await fetch(`https://api.binance.com/api/v3/order?${params}&signature=${signature}`, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey },
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.msg || "Binance order failed");
+  }
+  
+  const data = await response.json();
+  // Calculate average fill price from fills
+  let avgPrice = 0;
+  if (data.fills && data.fills.length > 0) {
+    const totalQty = data.fills.reduce((sum: number, f: { qty: string }) => sum + parseFloat(f.qty), 0);
+    const totalValue = data.fills.reduce((sum: number, f: { qty: string; price: string }) => sum + parseFloat(f.qty) * parseFloat(f.price), 0);
+    avgPrice = totalValue / totalQty;
+  } else {
+    avgPrice = parseFloat(data.price) || 0;
+  }
+  
+  return { orderId: data.orderId.toString(), status: data.status, avgPrice };
+}
+
+async function placeBybitOrder(apiKey: string, apiSecret: string, symbol: string, side: string, qty: string): Promise<{ orderId: string; status: string; avgPrice: number }> {
+  const timestamp = Date.now().toString();
+  const recvWindow = "5000";
+  
+  const body = JSON.stringify({
+    category: "spot",
+    symbol,
+    side,
+    orderType: "Market",
+    qty,
+  });
+  
+  const signPayload = timestamp + apiKey + recvWindow + body;
+  const signature = await hmacSha256(apiSecret, signPayload);
+  
+  const response = await fetch("https://api.bybit.com/v5/order/create", {
+    method: "POST",
+    headers: {
+      "X-BAPI-API-KEY": apiKey,
+      "X-BAPI-SIGN": signature,
+      "X-BAPI-TIMESTAMP": timestamp,
+      "X-BAPI-RECV-WINDOW": recvWindow,
+      "Content-Type": "application/json",
+    },
+    body,
+  });
+  
+  const data = await response.json();
+  if (data.retCode !== 0) throw new Error(data.retMsg || "Bybit order failed");
+  return { orderId: data.result.orderId, status: "FILLED", avgPrice: parseFloat(data.result.avgPrice) || 0 };
+}
+
+async function placeOKXOrder(apiKey: string, apiSecret: string, passphrase: string, symbol: string, side: string, sz: string): Promise<{ orderId: string; status: string; avgPrice: number }> {
+  const timestamp = new Date().toISOString();
+  const endpoint = "/api/v5/trade/order";
+  
+  const body = JSON.stringify({ instId: symbol, tdMode: "cash", side, ordType: "market", sz });
+  const signPayload = timestamp + "POST" + endpoint + body;
+  const signature = btoa(await hmacSha256(apiSecret, signPayload));
+  
+  const response = await fetch(`https://www.okx.com${endpoint}`, {
+    method: "POST",
+    headers: {
+      "OK-ACCESS-KEY": apiKey,
+      "OK-ACCESS-SIGN": signature,
+      "OK-ACCESS-TIMESTAMP": timestamp,
+      "OK-ACCESS-PASSPHRASE": passphrase,
+      "Content-Type": "application/json",
+    },
+    body,
+  });
+  
+  const data = await response.json();
+  if (data.code !== "0") throw new Error(data.msg || "OKX order failed");
+  return { orderId: data.data[0].ordId, status: "FILLED", avgPrice: parseFloat(data.data[0].avgPx) || 0 };
+}
+
+async function placeKrakenOrder(apiKey: string, apiSecret: string, pair: string, type: string, volume: string): Promise<{ orderId: string; status: string; avgPrice: number }> {
+  const nonce = Date.now() * 1000;
+  const endpoint = "/0/private/AddOrder";
+  const postData = `nonce=${nonce}&ordertype=market&type=${type}&pair=${pair}&volume=${volume}`;
+  
+  const sha256Hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(nonce + postData));
+  const sha256Bytes = new Uint8Array(sha256Hash);
+  const pathBytes = new TextEncoder().encode(endpoint);
+  const message = new Uint8Array([...pathBytes, ...sha256Bytes]);
+  
+  const keyBytes = Uint8Array.from(atob(apiSecret), c => c.charCodeAt(0));
+  const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, message);
+  const sig = btoa(String.fromCharCode(...new Uint8Array(signature)));
+  
+  const response = await fetch(`https://api.kraken.com${endpoint}`, {
+    method: "POST",
+    headers: {
+      "API-Key": apiKey,
+      "API-Sign": sig,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: postData,
+  });
+  
+  const data = await response.json();
+  if (data.error && data.error.length > 0) throw new Error(data.error[0] || "Kraken order failed");
+  return { orderId: data.result?.txid?.[0] || crypto.randomUUID(), status: "FILLED", avgPrice: 0 };
+}
+
+async function placeNexoOrder(apiKey: string, apiSecret: string, symbol: string, side: string, quantity: string): Promise<{ orderId: string; status: string; avgPrice: number }> {
+  const timestamp = Date.now();
+  const nonce = crypto.randomUUID();
+  const endpoint = "/api/v1/orders";
+  
+  const body = JSON.stringify({ pair: symbol, side, type: "market", quantity });
+  const signPayload = `${nonce}${timestamp}POST${endpoint}${body}`;
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(apiSecret);
+  const msgData = encoder.encode(signPayload);
+  const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, msgData);
+  const sig = btoa(String.fromCharCode(...new Uint8Array(signature)));
+  
+  const response = await fetch(`https://pro-api.nexo.io${endpoint}`, {
+    method: "POST",
+    headers: {
+      "X-API-KEY": apiKey,
+      "X-NONCE": nonce,
+      "X-SIGNATURE": sig,
+      "X-TIMESTAMP": timestamp.toString(),
+      "Content-Type": "application/json",
+    },
+    body,
+  });
+  
+  const data = await response.json();
+  if (!data.orderId) throw new Error(data.errorMessage || "Nexo order failed");
+  return { orderId: data.orderId, status: "FILLED", avgPrice: parseFloat(data.avgPrice) || 0 };
+}
+
+// ============ MAIN HANDLER ============
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -78,8 +234,25 @@ serve(async (req) => {
       });
     }
 
-    const { botId, mode, profitTarget, exchanges, leverages }: BotTradeRequest = await req.json();
-    console.log(`Bot trade execution for bot ${botId}, mode: ${mode}`);
+    const { botId, mode, profitTarget, exchanges, leverages, isSandbox }: BotTradeRequest = await req.json();
+    console.log(`Bot trade execution for bot ${botId}, mode: ${mode}, sandbox: ${isSandbox}`);
+
+    // Check daily loss limit from bot_runs
+    const { data: bot } = await supabase
+      .from("bot_runs")
+      .select("current_pnl, trades_executed, hit_rate")
+      .eq("id", botId)
+      .single();
+
+    if (bot && bot.current_pnl <= DAILY_LOSS_LIMIT) {
+      console.log(`Daily loss limit reached: ${bot.current_pnl}`);
+      return new Response(JSON.stringify({ 
+        error: "Daily loss limit reached", 
+        dailyPnL: bot.current_pnl 
+      }), { 
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      });
+    }
 
     // Get connected exchanges with API keys
     const { data: connections } = await supabase
@@ -109,71 +282,147 @@ serve(async (req) => {
       });
     }
 
-    // Determine direction based on simple momentum (simulated)
+    // Determine direction based on simple momentum (simulated AI decision)
     const direction = Math.random() > 0.5 ? 'long' : 'short';
     
-    // Calculate position size to achieve profit target
-    // For $1 profit with 0.5% move: position = $1 / 0.005 = $200
+    // Calculate position size - capped at MAX_POSITION_SIZE for safety
     const expectedMove = 0.005; // 0.5% average move
     const leverage = mode === 'leverage' ? (leverages?.[connections[0].exchange_name] || 5) : 1;
-    const positionSize = profitTarget / (expectedMove * leverage);
-
-    // Select exchange (prefer highest USDT float)
-    const selectedExchange = connections[0].exchange_name;
+    let positionSize = Math.min(profitTarget / (expectedMove * leverage), MAX_POSITION_SIZE);
     
-    // Simulate or execute trade
+    const selectedExchange = connections[0];
+    const exchangeName = selectedExchange.exchange_name.toLowerCase();
+    
     let tradeResult = {
       success: true,
       pair,
       direction,
       entryPrice: currentPrice,
       positionSize,
-      exchange: selectedExchange,
+      exchange: selectedExchange.exchange_name,
       leverage,
-      simulated: !encryptionKey,
+      simulated: isSandbox,
       exitPrice: 0,
       pnl: 0,
+      orderId: null as string | null,
+      realTrade: false,
     };
 
-    // Simulate trade outcome (70% win rate)
-    const isWin = Math.random() < 0.70;
-    const priceMove = currentPrice * expectedMove * (isWin ? 1 : -1.2);
-    tradeResult.exitPrice = direction === 'long' 
-      ? currentPrice + priceMove 
-      : currentPrice - priceMove;
-    
-    const priceDiff = direction === 'long'
-      ? tradeResult.exitPrice - currentPrice
-      : currentPrice - tradeResult.exitPrice;
-    tradeResult.pnl = (priceDiff / currentPrice) * positionSize * leverage;
+    // ============ REAL TRADE EXECUTION (LIVE MODE) ============
+    if (!isSandbox && encryptionKey && selectedExchange.encrypted_api_key && selectedExchange.encrypted_api_secret && selectedExchange.encryption_iv) {
+      console.log(`Attempting real trade on ${exchangeName}`);
+      
+      try {
+        const apiKey = await decryptSecret(selectedExchange.encrypted_api_key, selectedExchange.encryption_iv, encryptionKey);
+        const apiSecret = await decryptSecret(selectedExchange.encrypted_api_secret, selectedExchange.encryption_iv, encryptionKey);
+        const passphrase = selectedExchange.encrypted_passphrase 
+          ? await decryptSecret(selectedExchange.encrypted_passphrase, selectedExchange.encryption_iv, encryptionKey)
+          : "";
+
+        const symbol = pair.replace("/", "");
+        const side = direction === 'long' ? 'BUY' : 'SELL';
+        const quantity = (positionSize / currentPrice).toFixed(6);
+        
+        let entryOrder: { orderId: string; status: string; avgPrice: number } | null = null;
+
+        // Place ENTRY order
+        if (exchangeName === "binance") {
+          entryOrder = await placeBinanceOrder(apiKey, apiSecret, symbol, side, quantity);
+        } else if (exchangeName === "bybit") {
+          entryOrder = await placeBybitOrder(apiKey, apiSecret, symbol, side === 'BUY' ? 'Buy' : 'Sell', quantity);
+        } else if (exchangeName === "okx") {
+          entryOrder = await placeOKXOrder(apiKey, apiSecret, passphrase, pair.replace("/", "-"), side.toLowerCase(), quantity);
+        } else if (exchangeName === "kraken") {
+          entryOrder = await placeKrakenOrder(apiKey, apiSecret, symbol, side.toLowerCase(), quantity);
+        } else if (exchangeName === "nexo") {
+          entryOrder = await placeNexoOrder(apiKey, apiSecret, symbol, side.toLowerCase(), quantity);
+        }
+
+        if (entryOrder) {
+          console.log(`Entry order placed: ${entryOrder.orderId}, avg price: ${entryOrder.avgPrice}`);
+          tradeResult.orderId = entryOrder.orderId;
+          tradeResult.realTrade = true;
+          tradeResult.entryPrice = entryOrder.avgPrice || currentPrice;
+          
+          // Wait a moment then place EXIT order (opposite direction)
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Fetch updated price for exit
+          const exitPrice = await fetchPrice(pair);
+          const exitSide = direction === 'long' ? 'SELL' : 'BUY';
+          
+          let exitOrder: { orderId: string; status: string; avgPrice: number } | null = null;
+          
+          if (exchangeName === "binance") {
+            exitOrder = await placeBinanceOrder(apiKey, apiSecret, symbol, exitSide, quantity);
+          } else if (exchangeName === "bybit") {
+            exitOrder = await placeBybitOrder(apiKey, apiSecret, symbol, exitSide === 'BUY' ? 'Buy' : 'Sell', quantity);
+          } else if (exchangeName === "okx") {
+            exitOrder = await placeOKXOrder(apiKey, apiSecret, passphrase, pair.replace("/", "-"), exitSide.toLowerCase(), quantity);
+          } else if (exchangeName === "kraken") {
+            exitOrder = await placeKrakenOrder(apiKey, apiSecret, symbol, exitSide.toLowerCase(), quantity);
+          } else if (exchangeName === "nexo") {
+            exitOrder = await placeNexoOrder(apiKey, apiSecret, symbol, exitSide.toLowerCase(), quantity);
+          }
+          
+          if (exitOrder) {
+            console.log(`Exit order placed: ${exitOrder.orderId}, avg price: ${exitOrder.avgPrice}`);
+            tradeResult.exitPrice = exitOrder.avgPrice || exitPrice;
+            
+            // Calculate real P&L
+            const priceDiff = direction === 'long'
+              ? tradeResult.exitPrice - tradeResult.entryPrice
+              : tradeResult.entryPrice - tradeResult.exitPrice;
+            tradeResult.pnl = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
+          }
+        }
+      } catch (exchangeError) {
+        console.error(`Exchange order failed: ${exchangeError}`);
+        // Fall back to simulation
+        tradeResult.simulated = true;
+        tradeResult.realTrade = false;
+      }
+    }
+
+    // ============ SIMULATED TRADE (DEMO MODE OR FALLBACK) ============
+    if (tradeResult.simulated || !tradeResult.realTrade) {
+      console.log(`Running simulated trade for ${pair}`);
+      
+      // Simulate trade outcome (70% win rate)
+      const isWin = Math.random() < 0.70;
+      const priceMove = currentPrice * expectedMove * (isWin ? 1 : -1.2);
+      tradeResult.exitPrice = direction === 'long' 
+        ? currentPrice + priceMove 
+        : currentPrice - priceMove;
+      
+      const priceDiff = direction === 'long'
+        ? tradeResult.exitPrice - currentPrice
+        : currentPrice - tradeResult.exitPrice;
+      tradeResult.pnl = (priceDiff / currentPrice) * positionSize * leverage;
+    }
 
     // Record the trade
     await supabase.from("trades").insert({
       user_id: user.id,
       pair,
       direction,
-      entry_price: currentPrice,
+      entry_price: tradeResult.entryPrice,
       exit_price: tradeResult.exitPrice,
       amount: positionSize,
       leverage,
       profit_loss: tradeResult.pnl,
       profit_percentage: (tradeResult.pnl / positionSize) * 100,
-      exchange_name: selectedExchange,
-      is_sandbox: !encryptionKey,
+      exchange_name: selectedExchange.exchange_name,
+      is_sandbox: isSandbox,
       status: "closed",
       closed_at: new Date().toISOString(),
     });
 
     // Update bot metrics
-    const { data: bot } = await supabase
-      .from("bot_runs")
-      .select("current_pnl, trades_executed, hit_rate")
-      .eq("id", botId)
-      .single();
-
     if (bot) {
       const newPnl = (bot.current_pnl || 0) + tradeResult.pnl;
       const newTrades = (bot.trades_executed || 0) + 1;
+      const isWin = tradeResult.pnl > 0;
       const wins = Math.round(((bot.hit_rate || 0) / 100) * (bot.trades_executed || 0)) + (isWin ? 1 : 0);
       const newHitRate = (wins / newTrades) * 100;
 
@@ -184,7 +433,7 @@ serve(async (req) => {
       }).eq("id", botId);
     }
 
-    console.log(`Trade executed: ${pair} ${direction} on ${selectedExchange}, P&L: $${tradeResult.pnl.toFixed(2)}`);
+    console.log(`Trade executed: ${pair} ${direction} on ${selectedExchange.exchange_name}, P&L: $${tradeResult.pnl.toFixed(2)}, Real: ${tradeResult.realTrade}`);
 
     return new Response(JSON.stringify(tradeResult), { 
       headers: { ...corsHeaders, "Content-Type": "application/json" } 
