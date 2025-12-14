@@ -5,8 +5,9 @@ import { useTradingMode } from '@/contexts/TradingModeContext';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { TrendingUp, TrendingDown, Clock, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, Clock, Activity, Zap } from 'lucide-react';
 import { format } from 'date-fns';
+import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
 
 interface BotTrade {
   id: string;
@@ -29,9 +30,39 @@ export function RecentBotTrades() {
   const [loading, setLoading] = useState(true);
 
   // Calculate summary stats - MUST be before any early returns
-  const { totalPnL, tradeCount } = useMemo(() => {
+  const { totalPnL, tradeCount, avgTimeBetweenTrades, cumulativePnL } = useMemo(() => {
     const total = trades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
-    return { totalPnL: total, tradeCount: trades.length };
+    
+    // Calculate average time between trades in seconds
+    let avgTime = 0;
+    if (trades.length >= 2) {
+      const times: number[] = [];
+      for (let i = 0; i < trades.length - 1; i++) {
+        const t1 = new Date(trades[i].created_at).getTime();
+        const t2 = new Date(trades[i + 1].created_at).getTime();
+        times.push(Math.abs(t1 - t2) / 1000);
+      }
+      avgTime = times.reduce((a, b) => a + b, 0) / times.length;
+    }
+
+    // Calculate cumulative P&L for chart (reverse order for chronological)
+    const reversedTrades = [...trades].reverse();
+    let cumulative = 0;
+    const pnlData = reversedTrades.map((t, i) => {
+      cumulative += (t.profit_loss || 0);
+      return {
+        index: i,
+        cumulative: Number(cumulative.toFixed(2)),
+        pnl: t.profit_loss || 0,
+      };
+    });
+
+    return { 
+      totalPnL: total, 
+      tradeCount: trades.length, 
+      avgTimeBetweenTrades: avgTime,
+      cumulativePnL: pnlData,
+    };
   }, [trades]);
 
   // Fetch trades function
@@ -123,6 +154,14 @@ export function RecentBotTrades() {
           <span className="text-xs font-semibold text-foreground">Recent Trades</span>
         </div>
         <div className="flex items-center gap-1.5">
+          {/* Trade Speed Indicator */}
+          <Badge 
+            variant="outline" 
+            className="text-[8px] h-5 px-1.5 font-mono flex items-center gap-1"
+          >
+            <Zap className="w-2.5 h-2.5 text-primary" />
+            {avgTimeBetweenTrades > 0 ? `${avgTimeBetweenTrades.toFixed(1)}s` : '--'}
+          </Badge>
           <Badge variant="secondary" className="text-[9px] h-5 px-1.5 font-mono">
             {tradeCount}
           </Badge>
@@ -137,6 +176,47 @@ export function RecentBotTrades() {
           </Badge>
         </div>
       </div>
+
+      {/* Cumulative P&L Chart */}
+      {cumulativePnL.length > 1 && (
+        <div className="h-16 mb-2 flex-shrink-0 bg-secondary/30 rounded p-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={cumulativePnL} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+              <defs>
+                <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop 
+                    offset="5%" 
+                    stopColor={totalPnL >= 0 ? 'hsl(var(--primary))' : 'hsl(var(--destructive))'} 
+                    stopOpacity={0.3}
+                  />
+                  <stop 
+                    offset="95%" 
+                    stopColor={totalPnL >= 0 ? 'hsl(var(--primary))' : 'hsl(var(--destructive))'} 
+                    stopOpacity={0}
+                  />
+                </linearGradient>
+              </defs>
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: 'hsl(var(--popover))',
+                  border: '1px solid hsl(var(--border))',
+                  borderRadius: '6px',
+                  fontSize: '10px',
+                }}
+                formatter={(value: number) => [`$${value.toFixed(2)}`, 'Cumulative P&L']}
+                labelFormatter={() => ''}
+              />
+              <Area
+                type="monotone"
+                dataKey="cumulative"
+                stroke={totalPnL >= 0 ? 'hsl(var(--primary))' : 'hsl(var(--destructive))'}
+                strokeWidth={1.5}
+                fill="url(#pnlGradient)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
       <ScrollArea className="flex-1">
         <div className="space-y-1.5">

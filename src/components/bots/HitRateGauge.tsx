@@ -58,17 +58,17 @@ export function HitRateGauge({
   }, [requiredHitRate]);
 
   return (
-    <div className={cn('space-y-2', className)}>
+    <div className={cn('space-y-1.5', className)}>
       {/* Header with current rate and zone badge */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Icon className={cn('w-4 h-4', zoneInfo.color)} />
-          <span className="text-xs font-medium text-muted-foreground">Hit Rate</span>
+        <div className="flex items-center gap-1.5">
+          <Icon className={cn('w-3.5 h-3.5', zoneInfo.color)} />
+          <span className="text-[10px] font-medium text-muted-foreground">Hit Rate</span>
         </div>
         <Badge
           variant="outline"
           className={cn(
-            'text-[9px] font-bold',
+            'text-[8px] font-bold h-4',
             zoneInfo.zone === 'elite' && 'border-yellow-400 text-yellow-400 bg-yellow-400/10',
             zoneInfo.zone === 'target' && 'border-primary text-primary bg-primary/10',
             zoneInfo.zone === 'warning' && 'border-yellow-500 text-yellow-500 bg-yellow-500/10',
@@ -81,22 +81,22 @@ export function HitRateGauge({
 
       {/* Main gauge display */}
       <div className="relative">
-        {/* Current hit rate - large display */}
-        <div className="flex items-baseline gap-1 mb-2">
-          <span className={cn('text-3xl font-bold font-mono', zoneInfo.color)}>
+        {/* Current hit rate - compact display */}
+        <div className="flex items-baseline gap-1 mb-1">
+          <span className={cn('text-2xl font-bold font-mono', zoneInfo.color)}>
             {currentHitRate.toFixed(1)}
           </span>
-          <span className="text-lg text-muted-foreground">%</span>
-          <span className="text-xs text-muted-foreground ml-2">
-            ({tradesCount} trades)
+          <span className="text-sm text-muted-foreground">%</span>
+          <span className="text-[10px] text-muted-foreground ml-1">
+            ({tradesCount})
           </span>
         </div>
 
-        {/* Visual gauge bar */}
+        {/* Visual gauge bar - thinner */}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="relative h-3 bg-secondary rounded-full overflow-hidden">
+              <div className="relative h-2 bg-secondary rounded-full overflow-hidden">
                 {/* Zone colors background */}
                 <div className="absolute inset-0 flex">
                   <div className="w-[40%] bg-destructive/30" /> {/* 50-70% = critical */}
@@ -143,34 +143,34 @@ export function HitRateGauge({
           </Tooltip>
         </TooltipProvider>
 
-        {/* Scale markers */}
-        <div className="flex justify-between mt-1 text-[9px] text-muted-foreground font-mono">
-          <span>50%</span>
-          <span>70%</span>
-          <span>90%</span>
-          <span className="text-primary font-bold">95%</span>
-          <span>100%</span>
+        {/* Scale markers - compact */}
+        <div className="flex justify-between mt-0.5 text-[8px] text-muted-foreground font-mono">
+          <span>50</span>
+          <span>70</span>
+          <span>90</span>
+          <span className="text-primary font-bold">95</span>
+          <span>100</span>
         </div>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/50">
+      {/* Stats row - more compact */}
+      <div className="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-border/50">
         <div className="text-center">
-          <p className="text-[9px] text-muted-foreground">Current</p>
-          <p className={cn('text-xs font-bold font-mono', zoneInfo.color)}>
+          <p className="text-[8px] text-muted-foreground">Current</p>
+          <p className={cn('text-[11px] font-bold font-mono', zoneInfo.color)}>
             {currentHitRate.toFixed(1)}%
           </p>
         </div>
         <div className="text-center">
-          <p className="text-[9px] text-muted-foreground">Target</p>
-          <p className="text-xs font-bold font-mono text-primary">
+          <p className="text-[8px] text-muted-foreground">Target</p>
+          <p className="text-[11px] font-bold font-mono text-primary">
             {targetHitRate}%
           </p>
         </div>
         <div className="text-center">
-          <p className="text-[9px] text-muted-foreground">Required</p>
+          <p className="text-[8px] text-muted-foreground">Required</p>
           <p className={cn(
-            'text-xs font-bold font-mono',
+            'text-[11px] font-bold font-mono',
             requiredHitRate && requiredHitRate > currentHitRate ? 'text-warning' : 'text-muted-foreground'
           )}>
             {requiredHitRate ? `${requiredHitRate.toFixed(1)}%` : '-'}
@@ -178,29 +178,11 @@ export function HitRateGauge({
         </div>
       </div>
 
-      {/* AI Status message */}
+      {/* AI Status message - only show when critical */}
       {currentHitRate < 90 && (
-        <div className="flex items-center gap-2 p-2 rounded bg-destructive/10 border border-destructive/20">
-          <AlertTriangle className="w-3 h-3 text-destructive" />
-          <span className="text-[10px] text-destructive">AI auto-adjusting signal thresholds</span>
-        </div>
-      )}
-      {currentHitRate >= 90 && currentHitRate < 95 && (
-        <div className="flex items-center gap-2 p-2 rounded bg-yellow-500/10 border border-yellow-500/20">
-          <TrendingUp className="w-3 h-3 text-yellow-500" />
-          <span className="text-[10px] text-yellow-500">Minor adjustments in progress</span>
-        </div>
-      )}
-      {currentHitRate >= 95 && currentHitRate < 98 && (
-        <div className="flex items-center gap-2 p-2 rounded bg-primary/10 border border-primary/20">
-          <Target className="w-3 h-3 text-primary" />
-          <span className="text-[10px] text-primary">Maintaining optimal strategy</span>
-        </div>
-      )}
-      {currentHitRate >= 98 && (
-        <div className="flex items-center gap-2 p-2 rounded bg-yellow-400/10 border border-yellow-400/20">
-          <Trophy className="w-3 h-3 text-yellow-400" />
-          <span className="text-[10px] text-yellow-400">Elite performance - can increase frequency</span>
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-destructive/10 border border-destructive/20">
+          <AlertTriangle className="w-2.5 h-2.5 text-destructive flex-shrink-0" />
+          <span className="text-[9px] text-destructive">AI adjusting thresholds</span>
         </div>
       )}
     </div>

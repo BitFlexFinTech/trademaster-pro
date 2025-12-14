@@ -119,6 +119,23 @@ export default {
           "0%": { backgroundPosition: "200% 0" },
           "100%": { backgroundPosition: "-200% 0" },
         },
+        "checkmark-scale": {
+          "0%": { transform: "scale(0)", opacity: "0" },
+          "50%": { transform: "scale(1.2)" },
+          "100%": { transform: "scale(1)", opacity: "1" },
+        },
+        "slide-out-right": {
+          "0%": { transform: "translateX(0)", opacity: "1" },
+          "100%": { transform: "translateX(100%)", opacity: "0" },
+        },
+        "config-flash": {
+          "0%": { backgroundColor: "hsl(var(--primary) / 0.3)" },
+          "100%": { backgroundColor: "transparent" },
+        },
+        "countdown": {
+          "0%": { strokeDashoffset: "0" },
+          "100%": { strokeDashoffset: "100" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -131,6 +148,10 @@ export default {
         "glow": "glow 2s ease-in-out infinite",
         "slide-in": "slide-in 0.3s ease-out",
         "progress-glow": "progress-glow 2s linear infinite",
+        "checkmark-scale": "checkmark-scale 0.3s ease-out forwards",
+        "slide-out-right": "slide-out-right 0.3s ease-out forwards",
+        "config-flash": "config-flash 0.5s ease-out",
+        "countdown": "countdown 30s linear forwards",
       },
     },
   },

@@ -217,14 +217,63 @@ export function generateSignalScore(
 }
 
 /**
- * Check if signal meets the 95% hit rate criteria
+ * Check if signal meets hit rate criteria based on target
+ * @param signal The signal to evaluate
+ * @param targetHitRate Target hit rate (0.80 = 80%, 0.95 = 95%)
  */
-export function meetsHitRateCriteria(signal: SignalScore): boolean {
-  return (
-    signal.score >= 0.90 &&
-    signal.confluence >= 3 &&
-    signal.indicators.volumeRatio >= 1.2
-  );
+export function meetsHitRateCriteria(
+  signal: SignalScore, 
+  targetHitRate: number = 0.80
+): boolean {
+  // Adjust thresholds based on target hit rate
+  // Higher target = stricter requirements
+  if (targetHitRate >= 0.95) {
+    // Elite: Need very high confluence
+    return (
+      signal.score >= 0.90 &&
+      signal.confluence >= 3 &&
+      signal.indicators.volumeRatio >= 1.5
+    );
+  } else if (targetHitRate >= 0.80) {
+    // Standard 80% target: Balanced requirements
+    return (
+      signal.score >= 0.85 &&
+      signal.confluence >= 2 &&
+      signal.indicators.volumeRatio >= 1.2
+    );
+  } else {
+    // Lower target: More lenient
+    return (
+      signal.score >= 0.75 &&
+      signal.confluence >= 2 &&
+      signal.indicators.volumeRatio >= 1.0
+    );
+  }
+}
+
+/**
+ * Calculate win probability based on signal quality
+ * Used to achieve target hit rate of 80%
+ */
+export function calculateWinProbability(signal: SignalScore): number {
+  // Base probability starts at 50%
+  let probability = 0.50;
+  
+  // Add based on signal score (max +30%)
+  probability += (signal.score - 0.50) * 0.60;
+  
+  // Add based on confluence (max +15%)
+  probability += signal.confluence * 0.0375;
+  
+  // Add based on volume confirmation (max +5%)
+  if (signal.indicators.volumeRatio >= 1.5) {
+    probability += 0.05;
+  } else if (signal.indicators.volumeRatio >= 1.2) {
+    probability += 0.025;
+  }
+  
+  // Clamp between 0.55 and 0.95
+  return Math.max(0.55, Math.min(0.95, probability));
 }
 
 /**

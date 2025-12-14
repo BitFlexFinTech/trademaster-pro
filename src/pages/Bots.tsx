@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useBotRuns } from '@/hooks/useBotRuns';
 import { useAuth } from '@/hooks/useAuth';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
@@ -6,6 +6,7 @@ import { useTradingMode, MAX_USDT_ALLOCATION } from '@/contexts/TradingModeConte
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useConnectedExchanges } from '@/hooks/useConnectedExchanges';
 import { useAIStrategyMonitor } from '@/hooks/useAIStrategyMonitor';
+import { useRecommendationHistory } from '@/hooks/useRecommendationHistory';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Bot, DollarSign, Loader2, RefreshCw, BarChart3 } from 'lucide-react';
@@ -108,7 +109,12 @@ export default function Bots() {
     hitRate: combinedHitRate,
   });
 
-  // Calculate suggested USDT using real prices - CAPPED at $5000
+  // Recommendation history for undo functionality
+  const {
+    history: recentlyApplied,
+    addToHistory,
+    removeFromHistory,
+  } = useRecommendationHistory();
   const suggestedUSDT = useMemo(() => {
     const dailyTarget = 40;
     const profitPerTrade = 1;
@@ -227,11 +233,32 @@ export default function Bots() {
     await refetch();
   };
 
-  // Handle AI recommendation application
-  const handleAIRecommendation = async (rec: { type: string; suggestedValue: number | string }) => {
+  // Handle AI recommendation application with undo support
+  const handleAIRecommendation = useCallback(async (rec: { id: string; type: string; title: string; currentValue: number | string; suggestedValue: number | string }) => {
+    // Save previous value for undo
+    const previousValue = rec.currentValue;
+    const newValue = rec.suggestedValue;
+
+    // Add to history for undo
+    addToHistory(rec.id, rec.type, rec.title, previousValue, newValue);
+
+    // Remove recommendation and apply
     await applyAIRecommendation(rec as any);
     await handleApplyRecommendation(rec.type, rec.suggestedValue);
-  };
+  }, [applyAIRecommendation, handleApplyRecommendation, addToHistory]);
+
+  // Handle undo recommendation
+  const handleUndoRecommendation = useCallback(async (rec: { id: string; type: string; previousValue: number | string }) => {
+    // Remove from history
+    removeFromHistory(rec.id);
+
+    // Revert the change
+    await handleApplyRecommendation(rec.type, rec.previousValue);
+
+    toast.success('Change undone', {
+      description: `Reverted to ${rec.previousValue}`,
+    });
+  }, [removeFromHistory, handleApplyRecommendation]);
 
   // Handle stopping bot with analysis
   const handleStopBot = async (botId: string, botName: string) => {
@@ -446,13 +473,15 @@ export default function Bots() {
 
         {/* Middle Column - AI Strategy Panel + Analytics Dashboard + Performance Dashboard */}
         <div className="lg:col-span-4 flex flex-col gap-3 overflow-hidden">
-          {/* AI Strategy Panel */}
-          <div className="h-[280px] flex-shrink-0">
+          {/* AI Strategy Panel - Increased height */}
+          <div className="min-h-[380px] flex-shrink-0">
             <AIStrategyPanel
               metrics={strategyMetrics}
               recommendations={recommendations}
               onApplyRecommendation={handleAIRecommendation}
               onDismissRecommendation={dismissRecommendation}
+              onUndoRecommendation={handleUndoRecommendation}
+              recentlyApplied={recentlyApplied}
               isRunning={!!activeBot}
               className="h-full"
             />
