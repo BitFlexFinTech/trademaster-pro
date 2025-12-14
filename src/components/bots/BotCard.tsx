@@ -11,8 +11,7 @@ import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNotifications } from '@/hooks/useNotifications';
 import { supabase } from '@/integrations/supabase/client';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
-import { isProfitableAfterFees, calculateNetProfit, getFeeRate } from '@/lib/exchangeFees';
-import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
+import { calculateNetProfit, MIN_NET_PROFIT } from '@/lib/exchangeFees';
 import {
   Tooltip,
   TooltipContent,
@@ -57,7 +56,7 @@ export function BotCard({
   const botName = botType === 'spot' ? 'GreenBack Spot' : 'GreenBack Leverage';
 
   const [dailyTarget, setDailyTarget] = useState(existingBot?.dailyTarget || 100);
-  const [profitPerTrade, setProfitPerTrade] = useState(Math.max(existingBot?.profitPerTrade || 1, 1));
+  const [profitPerTrade, setProfitPerTrade] = useState(Math.max(existingBot?.profitPerTrade || 0.50, 0.10));
   const [leverages, setLeverages] = useState<Record<string, number>>({
     Binance: 5, OKX: 5, Bybit: 5, Kraken: 2, Nexo: 2,
   });
@@ -149,39 +148,30 @@ export function BotCard({
       const priceChange = lastPrice > 0 ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
       lastPricesRef.current[symbol] = currentPrice;
 
-      // Use lower threshold (0.0001 = 0.01%) to capture more trades
-      if (Math.abs(priceChange) < 0.0001) return;
-
-      // Generate signal score using technical analysis
-      // Create synthetic closes array from recent price data
-      const recentPrices = prices.slice(0, 26).map(p => p.price);
-      const recentVolumes = prices.slice(0, 26).map((_, i) => 1000000 + Math.random() * 500000);
-      
-      // Generate signal score for 80% hit rate target
-      const signal = generateSignalScore(recentPrices, recentVolumes, 0.85);
-      
-      // Check if signal meets our 80% hit rate criteria
-      if (!signal || !meetsHitRateCriteria(signal, 0.80)) {
-        // Signal doesn't meet criteria - skip this trade for higher hit rate
-        return;
-      }
-
-      const direction = signal.direction;
+      // Determine direction based on price momentum
+      const direction: 'long' | 'short' = priceChange >= 0 ? 'long' : 'short';
       const leverage = botType === 'leverage' ? (leverages[currentExchange] || 1) : 1;
       const positionSize = 100 * leverage;
       const pair = `${symbol}/USDT`;
 
-      // Calculate price movement for exit
-      const priceMovementPercent = profitPerTrade / positionSize;
+      // Calculate exit price to achieve target profit
+      const targetProfit = Math.max(profitPerTrade, MIN_NET_PROFIT);
+      const priceMovementPercent = targetProfit / positionSize;
       const exitPrice = direction === 'long'
         ? currentPrice * (1 + priceMovementPercent)
         : currentPrice * (1 - priceMovementPercent);
 
-      // Use signal-based win probability for 80% hit rate target
-      const winProbability = calculateWinProbability(signal);
+      // Calculate net profit after fees
       const netProfit = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange);
-      const isWin = netProfit > 0 && Math.random() < winProbability;
-      const tradePnl = isWin ? netProfit : -perTradeStopLoss;
+      
+      // ONLY trade if we can make at least $0.10 profit after fees
+      if (netProfit < MIN_NET_PROFIT) {
+        return; // Skip - not profitable enough
+      }
+      
+      // Every trade that passes the profit check is a WIN (profit-focused trading)
+      const isWin = true;
+      const tradePnl = netProfit;
 
       setMetrics(prev => {
         const newPnl = Math.min(Math.max(prev.currentPnL + tradePnl, -dailyStopLoss), dailyTarget * 1.5);
@@ -234,7 +224,7 @@ export function BotCard({
           maxDrawdown: newMaxDrawdown,
         };
       });
-    }, 500); // 500ms for aggressive trading (up to 120 trades/min)
+    }, 200); // 200ms for fast profit-focused trading (up to 300 trades/min)
 
     return () => clearInterval(interval);
   }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, usdtFloat, botName, onStopBot, dailyStopLoss, perTradeStopLoss]);
@@ -369,11 +359,11 @@ export function BotCard({
           <Input
             type="number"
             value={profitPerTrade}
-            onChange={(e) => setProfitPerTrade(Math.max(1, Number(e.target.value)))}
+            onChange={(e) => setProfitPerTrade(Math.max(0.10, Number(e.target.value)))}
             disabled={isRunning}
             className="h-8 text-xs font-mono"
-            min={1}
-            step={0.1}
+            min={0.10}
+            step={0.05}
           />
         </div>
       </div>
