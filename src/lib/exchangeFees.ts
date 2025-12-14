@@ -9,8 +9,8 @@ export const EXCHANGE_FEES: Record<string, number> = {
   hyperliquid: 0.0002, // 0.02%
 };
 
-// Minimum net profit after fees
-export const MIN_NET_PROFIT = 0.50;
+// Minimum net profit after fees ($0.10 for fast trading)
+export const MIN_NET_PROFIT = 0.10;
 
 export const getFeeRate = (exchange: string): number => {
   const normalizedExchange = exchange.toLowerCase();

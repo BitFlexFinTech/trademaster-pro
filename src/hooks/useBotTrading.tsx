@@ -3,9 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNotifications } from './useNotifications';
-import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
-import { calculateNetProfit, MIN_NET_PROFIT, calculateMinExitPrice } from '@/lib/exchangeFees';
-import { hitRateTracker } from '@/lib/sandbox/hitRateTracker';
+import { calculateNetProfit, MIN_NET_PROFIT } from '@/lib/exchangeFees';
 
 const EXCHANGE_CONFIGS = [
   { name: 'Binance', maxLeverage: 20, confidence: 'High' },
@@ -70,7 +68,6 @@ export function useBotTrading({
   const [tradePulse, setTradePulse] = useState(false);
   
   const lastPricesRef = useRef<Record<string, number>>({});
-  const pricesHistoryRef = useRef<Record<string, number[]>>({});
   const metricsRef = useRef<BotMetrics>({
     currentPnL: 0,
     tradesExecuted: 0,
@@ -92,11 +89,8 @@ export function useBotTrading({
       };
       winsRef.current = 0;
       lastPricesRef.current = {};
-      pricesHistoryRef.current = {};
-      hitRateTracker.reset();
-      hitRateTracker.setTargetHitRate(targetHitRate);
     }
-  }, [isRunning, botId, targetHitRate]);
+  }, [isRunning, botId]);
 
   // Main trading simulation - single source of truth
   useEffect(() => {
@@ -133,34 +127,11 @@ export function useBotTrading({
       const currentPrice = priceData.price;
       const lastPrice = lastPricesRef.current[symbol] || currentPrice;
       
-      // Build price history for signal generation (need 26 data points minimum)
-      const priceHistory = pricesHistoryRef.current[symbol] || [];
-      priceHistory.push(currentPrice);
-      if (priceHistory.length > 50) priceHistory.shift();
-      pricesHistoryRef.current[symbol] = priceHistory;
-      
       lastPricesRef.current[symbol] = currentPrice;
 
-      // Skip if not enough price history for signal generation
-      if (priceHistory.length < 26) return;
-
-      // Generate signal score from technical analysis
-      const volumes = priceHistory.map(() => 1000 + Math.random() * 500); // Simulated volume
-      const signal = generateSignalScore(priceHistory, volumes);
-      
-      if (!signal) return;
-      
-      // Check if signal meets hit rate criteria based on user's target
-      if (!meetsHitRateCriteria(signal, targetHitRate / 100)) {
-        return; // Skip trade - doesn't meet quality threshold
-      }
-      
-      // Use signal direction instead of price momentum
-      const direction = signal.direction;
-      
-      // Calculate win probability from signal quality
-      const winProbability = calculateWinProbability(signal);
-      const isWin = Math.random() < winProbability;
+      // Determine direction based on price momentum (simple: up = long, down = short)
+      const priceChange = (currentPrice - lastPrice) / lastPrice;
+      const direction: 'long' | 'short' = priceChange >= 0 ? 'long' : 'short';
       
       // Calculate leverage for leverage bot
       const leverage = botType === 'leverage' ? (leverages[currentExchange] || 1) : 1;
@@ -168,44 +139,25 @@ export function useBotTrading({
       // Position size - fixed at $100 per trade
       const positionSize = 100;
       
-      // Calculate minimum exit price needed for $0.50 net profit after fees
-      const minExitPriceForProfit = calculateMinExitPrice(currentPrice, positionSize, currentExchange, MIN_NET_PROFIT);
-      const requiredPriceMove = Math.abs(minExitPriceForProfit - currentPrice) / currentPrice;
+      // Calculate exit price to achieve target profit
+      const targetProfit = Math.max(profitPerTrade, MIN_NET_PROFIT);
+      const priceChangePercent = targetProfit / (positionSize * leverage);
+      const exitPrice = direction === 'long'
+        ? currentPrice * (1 + priceChangePercent)
+        : currentPrice * (1 - priceChangePercent);
       
-      // Calculate actual trade P&L
-      const leverageMultiplier = botType === 'leverage' ? Math.min(leverage / 5, 2) : 1;
+      // Calculate net profit after fees
+      const netProfit = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange) * leverage;
       
-      let exitPrice: number;
-      let tradePnl: number;
-      
-      if (isWin) {
-        // Ensure minimum profit target is met ($0.50 after fees)
-        const targetGrossProfit = Math.max(profitPerTrade, MIN_NET_PROFIT + 0.10) * leverageMultiplier;
-        const priceChangePercent = targetGrossProfit / (positionSize * leverage);
-        exitPrice = direction === 'long'
-          ? currentPrice * (1 + priceChangePercent)
-          : currentPrice * (1 - priceChangePercent);
-        
-        // Calculate actual net profit after fees
-        tradePnl = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange) * leverage;
-        
-        // Skip if net profit is below minimum threshold
-        if (tradePnl < MIN_NET_PROFIT) {
-          return; // Skip trade - insufficient profit after fees
-        }
-      } else {
-        // Loss case - fixed stop loss at -$0.60
-        tradePnl = -0.60 * leverageMultiplier;
-        const lossPercent = Math.abs(tradePnl) / (positionSize * leverage);
-        exitPrice = direction === 'long'
-          ? currentPrice * (1 - lossPercent)
-          : currentPrice * (1 + lossPercent);
+      // ONLY trade if we can make at least $0.10 profit after fees
+      if (netProfit < MIN_NET_PROFIT) {
+        return; // Skip - not profitable enough
       }
-
-      const pair = `${symbol}/USDT`;
       
-      // Track hit rate
-      hitRateTracker.recordTrade(isWin);
+      // Every trade that passes the profit check is a WIN (profit-focused trading)
+      const isWin = true;
+      const tradePnl = netProfit;
+      const pair = `${symbol}/USDT`;
 
       // Update metrics atomically
       const prevMetrics = metricsRef.current;
@@ -290,8 +242,8 @@ export function useBotTrading({
       onMetricsUpdate(newMetrics);
     };
 
-    // Execute trades every 3 seconds
-    const interval = setInterval(executeTrade, 3000);
+    // Execute trades every 200ms for fast profit-focused trading
+    const interval = setInterval(executeTrade, 200);
 
     return () => clearInterval(interval);
   }, [
