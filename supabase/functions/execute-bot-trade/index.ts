@@ -515,15 +515,17 @@ serve(async (req) => {
           const freeStable = await getBinanceFreeStableBalance(apiKey, apiSecret);
           console.log(`Binance free USDT balance: $${freeStable}`);
           if (freeStable <= 0) {
+            // Business-level error: not enough free balance to trade
             return new Response(
               JSON.stringify({
+                success: false,
                 error: "Insufficient free Binance balance",
                 reason:
                   "Your free USDT balance on Binance is 0. Deposit or free up funds to trade.",
                 exchange: selectedExchange.exchange_name,
               }),
               {
-                status: 400,
+                status: 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
               },
             );
@@ -536,8 +538,10 @@ serve(async (req) => {
             console.error(
               `Free Binance balance $${freeStable} is below minimum notional requirement $${lotInfo.minNotional}`,
             );
+            // Business-level error: user balance too low for Binance minimum size
             return new Response(
               JSON.stringify({
+                success: false,
                 error: "Balance below Binance minimum order size",
                 reason:
                   `Free Binance USDT balance ($${freeStable.toFixed(
@@ -546,7 +550,7 @@ serve(async (req) => {
                 exchange: selectedExchange.exchange_name,
               }),
               {
-                status: 400,
+                status: 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
               },
             );
