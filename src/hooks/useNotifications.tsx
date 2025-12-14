@@ -177,12 +177,56 @@ export function useNotifications() {
     });
   }, [playSound, toast]);
 
+  // Track which progress thresholds have been notified
+  const notifiedThresholdsRef = useRef<Set<number>>(new Set());
+
+  const notifyDailyProgress = useCallback((
+    currentPnL: number,
+    dailyTarget: number,
+    botName: string
+  ) => {
+    const progressPercent = (currentPnL / dailyTarget) * 100;
+    const thresholds = [50, 75, 90, 100];
+    
+    for (const threshold of thresholds) {
+      if (progressPercent >= threshold && !notifiedThresholdsRef.current.has(threshold)) {
+        notifiedThresholdsRef.current.add(threshold);
+        playSound();
+        
+        const messages: Record<number, { title: string; desc: string }> = {
+          50: { title: '📈 Halfway There!', desc: `${botName} at 50% of daily target ($${currentPnL.toFixed(2)}/$${dailyTarget})` },
+          75: { title: '🔥 Almost There!', desc: `${botName} at 75% of daily target ($${currentPnL.toFixed(2)}/$${dailyTarget})` },
+          90: { title: '⚡ So Close!', desc: `${botName} at 90% of daily target ($${currentPnL.toFixed(2)}/$${dailyTarget})` },
+          100: { title: '🎯 Target Reached!', desc: `${botName} hit $${dailyTarget} daily target! Bot continues running.` },
+        };
+        
+        const msg = messages[threshold];
+        toast({
+          title: msg.title,
+          description: msg.desc,
+          duration: threshold === 100 ? 10000 : 5000,
+        });
+
+        if (settingsRef.current.pushEnabled) {
+          sendPushNotification(msg.title, msg.desc);
+        }
+        break; // Only notify one threshold at a time
+      }
+    }
+  }, [playSound, toast, sendPushNotification]);
+
+  const resetProgressNotifications = useCallback(() => {
+    notifiedThresholdsRef.current.clear();
+  }, []);
+
   return {
     notify,
     notifyHighProfit,
     notifySignal,
     notifyTrade,
     notifyTakeProfit,
+    notifyDailyProgress,
+    resetProgressNotifications,
     playSound,
     requestPushPermission,
     saveAlert,

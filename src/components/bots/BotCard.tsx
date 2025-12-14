@@ -41,7 +41,7 @@ export function BotCard({
 }: BotCardProps) {
   const { user } = useAuth();
   const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger } = useTradingMode();
-  const { notifyTrade, notifyTakeProfit } = useNotifications();
+  const { notifyTrade, notifyTakeProfit, notifyDailyProgress, resetProgressNotifications } = useNotifications();
 
   const isRunning = !!existingBot;
   const botName = botType === 'spot' ? 'GreenBack Spot' : 'GreenBack Leverage';
@@ -76,8 +76,9 @@ export function BotCard({
       });
       setActiveExchange(null);
       lastPricesRef.current = {};
+      resetProgressNotifications();
     }
-  }, [resetTrigger]);
+  }, [resetTrigger, resetProgressNotifications]);
 
   // Sync with existing bot
   useEffect(() => {
@@ -187,6 +188,9 @@ export function BotCard({
           setTimeout(() => notifyTakeProfit(tpLevel, pair, tradePnl * (tpLevel / 3)), 500);
         }
 
+        // Notify daily progress at 50%, 75%, 90%, 100%
+        notifyDailyProgress(newPnl, dailyTarget, botName);
+
         if (tradingMode === 'demo') {
           setVirtualBalance(prev => prev + tradePnl);
         }
@@ -204,13 +208,15 @@ export function BotCard({
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, onUpdateBotPnl, setVirtualBalance, usdtFloat]);
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, usdtFloat, botName, onStopBot]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
       await onStopBot(existingBot.id);
       setMetrics({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, avgTimeToTP: 12.3, maxDrawdown: 0 });
+      resetProgressNotifications();
     } else {
+      resetProgressNotifications();
       await onStartBot(botName, botType, dailyTarget, profitPerTrade);
     }
   };
