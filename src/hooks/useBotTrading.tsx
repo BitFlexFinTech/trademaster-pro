@@ -4,6 +4,7 @@ import { useAuth } from './useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNotifications } from './useNotifications';
 import { calculateNetProfit, MIN_NET_PROFIT } from '@/lib/exchangeFees';
+import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
 
 const EXCHANGE_CONFIGS = [
   { name: 'Binance', maxLeverage: 20, confidence: 'High' },
@@ -32,7 +33,10 @@ interface BotMetrics {
   hitRate: number;
   avgTimeToTP: number;
   maxDrawdown: number;
+  tradesPerMinute: number;
 }
+
+export type TradingStrategy = 'profit' | 'signal';
 
 interface UseBotTradingProps {
   botId: string | null;
@@ -41,10 +45,11 @@ interface UseBotTradingProps {
   dailyTarget: number;
   profitPerTrade: number;
   leverages: Record<string, number>;
-  prices: Array<{ symbol: string; price: number; change_24h?: number }>;
+  prices: Array<{ symbol: string; price: number; change_24h?: number; volume?: number }>;
   usdtFloat: Array<{ exchange: string; amount: number }>;
   onMetricsUpdate: (metrics: BotMetrics) => void;
   targetHitRate?: number;
+  tradingStrategy?: TradingStrategy;
 }
 
 export function useBotTrading({
@@ -58,6 +63,7 @@ export function useBotTrading({
   usdtFloat,
   onMetricsUpdate,
   targetHitRate = 80,
+  tradingStrategy = 'profit',
 }: UseBotTradingProps) {
   const { user } = useAuth();
   const { mode: tradingMode, setVirtualBalance } = useTradingMode();
@@ -68,12 +74,15 @@ export function useBotTrading({
   const [tradePulse, setTradePulse] = useState(false);
   
   const lastPricesRef = useRef<Record<string, number>>({});
+  const priceHistoryRef = useRef<Map<string, { prices: number[], volumes: number[] }>>(new Map());
+  const tradeTimestampsRef = useRef<number[]>([]);
   const metricsRef = useRef<BotMetrics>({
     currentPnL: 0,
     tradesExecuted: 0,
     hitRate: 0,
     avgTimeToTP: 12.3,
     maxDrawdown: 0,
+    tradesPerMinute: 0,
   });
   const winsRef = useRef(0);
 
@@ -86,9 +95,12 @@ export function useBotTrading({
         hitRate: 0,
         avgTimeToTP: 12.3,
         maxDrawdown: 0,
+        tradesPerMinute: 0,
       };
       winsRef.current = 0;
       lastPricesRef.current = {};
+      priceHistoryRef.current.clear();
+      tradeTimestampsRef.current = [];
     }
   }, [isRunning, botId]);
 
@@ -129,15 +141,45 @@ export function useBotTrading({
       
       lastPricesRef.current[symbol] = currentPrice;
 
-      // Determine direction based on price momentum (simple: up = long, down = short)
-      const priceChange = (currentPrice - lastPrice) / lastPrice;
-      const direction: 'long' | 'short' = priceChange >= 0 ? 'long' : 'short';
+      // Build price history for signal generation
+      const history = priceHistoryRef.current.get(symbol) || { prices: [], volumes: [] };
+      history.prices.push(currentPrice);
+      history.volumes.push(priceData.volume || 1000000);
       
+      // Keep last 30 data points
+      if (history.prices.length > 30) {
+        history.prices.shift();
+        history.volumes.shift();
+      }
+      priceHistoryRef.current.set(symbol, history);
+
       // Calculate leverage for leverage bot
       const leverage = botType === 'leverage' ? (leverages[currentExchange] || 1) : 1;
       
       // Position size - fixed at $100 per trade
       const positionSize = 100;
+      
+      let direction: 'long' | 'short';
+      let isWin: boolean;
+      
+      if (tradingStrategy === 'signal') {
+        // AI Signal-Filtered Mode: Use technical analysis
+        if (history.prices.length < 26) return; // Need enough data for signals
+        
+        const signal = generateSignalScore(history.prices, history.volumes);
+        if (!signal || !meetsHitRateCriteria(signal, targetHitRate / 100)) {
+          return; // Skip - signal doesn't meet quality threshold
+        }
+        
+        direction = signal.direction;
+        const winProbability = calculateWinProbability(signal);
+        isWin = Math.random() < winProbability;
+      } else {
+        // Profit-Focused Mode: Trade based on momentum, every trade is a win
+        const priceChange = (currentPrice - lastPrice) / lastPrice;
+        direction = priceChange >= 0 ? 'long' : 'short';
+        isWin = true;
+      }
       
       // Calculate exit price to achieve target profit
       const targetProfit = Math.max(profitPerTrade, MIN_NET_PROFIT);
@@ -154,10 +196,15 @@ export function useBotTrading({
         return; // Skip - not profitable enough
       }
       
-      // Every trade that passes the profit check is a WIN (profit-focused trading)
-      const isWin = true;
-      const tradePnl = netProfit;
+      const tradePnl = isWin ? netProfit : -Math.abs(netProfit * 0.6); // Losers lose 60% of potential profit
       const pair = `${symbol}/USDT`;
+      
+      // Track trade timestamps for TPM calculation
+      const now = Date.now();
+      tradeTimestampsRef.current.push(now);
+      // Keep only trades from last 60 seconds
+      tradeTimestampsRef.current = tradeTimestampsRef.current.filter(t => now - t < 60000);
+      const tpm = tradeTimestampsRef.current.length;
 
       // Update metrics atomically
       const prevMetrics = metricsRef.current;
@@ -173,6 +220,7 @@ export function useBotTrading({
         hitRate: newHitRate,
         avgTimeToTP: prevMetrics.avgTimeToTP,
         maxDrawdown: newMaxDrawdown,
+        tradesPerMinute: tpm,
       };
       
       metricsRef.current = newMetrics;
@@ -261,6 +309,8 @@ export function useBotTrading({
     notifyTrade,
     notifyTakeProfit,
     onMetricsUpdate,
+    tradingStrategy,
+    targetHitRate,
   ]);
 
   return {
