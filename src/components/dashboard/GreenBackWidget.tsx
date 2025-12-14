@@ -1,14 +1,29 @@
 import { useState, useEffect } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, TrendingUp, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useBotRuns } from '@/hooks/useBotRuns';
 import { Link } from 'react-router-dom';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
+interface ExchangeAllocation {
+  name: string;
+  confidence: 'High' | 'Medium' | 'Low';
+  notes: string;
+}
+
+const EXCHANGE_ALLOCATIONS: ExchangeAllocation[] = [
+  { name: 'Binance', confidence: 'High', notes: 'Best liquidity' },
+  { name: 'OKX', confidence: 'High', notes: 'Low fees' },
+  { name: 'Bybit', confidence: 'Medium', notes: 'Fast execution' },
+  { name: 'Kraken', confidence: 'Medium', notes: 'Reliable' },
+  { name: 'Nexo', confidence: 'Low', notes: 'Limited pairs' },
+];
 
 export function GreenBackWidget() {
-  const { bots, startBot, stopBot, refetch } = useBotRuns();
+  const { bots, stats, startBot, stopBot, refetch } = useBotRuns();
   const existingBot = bots.find(b => b.botName === 'GreenBack' && b.status === 'running');
   const isRunning = !!existingBot;
 
@@ -17,7 +32,10 @@ export function GreenBackWidget() {
     tradesExecuted: existingBot?.tradesExecuted || 0,
     hitRate: existingBot?.hitRate || 0,
     dailyTarget: existingBot?.dailyTarget || 40,
+    avgTimeToTP: 12.3,
   });
+
+  const [activeExchange, setActiveExchange] = useState<string | null>(null);
 
   useEffect(() => {
     if (existingBot) {
@@ -26,9 +44,25 @@ export function GreenBackWidget() {
         tradesExecuted: existingBot.tradesExecuted,
         hitRate: existingBot.hitRate,
         dailyTarget: existingBot.dailyTarget,
+        avgTimeToTP: 12.3,
       });
     }
   }, [existingBot]);
+
+  // Simulate active exchange rotation when running
+  useEffect(() => {
+    if (!isRunning) {
+      setActiveExchange(null);
+      return;
+    }
+    const exchanges = EXCHANGE_ALLOCATIONS.map(e => e.name);
+    let idx = 0;
+    const interval = setInterval(() => {
+      setActiveExchange(exchanges[idx % exchanges.length]);
+      idx++;
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isRunning]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
@@ -41,60 +75,175 @@ export function GreenBackWidget() {
 
   const progressPercent = (metrics.currentPnL / metrics.dailyTarget) * 100;
 
+  // Calculate suggested USDT allocation
+  const calculateAllocation = (confidence: 'High' | 'Medium' | 'Low'): number => {
+    const base = (metrics.dailyTarget / 1) / 0.005 * 1.3; // dailyTarget / profitPerTrade / avgMove * buffer
+    const totalBase = base / EXCHANGE_ALLOCATIONS.length;
+    if (confidence === 'High') return Math.round(totalBase * 1.5);
+    if (confidence === 'Medium') return Math.round(totalBase);
+    return Math.round(totalBase * 0.6);
+  };
+
+  // AI-generated insights based on metrics
+  const getAIInsight = (): string => {
+    if (!isRunning && stats.totalTrades === 0) {
+      return "Start the bot to begin automated scalping across top exchanges.";
+    }
+    if (metrics.hitRate >= 70) {
+      return `Excellent performance with ${metrics.hitRate.toFixed(0)}% hit rate. Consider increasing daily target.`;
+    }
+    if (metrics.hitRate >= 50) {
+      return `Solid ${metrics.hitRate.toFixed(0)}% hit rate. Bot is performing within expected parameters.`;
+    }
+    if (metrics.currentPnL >= metrics.dailyTarget) {
+      return "Daily target achieved! Bot continues running for additional profits.";
+    }
+    return `${metrics.tradesExecuted} trades executed. Targeting $${metrics.dailyTarget}/day profit.`;
+  };
+
   return (
-    <div className="card-terminal p-3 h-full flex flex-col">
-      <div className="flex items-center justify-between mb-2">
+    <div className="card-terminal p-4 h-full flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="relative">
-            <Zap className="w-4 h-4 text-primary" />
+            <Zap className="w-5 h-5 text-primary" />
             {isRunning && (
               <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
             )}
           </div>
-          <span className="font-semibold text-sm text-foreground">GreenBack Bot</span>
+          <div>
+            <span className="font-semibold text-foreground">GreenBack Bot</span>
+            {isRunning && activeExchange && (
+              <Badge variant="outline" className="ml-2 text-[9px] animate-pulse">
+                <span className="w-1 h-1 bg-primary rounded-full mr-1" />
+                {activeExchange}
+              </Badge>
+            )}
+          </div>
         </div>
         <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[10px]">
           {isRunning ? 'Running' : 'Stopped'}
         </Badge>
       </div>
 
-      <div className="mb-2">
-        <div className="flex items-center justify-between text-[10px] mb-1">
+      {/* Progress Bar */}
+      <div className="mb-4 flex-shrink-0">
+        <div className="flex items-center justify-between text-xs mb-1">
           <span className="text-muted-foreground">Daily Progress</span>
           <span className="text-foreground font-mono">
             ${metrics.currentPnL.toFixed(2)} / ${metrics.dailyTarget}
           </span>
         </div>
-        <Progress value={Math.min(progressPercent, 100)} className="h-1.5" />
+        <Progress value={Math.min(progressPercent, 100)} className="h-2" />
+        {progressPercent >= 100 && (
+          <p className="text-[10px] text-primary mt-1">Target reached! Bot continues running.</p>
+        )}
       </div>
 
-      <div className="grid grid-cols-3 gap-1 mb-2 text-[10px]">
-        <div className="bg-secondary/50 p-1.5 rounded text-center">
-          <DollarSign className="w-3 h-3 mx-auto text-primary mb-0.5" />
-          <p className="font-mono font-bold text-foreground">${metrics.currentPnL.toFixed(2)}</p>
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-4 gap-2 mb-4 flex-shrink-0">
+        <div className="bg-secondary/50 p-2 rounded text-center">
+          <DollarSign className="w-3 h-3 mx-auto text-primary mb-1" />
+          <p className={cn('text-sm font-bold font-mono', metrics.currentPnL >= 0 ? 'text-primary' : 'text-destructive')}>
+            ${metrics.currentPnL.toFixed(2)}
+          </p>
+          <p className="text-[9px] text-muted-foreground">P&L</p>
         </div>
-        <div className="bg-secondary/50 p-1.5 rounded text-center">
-          <Activity className="w-3 h-3 mx-auto text-muted-foreground mb-0.5" />
-          <p className="font-mono font-bold text-foreground">{metrics.tradesExecuted}</p>
+        <div className="bg-secondary/50 p-2 rounded text-center">
+          <Activity className="w-3 h-3 mx-auto text-muted-foreground mb-1" />
+          <p className="text-sm font-bold text-foreground font-mono">{metrics.tradesExecuted}</p>
+          <p className="text-[9px] text-muted-foreground">Trades</p>
         </div>
-        <div className="bg-secondary/50 p-1.5 rounded text-center">
-          <Target className="w-3 h-3 mx-auto text-primary mb-0.5" />
-          <p className="font-mono font-bold text-foreground">{metrics.hitRate.toFixed(0)}%</p>
+        <div className="bg-secondary/50 p-2 rounded text-center">
+          <Target className="w-3 h-3 mx-auto text-primary mb-1" />
+          <p className="text-sm font-bold text-primary font-mono">{metrics.hitRate.toFixed(0)}%</p>
+          <p className="text-[9px] text-muted-foreground">Hit Rate</p>
+        </div>
+        <div className="bg-secondary/50 p-2 rounded text-center">
+          <Clock className="w-3 h-3 mx-auto text-muted-foreground mb-1" />
+          <p className="text-sm font-bold text-foreground font-mono">{metrics.avgTimeToTP.toFixed(1)}s</p>
+          <p className="text-[9px] text-muted-foreground">Avg TP</p>
         </div>
       </div>
 
-      <div className="flex gap-2 mt-auto">
+      {/* AI Insight */}
+      <div className="bg-secondary/30 border border-border/50 rounded p-3 mb-4 flex-shrink-0">
+        <div className="flex items-center gap-2 mb-1">
+          <Sparkles className="w-3 h-3 text-primary" />
+          <span className="text-[10px] font-medium text-muted-foreground">AI INSIGHT</span>
+        </div>
+        <p className="text-xs text-foreground">{getAIInsight()}</p>
+      </div>
+
+      {/* Recommended USDT Allocation - Show when not running */}
+      {!isRunning && (
+        <div className="flex-1 min-h-0 mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingUp className="w-3 h-3 text-muted-foreground" />
+            <span className="text-[10px] font-medium text-muted-foreground">RECOMMENDED USDT ALLOCATION</span>
+          </div>
+          <ScrollArea className="h-full max-h-[120px]">
+            <div className="bg-secondary/30 rounded overflow-hidden text-[10px]">
+              <div className="grid grid-cols-4 gap-1 px-2 py-1.5 bg-muted/50 text-muted-foreground font-medium">
+                <span>Exchange</span>
+                <span>USDT</span>
+                <span>Confidence</span>
+                <span>Notes</span>
+              </div>
+              {EXCHANGE_ALLOCATIONS.map(ex => (
+                <div key={ex.name} className="grid grid-cols-4 gap-1 px-2 py-1.5 border-t border-border/50">
+                  <span className="text-foreground">{ex.name}</span>
+                  <span className="font-mono text-primary">${calculateAllocation(ex.confidence)}</span>
+                  <Badge 
+                    variant="outline" 
+                    className={cn(
+                      'text-[8px] w-fit h-4',
+                      ex.confidence === 'High' && 'border-primary text-primary',
+                      ex.confidence === 'Medium' && 'border-warning text-warning',
+                      ex.confidence === 'Low' && 'border-muted-foreground text-muted-foreground'
+                    )}
+                  >
+                    {ex.confidence}
+                  </Badge>
+                  <span className="text-muted-foreground truncate">{ex.notes}</span>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+      )}
+
+      {/* Cumulative Stats when running */}
+      {isRunning && (
+        <div className="flex-1 min-h-0 mb-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-secondary/30 p-3 rounded">
+              <p className="text-[10px] text-muted-foreground mb-1">Total Bot P&L</p>
+              <p className={cn('text-lg font-bold font-mono', stats.totalPnl >= 0 ? 'text-primary' : 'text-destructive')}>
+                ${stats.totalPnl.toFixed(2)}
+              </p>
+            </div>
+            <div className="bg-secondary/30 p-3 rounded">
+              <p className="text-[10px] text-muted-foreground mb-1">All-Time Trades</p>
+              <p className="text-lg font-bold text-foreground font-mono">{stats.totalTrades}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="flex gap-2 mt-auto flex-shrink-0">
         <Button
-          size="sm"
-          className={cn('flex-1 h-7 text-xs gap-1', isRunning ? 'btn-outline-primary' : 'btn-primary')}
+          className={cn('flex-1 gap-2', isRunning ? 'btn-outline-primary' : 'btn-primary')}
           onClick={handleStartStop}
         >
-          {isRunning ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-          {isRunning ? 'Stop' : 'Start'}
+          {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+          {isRunning ? 'Stop Bot' : 'Start Bot'}
         </Button>
         <Link to="/bots" className="flex-1">
-          <Button size="sm" variant="outline" className="w-full h-7 text-xs">
-            Details
+          <Button variant="outline" className="w-full gap-2">
+            View Details
           </Button>
         </Link>
       </div>
