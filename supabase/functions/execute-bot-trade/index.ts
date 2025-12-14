@@ -831,14 +831,14 @@ serve(async (req) => {
         adjustedPositionSize = Math.min(adjustedPositionSize, maxByFree);
         console.log(`Adjusted position size by free balance: $${adjustedPositionSize} (max by free: $${maxByFree})`);
 
-        // Ensure minimum notional value is met - but only if we have the balance!
+        // Ensure minimum notional value is met - but only if we have the balance
         if (adjustedPositionSize < lotInfo.minNotional) {
           const requiredAmount = lotInfo.minNotional * 1.1;
-          if (freeBalance >= requiredAmount) {
+          if (freeBalance >= requiredAmount || isSandbox) {
             adjustedPositionSize = requiredAmount;
             console.log(`Position size increased to meet min notional: $${adjustedPositionSize}`);
           } else {
-            // Cannot meet minimum notional with available balance
+            // Cannot meet minimum notional with available balance – treat as user error, not server crash
             console.error(`❌ Insufficient balance: have $${freeBalance}, need $${requiredAmount} for minimum order`);
             return new Response(
               JSON.stringify({
@@ -847,9 +847,10 @@ serve(async (req) => {
                 reason: `Insufficient balance: have $${freeBalance.toFixed(2)}, need $${requiredAmount.toFixed(2)} minimum`,
                 cannotFallbackToSimulation: true,
                 exchange: selectedExchange.exchange_name,
+                errorType: "EXCHANGE_USER_ERROR",
               }),
               {
-                status: 500,
+                status: 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
               },
             );
@@ -859,6 +860,7 @@ serve(async (req) => {
         // Calculate and round quantity to step size
         const rawQuantity = adjustedPositionSize / currentPrice;
         const quantity = roundToStepSize(rawQuantity, lotInfo.stepSize);
+        console.log(`Order quantity: ${quantity} (raw: ${rawQuantity}, stepSize: ${lotInfo.stepSize}, minQty: ${lotInfo.minQty})`);
         console.log(`Order quantity: ${quantity} (raw: ${rawQuantity}, stepSize: ${lotInfo.stepSize}, minQty: ${lotInfo.minQty})`);
 
         let entryOrder: { orderId: string; status: string; avgPrice: number; executedQty: string } | null = null;
@@ -1018,22 +1020,40 @@ serve(async (req) => {
               ? exchangeError
               : JSON.stringify(exchangeError);
 
-        // In LIVE mode, surface a detailed error to the client instead of a generic failure
+        // Classify common exchange errors that are "business" issues (not server bugs)
+        const lower = (message || "").toLowerCase();
+        const isUserFacingExchangeError = [
+          "insufficient balance",
+          "order value exceeded lower limit",
+          "filter failure: notional",
+          "no active orders for this pair",
+          "too many visits. exceeded the api rate limit",
+          "market is closed",
+        ].some((snippet) => lower.includes(snippet.toLowerCase()));
+
+        // In LIVE mode, surface a detailed error to the client.
+        // Use 200 for known user-facing exchange errors so they don't appear as runtime failures.
         if (!isSandbox) {
-          return new Response(
-            JSON.stringify({
-              error: "Real trade execution failed",
-              reason:
-                message ||
-                "Exchange API error - check exchange connection and API permissions",
-              cannotFallbackToSimulation: true,
-              exchange: selectedExchange.exchange_name,
-            }),
-            {
-              status: 500,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            },
-          );
+          const payload = {
+            error: "Real trade execution failed",
+            reason:
+              message ||
+              "Exchange API error - check exchange connection and API permissions",
+            cannotFallbackToSimulation: true,
+            exchange: selectedExchange.exchange_name,
+            errorType: isUserFacingExchangeError
+              ? "EXCHANGE_USER_ERROR"
+              : "EXCHANGE_SYSTEM_ERROR",
+          };
+
+          if (isUserFacingExchangeError) {
+            console.warn("Non-fatal exchange error (user-facing):", message);
+          }
+
+          return new Response(JSON.stringify(payload), {
+            status: isUserFacingExchangeError ? 200 : 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
 
         // In DEMO mode (should not normally reach here), fall back to simulation
