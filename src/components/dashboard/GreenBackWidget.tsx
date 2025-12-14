@@ -42,7 +42,7 @@ export function GreenBackWidget() {
   const { bots, stats, startBot, stopBot, updateBotPnl, refetch, getSpotBot, getLeverageBot } = useBotRuns();
   const { prices } = useRealtimePrices();
   const { notifyTrade, notifyTakeProfit } = useNotifications();
-  const { mode: tradingMode, virtualBalance, setVirtualBalance } = useTradingMode();
+  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger } = useTradingMode();
   const { user } = useAuth();
   
   // Find BOTH spot and leverage bots
@@ -73,6 +73,22 @@ export function GreenBackWidget() {
   const [lastTrade, setLastTrade] = useState<LastTrade | null>(null);
   const [tradePulse, setTradePulse] = useState(false);
   const lastPricesRef = useRef<Record<string, number>>({});
+
+  // Listen to reset trigger - reset local state
+  useEffect(() => {
+    if (resetTrigger > 0) {
+      setMetrics({
+        currentPnL: 0,
+        tradesExecuted: 0,
+        hitRate: 0,
+        avgTimeToTP: 12.3,
+      });
+      setLastTrade(null);
+      setActiveExchange(null);
+      lastPricesRef.current = {};
+      refetch();
+    }
+  }, [resetTrigger, refetch]);
 
   // Sync metrics from database
   useEffect(() => {
@@ -429,9 +445,32 @@ export function GreenBackWidget() {
       {/* Recommended USDT Allocation - Show when no bots running */}
       {!anyBotRunning && (
         <div className="flex-1 min-h-0 mb-3">
-          <div className="flex items-center gap-2 mb-2">
-            <TrendingUp className="w-3 h-3 text-muted-foreground" />
-            <span className="text-[10px] font-medium text-muted-foreground">RECOMMENDED USDT ALLOCATION</span>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-3 h-3 text-muted-foreground" />
+              <span className="text-[10px] font-medium text-muted-foreground">RECOMMENDED USDT ALLOCATION</span>
+            </div>
+            {/* USDT Cap Indicator */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] text-muted-foreground font-mono">
+                ${EXCHANGE_ALLOCATIONS.reduce((sum, ex) => sum + calculateAllocation(ex.confidence), 0).toLocaleString()} / ${MAX_USDT_ALLOCATION.toLocaleString()}
+              </span>
+              <div className="w-12 h-1.5 bg-secondary rounded-full overflow-hidden">
+                {(() => {
+                  const totalAlloc = EXCHANGE_ALLOCATIONS.reduce((sum, ex) => sum + calculateAllocation(ex.confidence), 0);
+                  const capPercent = (totalAlloc / MAX_USDT_ALLOCATION) * 100;
+                  return (
+                    <div 
+                      className={cn(
+                        "h-full transition-all rounded-full",
+                        capPercent >= 100 ? "bg-destructive" : capPercent >= 80 ? "bg-warning" : "bg-primary"
+                      )}
+                      style={{ width: `${Math.min(capPercent, 100)}%` }}
+                    />
+                  );
+                })()}
+              </div>
+            </div>
           </div>
           <ScrollArea className="h-full max-h-[100px]">
             <div className="bg-secondary/30 rounded overflow-hidden text-[10px]">

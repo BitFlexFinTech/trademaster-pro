@@ -3,7 +3,10 @@ import { RefreshCw, Bell, Clock, LogOut, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
+import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNavigate } from 'react-router-dom';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +19,7 @@ export function Header() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const { user, signOut } = useAuth();
   const { prices, loading, refreshData } = useRealtimePrices();
+  const { mode: tradingMode, setMode: setTradingMode, virtualBalance } = useTradingMode();
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const navigate = useNavigate();
 
@@ -36,6 +40,10 @@ export function Header() {
   const handleSignOut = async () => {
     await signOut();
     navigate('/auth');
+  };
+
+  const handleModeToggle = (checked: boolean) => {
+    setTradingMode(checked ? 'live' : 'demo');
   };
 
   // Use real prices or fallback to mock
@@ -68,6 +76,33 @@ export function Header() {
         <div className="flex items-center gap-2 text-muted-foreground text-sm mr-4 flex-shrink-0">
           <Clock className="w-4 h-4" />
           <span className="font-mono">{formatTime(currentTime)}</span>
+        </div>
+
+        {/* Demo/Live Toggle */}
+        <div className="flex items-center gap-2 mr-4 flex-shrink-0 bg-secondary/50 rounded-lg px-3 py-1.5">
+          <Label 
+            htmlFor="trading-mode" 
+            className={`text-xs font-medium cursor-pointer ${tradingMode === 'demo' ? 'text-primary' : 'text-muted-foreground'}`}
+          >
+            Demo
+          </Label>
+          <Switch
+            id="trading-mode"
+            checked={tradingMode === 'live'}
+            onCheckedChange={handleModeToggle}
+            className="data-[state=checked]:bg-destructive"
+          />
+          <Label 
+            htmlFor="trading-mode" 
+            className={`text-xs font-medium cursor-pointer ${tradingMode === 'live' ? 'text-destructive' : 'text-muted-foreground'}`}
+          >
+            Live
+          </Label>
+          {tradingMode === 'demo' && (
+            <span className="text-[10px] text-muted-foreground font-mono ml-1">
+              ${virtualBalance.toFixed(0)}
+            </span>
+          )}
         </div>
 
         {/* Ticker Tape */}

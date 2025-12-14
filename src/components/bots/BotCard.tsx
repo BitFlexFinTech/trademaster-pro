@@ -56,7 +56,7 @@ export function BotCard({
   usdtFloat,
 }: BotCardProps) {
   const { user } = useAuth();
-  const { mode: tradingMode, virtualBalance, setVirtualBalance } = useTradingMode();
+  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger } = useTradingMode();
   const { notifyTrade, notifyTakeProfit } = useNotifications();
 
   const isRunning = !!existingBot;
@@ -79,6 +79,21 @@ export function BotCard({
   });
 
   const lastPricesRef = useRef<Record<string, number>>({});
+
+  // Listen to reset trigger - reset local state
+  useEffect(() => {
+    if (resetTrigger > 0) {
+      setMetrics({
+        currentPnL: 0,
+        tradesExecuted: 0,
+        hitRate: 0,
+        avgTimeToTP: 12.3,
+        maxDrawdown: 0,
+      });
+      setActiveExchange(null);
+      lastPricesRef.current = {};
+    }
+  }, [resetTrigger]);
 
   // Sync with existing bot
   useEffect(() => {
