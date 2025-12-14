@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2 } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
@@ -12,12 +13,15 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { supabase } from '@/integrations/supabase/client';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
 import { calculateNetProfit, MIN_NET_PROFIT } from '@/lib/exchangeFees';
+import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+
+export type TradingStrategy = 'profit' | 'signal';
 
 interface BotCardProps {
   botType: 'spot' | 'leverage';
@@ -69,10 +73,13 @@ export function BotCard({
     hitRate: existingBot?.hitRate || 0,
     avgTimeToTP: 12.3,
     maxDrawdown: existingBot?.maxDrawdown || 0,
+    tradesPerMinute: 0,
   });
 
+  const [tradingStrategy, setTradingStrategy] = useState<TradingStrategy>('profit');
   const lastPricesRef = useRef<Record<string, number>>({});
-
+  const priceHistoryRef = useRef<Map<string, { prices: number[], volumes: number[] }>>(new Map());
+  const tradeTimestampsRef = useRef<number[]>([]);
   // Listen to reset trigger - reset local state
   useEffect(() => {
     if (resetTrigger > 0) {
@@ -82,9 +89,12 @@ export function BotCard({
         hitRate: 0,
         avgTimeToTP: 12.3,
         maxDrawdown: 0,
+        tradesPerMinute: 0,
       });
       setActiveExchange(null);
       lastPricesRef.current = {};
+      priceHistoryRef.current.clear();
+      tradeTimestampsRef.current = [];
       resetProgressNotifications();
     }
   }, [resetTrigger, resetProgressNotifications]);
@@ -98,6 +108,7 @@ export function BotCard({
         hitRate: existingBot.hitRate,
         avgTimeToTP: 12.3,
         maxDrawdown: existingBot.maxDrawdown || 0,
+        tradesPerMinute: 0,
       });
       setDailyTarget(existingBot.dailyTarget);
       setProfitPerTrade(existingBot.profitPerTrade);
@@ -148,8 +159,37 @@ export function BotCard({
       const priceChange = lastPrice > 0 ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
       lastPricesRef.current[symbol] = currentPrice;
 
-      // Determine direction based on price momentum
-      const direction: 'long' | 'short' = priceChange >= 0 ? 'long' : 'short';
+      // Build price history for AI signal mode
+      const history = priceHistoryRef.current.get(symbol) || { prices: [], volumes: [] };
+      history.prices.push(currentPrice);
+      history.volumes.push(1000000); // Default volume
+      if (history.prices.length > 30) {
+        history.prices.shift();
+        history.volumes.shift();
+      }
+      priceHistoryRef.current.set(symbol, history);
+
+      let direction: 'long' | 'short';
+      let isWin: boolean;
+      
+      if (tradingStrategy === 'signal') {
+        // AI Signal-Filtered Mode
+        if (history.prices.length < 26) return; // Need enough data
+        
+        const signal = generateSignalScore(history.prices, history.volumes);
+        if (!signal || !meetsHitRateCriteria(signal, 0.80)) {
+          return; // Skip - signal doesn't meet quality threshold
+        }
+        
+        direction = signal.direction;
+        const winProbability = calculateWinProbability(signal);
+        isWin = Math.random() < winProbability;
+      } else {
+        // Profit-Focused Mode
+        direction = priceChange >= 0 ? 'long' : 'short';
+        isWin = true;
+      }
+
       const leverage = botType === 'leverage' ? (leverages[currentExchange] || 1) : 1;
       const positionSize = 100 * leverage;
       const pair = `${symbol}/USDT`;
@@ -169,9 +209,13 @@ export function BotCard({
         return; // Skip - not profitable enough
       }
       
-      // Every trade that passes the profit check is a WIN (profit-focused trading)
-      const isWin = true;
-      const tradePnl = netProfit;
+      const tradePnl = isWin ? netProfit : -Math.abs(netProfit * 0.6);
+
+      // Track trades per minute
+      const now = Date.now();
+      tradeTimestampsRef.current.push(now);
+      tradeTimestampsRef.current = tradeTimestampsRef.current.filter(t => now - t < 60000);
+      const tpm = tradeTimestampsRef.current.length;
 
       setMetrics(prev => {
         const newPnl = Math.min(Math.max(prev.currentPnL + tradePnl, -dailyStopLoss), dailyTarget * 1.5);
@@ -222,17 +266,18 @@ export function BotCard({
           tradesExecuted: newTrades,
           hitRate: newHitRate,
           maxDrawdown: newMaxDrawdown,
+          tradesPerMinute: tpm,
         };
       });
     }, 200); // 200ms for fast profit-focused trading (up to 300 trades/min)
 
     return () => clearInterval(interval);
-  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, usdtFloat, botName, onStopBot, dailyStopLoss, perTradeStopLoss]);
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, usdtFloat, botName, onStopBot, dailyStopLoss, perTradeStopLoss, tradingStrategy]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
       await onStopBot(existingBot.id);
-      setMetrics({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, avgTimeToTP: 12.3, maxDrawdown: 0 });
+      setMetrics({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, avgTimeToTP: 12.3, maxDrawdown: 0, tradesPerMinute: 0 });
       resetProgressNotifications();
     } else {
       resetProgressNotifications();
@@ -335,10 +380,47 @@ export function BotCard({
         </div>
         <div className="bg-secondary/50 p-2 rounded text-center">
           <div className="text-[9px] text-muted-foreground flex items-center justify-center gap-1">
-            <Clock className="w-2.5 h-2.5" /> Avg TP
+            <Zap className="w-2.5 h-2.5" /> TPM
           </div>
-          <p className="text-sm font-bold text-foreground font-mono">{metrics.avgTimeToTP.toFixed(1)}s</p>
+          <p className={cn(
+            "text-sm font-bold font-mono",
+            metrics.tradesPerMinute >= 100 ? "text-primary animate-pulse" : "text-foreground"
+          )}>
+            {metrics.tradesPerMinute}
+          </p>
         </div>
+      </div>
+
+      {/* Trading Strategy Toggle */}
+      <div className="mb-3">
+        <Label className="text-[10px] text-muted-foreground mb-1 block">Trading Strategy</Label>
+        <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-0.5">
+          <Button
+            size="sm"
+            variant={tradingStrategy === 'profit' ? 'default' : 'ghost'}
+            onClick={() => setTradingStrategy('profit')}
+            className="h-6 text-[10px] px-2 flex-1"
+            disabled={isRunning}
+          >
+            <Zap className="w-3 h-3 mr-1" />
+            Profit-Focused
+          </Button>
+          <Button
+            size="sm"
+            variant={tradingStrategy === 'signal' ? 'default' : 'ghost'}
+            onClick={() => setTradingStrategy('signal')}
+            className="h-6 text-[10px] px-2 flex-1"
+            disabled={isRunning}
+          >
+            <Brain className="w-3 h-3 mr-1" />
+            AI Signals
+          </Button>
+        </div>
+        <p className="text-[9px] text-muted-foreground mt-1">
+          {tradingStrategy === 'profit' 
+            ? 'Trades as fast as possible, min $0.10 profit/trade'
+            : 'Filters trades using AI signals for 80%+ hit rate'}
+        </p>
       </div>
 
       {/* Configuration */}

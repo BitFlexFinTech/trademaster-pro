@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Brain, History } from 'lucide-react';
 import { useTradingMode } from '@/contexts/TradingModeContext';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface BotRun {
   id: string;
@@ -25,7 +27,23 @@ interface BotHistoryProps {
   onViewAnalysis?: (botId: string, botName: string) => void;
 }
 
+// Map database record to BotRun interface
+const mapToBotRun = (record: Record<string, unknown>): BotRun => ({
+  id: record.id as string,
+  botName: record.bot_name as string,
+  mode: record.mode as 'spot' | 'leverage',
+  dailyTarget: (record.daily_target as number) || 30,
+  profitPerTrade: (record.profit_per_trade as number) || 1,
+  status: record.status as 'running' | 'stopped' | 'paused',
+  currentPnl: (record.current_pnl as number) || 0,
+  tradesExecuted: (record.trades_executed as number) || 0,
+  hitRate: (record.hit_rate as number) || 0,
+  maxDrawdown: (record.max_drawdown as number) || 0,
+  startedAt: record.started_at as string | null,
+});
+
 export function BotHistory({ bots, onViewAnalysis }: BotHistoryProps) {
+  const { user } = useAuth();
   const { resetTrigger } = useTradingMode();
   const [stoppedBots, setStoppedBots] = useState<BotRun[]>([]);
 
@@ -39,6 +57,52 @@ export function BotHistory({ bots, onViewAnalysis }: BotHistoryProps) {
       setStoppedBots([]);
     }
   }, [resetTrigger]);
+
+  // Subscribe to real-time bot_runs updates
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`bot-history-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'bot_runs',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'UPDATE') {
+            const updatedBot = payload.new;
+            if (updatedBot.status === 'stopped') {
+              setStoppedBots(prev => {
+                const exists = prev.find(b => b.id === updatedBot.id);
+                if (exists) {
+                  return prev.map(b => b.id === updatedBot.id ? mapToBotRun(updatedBot) : b);
+                }
+                return [mapToBotRun(updatedBot), ...prev];
+              });
+            }
+          } else if (payload.eventType === 'INSERT') {
+            const newBot = payload.new;
+            if (newBot.status === 'stopped') {
+              setStoppedBots(prev => [mapToBotRun(newBot), ...prev]);
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old?.id;
+            if (deletedId) {
+              setStoppedBots(prev => prev.filter(b => b.id !== deletedId));
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   if (stoppedBots.length === 0) {
     return (

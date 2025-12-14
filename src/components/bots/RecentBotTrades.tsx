@@ -30,7 +30,7 @@ export function RecentBotTrades() {
   const [loading, setLoading] = useState(true);
 
   // Calculate summary stats - MUST be before any early returns
-  const { totalPnL, tradeCount, avgTimeBetweenTrades, cumulativePnL } = useMemo(() => {
+  const { totalPnL, tradeCount, avgTimeBetweenTrades, tradesPerMinute, cumulativePnL } = useMemo(() => {
     const total = trades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
     
     // Calculate average time between trades in seconds
@@ -44,6 +44,14 @@ export function RecentBotTrades() {
       }
       avgTime = times.reduce((a, b) => a + b, 0) / times.length;
     }
+
+    // Calculate trades per minute (from last 60 seconds)
+    const now = Date.now();
+    const tradesLastMinute = trades.filter(t => {
+      const tradeTime = new Date(t.created_at).getTime();
+      return now - tradeTime < 60000; // Within last 60 seconds
+    });
+    const tpm = tradesLastMinute.length;
 
     // Calculate cumulative P&L for chart (reverse order for chronological)
     const reversedTrades = [...trades].reverse();
@@ -61,6 +69,7 @@ export function RecentBotTrades() {
       totalPnL: total, 
       tradeCount: trades.length, 
       avgTimeBetweenTrades: avgTime,
+      tradesPerMinute: tpm,
       cumulativePnL: pnlData,
     };
   }, [trades]);
@@ -103,23 +112,34 @@ export function RecentBotTrades() {
     }
   }, [resetTrigger]);
 
-  // Subscribe to real-time trade updates
+  // Subscribe to real-time trade updates - include mode in channel name and filter
   useEffect(() => {
     if (!user) return;
 
+    const isSandbox = mode === 'demo';
     const channel = supabase
-      .channel('bot-trades')
+      .channel(`bot-trades-${mode}-${user.id}`)
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'trades',
           filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
-          const newTrade = payload.new as BotTrade;
-          setTrades(prev => [newTrade, ...prev.slice(0, 19)]);
+          if (payload.eventType === 'INSERT') {
+            const newTrade = payload.new as BotTrade & { is_sandbox?: boolean };
+            // Only add if it matches current mode
+            if (newTrade.is_sandbox === isSandbox) {
+              setTrades(prev => [newTrade, ...prev.slice(0, 19)]);
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old?.id;
+            if (deletedId) {
+              setTrades(prev => prev.filter(t => t.id !== deletedId));
+            }
+          }
         }
       )
       .subscribe();
@@ -127,7 +147,7 @@ export function RecentBotTrades() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user, mode]);
 
   if (loading) {
     return (
@@ -154,6 +174,17 @@ export function RecentBotTrades() {
           <span className="text-xs font-semibold text-foreground">Recent Trades</span>
         </div>
         <div className="flex items-center gap-1.5">
+          {/* Trades Per Minute Counter */}
+          <Badge 
+            variant="outline" 
+            className={cn(
+              "text-[8px] h-5 px-1.5 font-mono flex items-center gap-1",
+              tradesPerMinute >= 100 && "border-primary text-primary animate-pulse"
+            )}
+          >
+            <Activity className="w-2.5 h-2.5 text-primary" />
+            {tradesPerMinute}/min
+          </Badge>
           {/* Trade Speed Indicator */}
           <Badge 
             variant="outline" 
