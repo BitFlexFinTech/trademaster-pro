@@ -117,10 +117,14 @@ const TOP_PAIRS = [
   'DOGE/USDT', 'ADA/USDT', 'AVAX/USDT', 'DOT/USDT', 'MATIC/USDT'
 ];
 
-// Safety limits
-const DEFAULT_POSITION_SIZE = 100; // Default $100 per trade
+// Safety limits - INCREASED for profitable trading
+const DEFAULT_POSITION_SIZE = 50; // Default $50 per trade (minimum for meaningful profit)
+const MIN_POSITION_SIZE = 20; // Absolute minimum to cover fees + generate profit
 const MAX_POSITION_SIZE_CAP = 5000; // Hard cap at $5000 for safety
 const DAILY_LOSS_LIMIT = -5; // Stop if daily loss exceeds $5
+const MAX_SLIPPAGE_PERCENT = 0.3; // 0.3% max slippage tolerance
+const PROFIT_LOCK_TIMEOUT_MS = 30000; // 30 second timeout for limit order profit lock
+const LIMIT_ORDER_PROFIT_TARGET = 0.003; // 0.3% profit target for limit exits
 
 interface BotTradeRequest {
   botId: string;
@@ -132,11 +136,30 @@ interface BotTradeRequest {
   maxPositionSize?: number; // NEW: user-configurable position size
 }
 
+// Generate unique clientOrderId for idempotency
+function generateClientOrderId(botId: string, side: string): string {
+  return `GB_${botId.slice(0, 8)}_${side}_${Date.now()}`;
+}
+
 // ============ EXCHANGE ORDER PLACEMENT FUNCTIONS ============
 
-async function placeBinanceOrder(apiKey: string, apiSecret: string, symbol: string, side: string, quantity: string): Promise<{ orderId: string; status: string; avgPrice: number; executedQty: string }> {
+// Place Binance MARKET order with clientOrderId for idempotency
+async function placeBinanceOrder(
+  apiKey: string, 
+  apiSecret: string, 
+  symbol: string, 
+  side: string, 
+  quantity: string,
+  clientOrderId?: string
+): Promise<{ orderId: string; status: string; avgPrice: number; executedQty: string }> {
   const timestamp = Date.now();
-  const params = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+  let params = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+  
+  // Add clientOrderId for idempotency if provided
+  if (clientOrderId) {
+    params += `&newClientOrderId=${clientOrderId}`;
+  }
+  
   const signature = await hmacSha256(apiSecret, params);
   
   const response = await fetch(`https://api.binance.com/api/v3/order?${params}&signature=${signature}`, {
@@ -146,6 +169,10 @@ async function placeBinanceOrder(apiKey: string, apiSecret: string, symbol: stri
   
   if (!response.ok) {
     const error = await response.json();
+    // Check for duplicate order error
+    if (error.code === -2010 || error.msg?.includes('Duplicate')) {
+      console.warn(`Duplicate order detected for clientOrderId: ${clientOrderId}`);
+    }
     throw new Error(error.msg || "Binance order failed");
   }
   
@@ -160,22 +187,119 @@ async function placeBinanceOrder(apiKey: string, apiSecret: string, symbol: stri
     avgPrice = parseFloat(data.price) || 0;
   }
   
-  // Return executedQty for accurate exit orders
   return { orderId: data.orderId.toString(), status: data.status, avgPrice, executedQty: data.executedQty || quantity };
 }
 
-// Helper: Place Binance order with retry logic
+// Place Binance LIMIT order for profit locking
+async function placeBinanceLimitOrder(
+  apiKey: string, 
+  apiSecret: string, 
+  symbol: string, 
+  side: string, 
+  quantity: string,
+  price: string,
+  clientOrderId?: string
+): Promise<{ orderId: string; status: string }> {
+  const timestamp = Date.now();
+  let params = `symbol=${symbol}&side=${side}&type=LIMIT&timeInForce=GTC&quantity=${quantity}&price=${price}&timestamp=${timestamp}`;
+  
+  if (clientOrderId) {
+    params += `&newClientOrderId=${clientOrderId}`;
+  }
+  
+  const signature = await hmacSha256(apiSecret, params);
+  
+  const response = await fetch(`https://api.binance.com/api/v3/order?${params}&signature=${signature}`, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey },
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.msg || "Binance limit order failed");
+  }
+  
+  const data = await response.json();
+  return { orderId: data.orderId.toString(), status: data.status };
+}
+
+// Cancel Binance order
+async function cancelBinanceOrder(
+  apiKey: string, 
+  apiSecret: string, 
+  symbol: string, 
+  orderId: string
+): Promise<boolean> {
+  const timestamp = Date.now();
+  const params = `symbol=${symbol}&orderId=${orderId}&timestamp=${timestamp}`;
+  const signature = await hmacSha256(apiSecret, params);
+  
+  const response = await fetch(`https://api.binance.com/api/v3/order?${params}&signature=${signature}`, {
+    method: "DELETE",
+    headers: { "X-MBX-APIKEY": apiKey },
+  });
+  
+  return response.ok;
+}
+
+// Check Binance order status
+async function checkBinanceOrderStatus(
+  apiKey: string, 
+  apiSecret: string, 
+  symbol: string, 
+  orderId: string
+): Promise<{ status: string; executedQty: string; avgPrice: number }> {
+  const timestamp = Date.now();
+  const params = `symbol=${symbol}&orderId=${orderId}&timestamp=${timestamp}`;
+  const signature = await hmacSha256(apiSecret, params);
+  
+  const response = await fetch(`https://api.binance.com/api/v3/order?${params}&signature=${signature}`, {
+    method: "GET",
+    headers: { "X-MBX-APIKEY": apiKey },
+  });
+  
+  if (!response.ok) {
+    throw new Error("Failed to check order status");
+  }
+  
+  const data = await response.json();
+  return { 
+    status: data.status, 
+    executedQty: data.executedQty,
+    avgPrice: parseFloat(data.price) || 0
+  };
+}
+
+// Get price precision for limit orders
+async function getBinancePricePrecision(symbol: string): Promise<number> {
+  try {
+    const response = await fetch(`https://api.binance.com/api/v3/exchangeInfo?symbol=${symbol}`);
+    const data = await response.json();
+    if (!data.symbols || data.symbols.length === 0) return 2;
+    
+    const priceFilter = data.symbols[0].filters.find((f: { filterType: string }) => f.filterType === 'PRICE_FILTER');
+    const tickSize = parseFloat(priceFilter?.tickSize || '0.01');
+    return Math.max(0, -Math.floor(Math.log10(tickSize)));
+  } catch {
+    return 2;
+  }
+}
+
+// Helper: Place Binance order with retry logic and clientOrderId
 async function placeBinanceOrderWithRetry(
   apiKey: string, 
   apiSecret: string, 
   symbol: string, 
   side: string, 
   quantity: string,
+  clientOrderId: string,
   maxRetries: number = 3
 ): Promise<{ orderId: string; status: string; avgPrice: number; executedQty: string } | null> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const result = await placeBinanceOrder(apiKey, apiSecret, symbol, side, quantity);
+      // Use unique clientOrderId per attempt to avoid duplicates
+      const attemptClientId = `${clientOrderId}_${attempt}`;
+      const result = await placeBinanceOrder(apiKey, apiSecret, symbol, side, quantity, attemptClientId);
       console.log(`${side} order succeeded on attempt ${attempt}`);
       return result;
     } catch (e) {
@@ -603,9 +727,13 @@ serve(async (req) => {
 
         let entryOrder: { orderId: string; status: string; avgPrice: number; executedQty: string } | null = null;
 
-        // Place ENTRY order
+        // Generate clientOrderId for idempotency
+        const entryClientOrderId = generateClientOrderId(botId, side);
+        console.log(`Using clientOrderId for entry: ${entryClientOrderId}`);
+
+        // Place ENTRY order with clientOrderId
         if (exchangeName === "binance") {
-          entryOrder = await placeBinanceOrder(apiKey, apiSecret, symbol, side, quantity);
+          entryOrder = await placeBinanceOrder(apiKey, apiSecret, symbol, side, quantity, entryClientOrderId);
         } else if (exchangeName === "bybit") {
           const bybitResult = await placeBybitOrder(apiKey, apiSecret, symbol, side === 'BUY' ? 'Buy' : 'Sell', quantity);
           entryOrder = { ...bybitResult, executedQty: quantity };
@@ -627,19 +755,82 @@ serve(async (req) => {
           tradeResult.orderId = entryOrder.orderId;
           tradeResult.realTrade = true;
           tradeResult.entryPrice = entryOrder.avgPrice || currentPrice;
+
+          // Check slippage on entry
+          const entrySlippage = Math.abs((entryOrder.avgPrice - currentPrice) / currentPrice) * 100;
+          if (entrySlippage > MAX_SLIPPAGE_PERCENT) {
+            console.warn(`⚠️ HIGH ENTRY SLIPPAGE: ${entrySlippage.toFixed(3)}% (limit: ${MAX_SLIPPAGE_PERCENT}%)`);
+          }
           
-          // Wait a moment then place EXIT order (opposite direction)
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          
-          // Fetch updated price for exit
-          const exitPrice = await fetchPrice(pair);
+          // EXIT STRATEGY: Profit-locking with limit order (Binance only for now)
           const exitSide = direction === 'long' ? 'SELL' : 'BUY';
-          
+          const exitClientOrderId = generateClientOrderId(botId, exitSide);
           let exitOrder: { orderId: string; status: string; avgPrice: number; executedQty: string } | null = null;
           
-          // Use retry logic for Binance exit orders with EXACT executedQty from entry
           if (exchangeName === "binance") {
-            exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, 3);
+            // Try LIMIT order for profit locking first
+            const pricePrecision = await getBinancePricePrecision(symbol);
+            const targetProfit = direction === 'long' 
+              ? tradeResult.entryPrice * (1 + LIMIT_ORDER_PROFIT_TARGET)
+              : tradeResult.entryPrice * (1 - LIMIT_ORDER_PROFIT_TARGET);
+            const limitPrice = targetProfit.toFixed(pricePrecision);
+            
+            console.log(`Placing LIMIT exit order at ${limitPrice} (${LIMIT_ORDER_PROFIT_TARGET * 100}% profit target)`);
+            
+            try {
+              const limitOrderResult = await placeBinanceLimitOrder(
+                apiKey, apiSecret, symbol, exitSide, actualExecutedQty, limitPrice, exitClientOrderId
+              );
+              
+              // Monitor limit order for fill or timeout
+              const startTime = Date.now();
+              let orderFilled = false;
+              
+              while (Date.now() - startTime < PROFIT_LOCK_TIMEOUT_MS) {
+                await new Promise(r => setTimeout(r, 1000)); // Check every 1 second
+                const orderStatus = await checkBinanceOrderStatus(apiKey, apiSecret, symbol, limitOrderResult.orderId);
+                
+                if (orderStatus.status === 'FILLED') {
+                  console.log(`✅ LIMIT order FILLED at profit target!`);
+                  exitOrder = { 
+                    orderId: limitOrderResult.orderId, 
+                    status: 'FILLED', 
+                    avgPrice: orderStatus.avgPrice || parseFloat(limitPrice),
+                    executedQty: actualExecutedQty
+                  };
+                  orderFilled = true;
+                  break;
+                } else if (orderStatus.status === 'CANCELED' || orderStatus.status === 'REJECTED' || orderStatus.status === 'EXPIRED') {
+                  console.warn(`Limit order ${orderStatus.status}, falling back to market order`);
+                  break;
+                }
+                
+                // Check if price moved against us significantly (stop-loss check)
+                const checkPrice = await fetchPrice(pair);
+                const lossPercent = direction === 'long'
+                  ? (tradeResult.entryPrice - checkPrice) / tradeResult.entryPrice
+                  : (checkPrice - tradeResult.entryPrice) / tradeResult.entryPrice;
+                
+                if (lossPercent > 0.005) { // 0.5% stop-loss
+                  console.warn(`⚠️ Price moved against position by ${(lossPercent * 100).toFixed(2)}%, cancelling limit and exiting at market`);
+                  await cancelBinanceOrder(apiKey, apiSecret, symbol, limitOrderResult.orderId);
+                  break;
+                }
+              }
+              
+              if (!orderFilled) {
+                // Timeout or stop-loss hit - cancel limit order and exit at market
+                console.log(`Limit order timeout/stop-loss - exiting at market price`);
+                await cancelBinanceOrder(apiKey, apiSecret, symbol, limitOrderResult.orderId);
+              }
+            } catch (limitError) {
+              console.warn(`Limit order failed: ${limitError instanceof Error ? limitError.message : limitError}, falling back to market`);
+            }
+            
+            // If limit order didn't fill, use market order with retry
+            if (!exitOrder) {
+              exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, exitClientOrderId, 3);
+            }
           } else if (exchangeName === "bybit") {
             const bybitResult = await placeBybitOrder(apiKey, apiSecret, symbol, exitSide === 'BUY' ? 'Buy' : 'Sell', actualExecutedQty);
             exitOrder = { ...bybitResult, executedQty: actualExecutedQty };
@@ -656,17 +847,28 @@ serve(async (req) => {
           
           if (exitOrder) {
             console.log(`Exit order placed: ${exitOrder.orderId}, avg price: ${exitOrder.avgPrice}`);
-            tradeResult.exitPrice = exitOrder.avgPrice || exitPrice;
+            tradeResult.exitPrice = exitOrder.avgPrice || await fetchPrice(pair);
+            
+            // Check slippage on exit
+            const expectedExitPrice = direction === 'long' 
+              ? tradeResult.entryPrice * (1 + LIMIT_ORDER_PROFIT_TARGET)
+              : tradeResult.entryPrice * (1 - LIMIT_ORDER_PROFIT_TARGET);
+            const exitSlippage = Math.abs((tradeResult.exitPrice - expectedExitPrice) / expectedExitPrice) * 100;
+            if (exitSlippage > MAX_SLIPPAGE_PERCENT) {
+              console.warn(`⚠️ EXIT SLIPPAGE: ${exitSlippage.toFixed(3)}% from target`);
+            }
             
             // Calculate real P&L
             const priceDiff = direction === 'long'
               ? tradeResult.exitPrice - tradeResult.entryPrice
               : tradeResult.entryPrice - tradeResult.exitPrice;
             tradeResult.pnl = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
+            
+            console.log(`📊 TRADE RESULT: Entry: ${tradeResult.entryPrice}, Exit: ${tradeResult.exitPrice}, P&L: $${tradeResult.pnl.toFixed(2)}`);
           } else {
             // Exit failed after retries - log orphaned position for manual cleanup
             console.error(`EXIT ORDER FAILED for ${actualExecutedQty} ${symbol} - ORPHANED POSITION. Use Close All Positions to recover.`);
-            tradeResult.exitPrice = exitPrice;
+            tradeResult.exitPrice = await fetchPrice(pair);
             tradeResult.pnl = 0; // Unknown P&L since position still open
           }
         }
