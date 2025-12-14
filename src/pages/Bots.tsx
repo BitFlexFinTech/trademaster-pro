@@ -18,8 +18,9 @@ import { DailyPnLChart } from '@/components/bots/DailyPnLChart';
 import { BotAnalysisModal } from '@/components/bots/BotAnalysisModal';
 import { BotComparisonView } from '@/components/bots/BotComparisonView';
 import { BotsMobileDrawer } from '@/components/bots/BotsMobileDrawer';
+import { BotSettingsDrawer } from '@/components/bots/BotSettingsDrawer';
 import { toast } from 'sonner';
-import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES } from '@/lib/exchangeConfig';
+import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
 
 const exchanges = ['Binance', 'Bybit', 'OKX', 'KuCoin', 'Kraken', 'Nexo'];
 
@@ -62,7 +63,11 @@ export default function Bots() {
     amountPerTrade: 100,
     dailyStopLoss: 5,
     perTradeStopLoss: 0.60,
-    focusPairs: ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'DOT', 'LINK'],
+    focusPairs: [...TOP_PAIRS],
+    leverageDefaults: EXCHANGE_CONFIGS.reduce((acc, config) => ({
+      ...acc,
+      [config.name]: Math.min(3, config.maxLeverage),
+    }), {} as Record<string, number>),
   });
 
   // Find spot and leverage bots separately
@@ -194,6 +199,11 @@ export default function Bots() {
           <Bot className="w-5 h-5 text-primary" />
           <h1 className="text-base md:text-lg font-bold text-foreground">Trading Bots</h1>
           <span className="live-indicator text-xs hidden sm:inline">{activeBotCount} Active</span>
+          <BotSettingsDrawer
+            settings={botConfig}
+            onSettingsChange={setBotConfig}
+            disabled={!!spotBot || !!leverageBot}
+          />
           <Button
             size="sm"
             variant="outline"
