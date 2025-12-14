@@ -186,9 +186,14 @@ export function GreenBackWidget() {
 
   const progressPercent = (metrics.currentPnL / dailyTarget) * 100;
 
-  // Calculate suggested USDT allocation
+  // Calculate suggested USDT allocation using real prices
   const calculateAllocation = (confidence: 'High' | 'Medium' | 'Low'): number => {
-    const base = (dailyTarget / 1) / 0.005 * 1.3;
+    // Use real volatility from prices
+    const avgVolatility = prices.length > 0
+      ? prices.slice(0, 10).reduce((sum, p) => sum + Math.abs(p.change_24h || 0), 0) / Math.min(prices.length, 10) / 24
+      : 0.5;
+    const avgMovePercent = Math.max(avgVolatility / 100, 0.001);
+    const base = (dailyTarget / profitPerTrade) / avgMovePercent * (tradingMode === 'demo' ? 1.3 : 1.5);
     const totalBase = base / EXCHANGE_ALLOCATIONS.length;
     if (confidence === 'High') return Math.round(totalBase * 1.5);
     if (confidence === 'Medium') return Math.round(totalBase);
