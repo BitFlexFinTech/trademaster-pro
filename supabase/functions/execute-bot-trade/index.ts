@@ -458,7 +458,9 @@ serve(async (req) => {
     };
 
     // ============ REAL TRADE EXECUTION (LIVE MODE) ============
-    const hasApiCredentials = selectedExchange.encrypted_api_key && selectedExchange.encrypted_api_secret && selectedExchange.encryption_iv;
+    const hasApiCredentials = selectedExchange.encrypted_api_key &&
+      selectedExchange.encrypted_api_secret &&
+      selectedExchange.encryption_iv;
     const canExecuteRealTrade = !isSandbox && encryptionKey && hasApiCredentials;
     
     console.log('----------------------------------------');
@@ -470,7 +472,24 @@ serve(async (req) => {
     console.log(`   IV exists: ${!!selectedExchange.encryption_iv}`);
     console.log(`   => CAN EXECUTE REAL TRADE: ${canExecuteRealTrade}`);
     console.log('----------------------------------------');
-    
+
+    // In LIVE mode, if we cannot execute a real trade, return a clear error
+    if (!isSandbox && !canExecuteRealTrade) {
+      console.error('❌ Live mode enabled but no valid API credentials or encryption key.');
+      return new Response(
+        JSON.stringify({
+          error: "Cannot execute live trade",
+          reason:
+            "Live mode requires valid exchange API credentials and encryption key. Please verify your exchange connection and permissions.",
+          exchange: selectedExchange.exchange_name,
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
     if (canExecuteRealTrade) {
       console.log(`✅ REAL TRADE MODE ACTIVATED for ${exchangeName.toUpperCase()}`);
       
@@ -606,8 +625,34 @@ serve(async (req) => {
           }
         }
       } catch (exchangeError) {
-        console.error(`Exchange order failed: ${exchangeError}`);
-        // Fall back to simulation
+        console.error("Exchange order failed:", exchangeError);
+
+        const message =
+          exchangeError instanceof Error
+            ? exchangeError.message
+            : typeof exchangeError === "string"
+              ? exchangeError
+              : JSON.stringify(exchangeError);
+
+        // In LIVE mode, surface a detailed error to the client instead of a generic failure
+        if (!isSandbox) {
+          return new Response(
+            JSON.stringify({
+              error: "Real trade execution failed",
+              reason:
+                message ||
+                "Exchange API error - check exchange connection and API permissions",
+              cannotFallbackToSimulation: true,
+              exchange: selectedExchange.exchange_name,
+            }),
+            {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        // In DEMO mode (should not normally reach here), fall back to simulation
         tradeResult.simulated = true;
         tradeResult.realTrade = false;
       }
