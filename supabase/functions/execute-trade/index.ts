@@ -62,7 +62,7 @@ interface TradeRequest {
 
 interface ExchangeConnection {
   exchange_name: string;
-  api_key_hash: string;
+  encrypted_api_key: string;
   encrypted_api_secret: string;
   encrypted_passphrase: string | null;
   encryption_iv: string;
@@ -375,15 +375,15 @@ serve(async (req) => {
     if (!tradeReq.isSandbox && tradeReq.exchangeName && encryptionKey) {
       const { data: connection } = await supabase
         .from("exchange_connections")
-        .select("exchange_name, api_key_hash, encrypted_api_secret, encrypted_passphrase, encryption_iv")
+        .select("exchange_name, encrypted_api_key, encrypted_api_secret, encrypted_passphrase, encryption_iv")
         .eq("user_id", user.id)
         .eq("exchange_name", tradeReq.exchangeName)
         .eq("is_connected", true)
         .maybeSingle();
 
-      if (connection?.encrypted_api_secret && connection?.encryption_iv) {
+      if (connection?.encrypted_api_key && connection?.encrypted_api_secret && connection?.encryption_iv) {
         try {
-          const apiKey = atob(connection.api_key_hash).replace(/\*+/g, ""); // Note: In production, store actual key encrypted
+          const apiKey = await decryptSecret(connection.encrypted_api_key, connection.encryption_iv, encryptionKey);
           const apiSecret = await decryptSecret(connection.encrypted_api_secret, connection.encryption_iv, encryptionKey);
           const passphrase = connection.encrypted_passphrase 
             ? await decryptSecret(connection.encrypted_passphrase, connection.encryption_iv, encryptionKey) 

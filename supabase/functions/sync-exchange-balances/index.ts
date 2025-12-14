@@ -226,14 +226,20 @@ serve(async (req) => {
     const allBalances: { exchange: string; asset: string; amount: number }[] = [];
 
     for (const conn of connections) {
-      if (!conn.encrypted_api_secret || !conn.encryption_iv || !conn.api_key_hash) {
+      if (!conn.encrypted_api_secret || !conn.encryption_iv) {
         console.log(`Skipping ${conn.exchange_name}: missing credentials`);
         continue;
       }
 
+      // Check for encrypted API key - if missing, user needs to re-connect
+      if (!conn.encrypted_api_key) {
+        console.log(`Skipping ${conn.exchange_name}: API key needs to be re-connected (missing encrypted_api_key)`);
+        continue;
+      }
+
       try {
+        const apiKey = await decryptSecret(conn.encrypted_api_key, conn.encryption_iv, encryptionKey);
         const apiSecret = await decryptSecret(conn.encrypted_api_secret, conn.encryption_iv, encryptionKey);
-        const apiKey = conn.api_key_hash; // This is actually the full API key stored
 
         let balances: { asset: string; amount: number }[] = [];
 
