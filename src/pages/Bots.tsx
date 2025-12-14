@@ -10,7 +10,7 @@ import { useAIStrategyMonitor } from '@/hooks/useAIStrategyMonitor';
 import { useRecommendationHistory } from '@/hooks/useRecommendationHistory';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle } from 'lucide-react';
+import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { BotHistory } from '@/components/bots/BotHistory';
@@ -53,7 +53,7 @@ export default function Bots() {
     setShowAnalysisModal,
     analyzedBotName,
   } = useBotRuns();
-  const { prices } = useRealtimePrices();
+  const { prices, wsConnected, getPrice } = useRealtimePrices();
   const { mode: tradingMode, setMode: setTradingMode, virtualBalance, triggerSync, lastSyncTime } = useTradingMode();
   const { connectedExchangeNames, hasConnections, needsReconnection, hasValidCredentials } = useConnectedExchanges();
   const navigate = useNavigate();
@@ -381,6 +381,23 @@ export default function Bots() {
 
         {/* Demo/Live Toggle */}
         <div className="flex items-center gap-2">
+          {/* WebSocket Connection Status */}
+          <div className={cn(
+            "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px]",
+            wsConnected ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"
+          )}>
+            {wsConnected ? (
+              <>
+                <Wifi className="w-3 h-3" />
+                <span className="hidden sm:inline">Live</span>
+              </>
+            ) : (
+              <>
+                <WifiOff className="w-3 h-3" />
+                <span className="hidden sm:inline">Offline</span>
+              </>
+            )}
+          </div>
           <Badge variant={tradingMode === 'demo' ? 'secondary' : 'destructive'} className="text-[10px]">
             {tradingMode === 'demo' ? 'DEMO MODE' : 'LIVE TRADING'}
           </Badge>

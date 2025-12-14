@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useBinanceWebSocket, BinanceTickerData } from './useBinanceWebSocket';
 
 export interface PriceData {
   symbol: string;
@@ -22,11 +23,54 @@ export interface ArbitrageOpportunity {
   expires_at: string;
 }
 
+// Convert Binance ticker to PriceData format
+function binanceTickerToPriceData(ticker: BinanceTickerData): PriceData {
+  return {
+    symbol: ticker.symbol.replace('USDT', ''),
+    price: ticker.price,
+    change_24h: ticker.priceChangePercent,
+    volume_24h: ticker.volume,
+    market_cap: 0, // Not available from WebSocket, will merge from cache
+    last_updated: new Date(ticker.lastUpdated).toISOString(),
+  };
+}
+
 export function useRealtimePrices() {
-  const [prices, setPrices] = useState<PriceData[]>([]);
+  const [cachedPrices, setCachedPrices] = useState<PriceData[]>([]);
   const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Use Binance WebSocket for real-time price streaming
+  const { 
+    tickers: wsTickers, 
+    isConnected: wsConnected, 
+    error: wsError,
+    getPrice,
+    getTicker,
+  } = useBinanceWebSocket();
+
+  // Merge WebSocket prices with cached data (for market cap, etc.)
+  const prices = useMemo(() => {
+    if (wsTickers.length === 0) return cachedPrices;
+    
+    // Create a map of WS tickers for fast lookup
+    const wsTickerMap = new Map(
+      wsTickers.map(t => [t.symbol.replace('USDT', ''), binanceTickerToPriceData(t)])
+    );
+    
+    // Merge: prefer WebSocket prices but keep cached market_cap
+    return cachedPrices.map(cached => {
+      const wsData = wsTickerMap.get(cached.symbol);
+      if (wsData) {
+        return {
+          ...wsData,
+          market_cap: cached.market_cap, // Keep market cap from cache
+        };
+      }
+      return cached;
+    });
+  }, [cachedPrices, wsTickers]);
 
   const fetchPrices = useCallback(async () => {
     try {
@@ -36,7 +80,7 @@ export function useRealtimePrices() {
         .order('market_cap', { ascending: false });
 
       if (error) throw error;
-      setPrices(data || []);
+      setCachedPrices(data || []);
     } catch (err: any) {
       console.error('Error fetching prices:', err);
       setError(err.message);
@@ -62,13 +106,13 @@ export function useRealtimePrices() {
   const refreshData = useCallback(async () => {
     setLoading(true);
     try {
-      // Call edge function to refresh prices from CoinGecko
+      // Call edge function to refresh prices from CoinGecko (for market cap data)
       const { error } = await supabase.functions.invoke('fetch-prices');
       if (error) {
         console.error('Error refreshing prices:', error);
       }
       
-      // Fetch updated data
+      // Fetch updated cached data
       await Promise.all([fetchPrices(), fetchOpportunities()]);
     } catch (err: any) {
       console.error('Error refreshing data:', err);
@@ -79,35 +123,8 @@ export function useRealtimePrices() {
   }, [fetchPrices, fetchOpportunities]);
 
   useEffect(() => {
-    // Initial fetch
+    // Initial fetch of cached data (for market cap, etc.)
     Promise.all([fetchPrices(), fetchOpportunities()]).then(() => setLoading(false));
-
-    // Subscribe to real-time price updates
-    const priceChannel = supabase
-      .channel('price-updates')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'price_cache',
-        },
-        (payload) => {
-          console.log('Price update:', payload);
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            setPrices((prev) => {
-              const existing = prev.findIndex((p) => p.symbol === (payload.new as PriceData).symbol);
-              if (existing >= 0) {
-                const updated = [...prev];
-                updated[existing] = payload.new as PriceData;
-                return updated;
-              }
-              return [...prev, payload.new as PriceData];
-            });
-          }
-        }
-      )
-      .subscribe();
 
     // Subscribe to arbitrage opportunity updates
     const arbChannel = supabase
@@ -126,17 +143,29 @@ export function useRealtimePrices() {
       )
       .subscribe();
 
-    // Auto-refresh every 60 seconds
+    // Refresh cached data every 5 minutes (for market cap updates)
     const refreshInterval = setInterval(() => {
-      refreshData();
-    }, 60000);
+      fetchPrices();
+    }, 300000);
 
     return () => {
-      supabase.removeChannel(priceChannel);
       supabase.removeChannel(arbChannel);
       clearInterval(refreshInterval);
     };
-  }, [fetchPrices, fetchOpportunities, refreshData]);
+  }, [fetchPrices, fetchOpportunities]);
 
-  return { prices, opportunities, loading, error, refreshData };
+  // Combine WebSocket error with general error
+  const combinedError = wsError || error;
+
+  return { 
+    prices, 
+    opportunities, 
+    loading, 
+    error: combinedError, 
+    refreshData,
+    // New WebSocket-specific exports
+    wsConnected,
+    getPrice,
+    getTicker,
+  };
 }
