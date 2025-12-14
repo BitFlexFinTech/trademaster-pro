@@ -34,7 +34,7 @@ export interface ExecuteTradeParams {
   isSandbox: boolean;
 }
 
-export function useTrades() {
+export function useTrades(filterByMode?: 'demo' | 'live') {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
@@ -46,10 +46,19 @@ export function useTrades() {
 
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('trades')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', user.id);
+
+      // Filter by trading mode if specified
+      if (filterByMode === 'demo') {
+        query = query.eq('is_sandbox', true);
+      } else if (filterByMode === 'live') {
+        query = query.eq('is_sandbox', false);
+      }
+
+      const { data, error } = await query
         .order('created_at', { ascending: false })
         .limit(50);
 
@@ -65,7 +74,7 @@ export function useTrades() {
     } finally {
       setLoading(false);
     }
-  }, [user, toast]);
+  }, [user, toast, filterByMode]);
 
   const executeTrade = useCallback(async (params: ExecuteTradeParams) => {
     if (!session?.access_token) {

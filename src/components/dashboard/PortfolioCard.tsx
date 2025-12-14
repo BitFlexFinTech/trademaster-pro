@@ -2,9 +2,20 @@ import { usePortfolio } from '@/hooks/usePortfolio';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
+import { useTradingMode } from '@/contexts/TradingModeContext';
+import { useEffect } from 'react';
 
 export function PortfolioCard() {
-  const { portfolio, loading } = usePortfolio();
+  const { portfolio, loading, refetch, tradingMode } = usePortfolio();
+  const { resetTrigger } = useTradingMode();
+
+  // Listen to reset trigger
+  useEffect(() => {
+    if (resetTrigger > 0) {
+      refetch();
+    }
+  }, [resetTrigger, refetch]);
 
   if (loading) {
     return (
@@ -25,7 +36,17 @@ export function PortfolioCard() {
   return (
     <div className="card-terminal p-3 h-full flex flex-col">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs text-muted-foreground">Portfolio Value</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-xs text-muted-foreground">
+            {tradingMode === 'demo' ? 'Demo Portfolio' : 'Portfolio Value'}
+          </h3>
+          <Badge 
+            variant={tradingMode === 'demo' ? 'secondary' : 'destructive'} 
+            className="text-[8px] h-4 px-1"
+          >
+            {tradingMode === 'demo' ? 'DEMO' : 'LIVE'}
+          </Badge>
+        </div>
         <div className={`flex items-center gap-0.5 text-xs ${isPositive ? 'text-primary' : 'text-destructive'}`}>
           {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
           {isPositive ? '+' : ''}{portfolio.changePercent.toFixed(2)}%

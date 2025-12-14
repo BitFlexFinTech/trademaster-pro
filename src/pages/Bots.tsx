@@ -214,15 +214,40 @@ export default function Bots() {
         </div>
       </div>
 
-      {/* USDT Float by Exchange - Top */}
+      {/* USDT Float by Exchange - Top with Cap Indicator */}
       <div className="card-terminal p-3 mb-3 flex-shrink-0">
-        <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
-          <DollarSign className="w-3 h-3 text-muted-foreground" />
-          {tradingMode === 'demo' ? 'Virtual USDT Allocation' : 'USDT Float by Exchange'}
-          <span className="text-muted-foreground font-normal">
-            (Suggested: ${suggestedUSDT.toLocaleString()} total)
-          </span>
-        </h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-xs font-semibold text-foreground flex items-center gap-2">
+            <DollarSign className="w-3 h-3 text-muted-foreground" />
+            {tradingMode === 'demo' ? 'Virtual USDT Allocation' : 'USDT Float by Exchange'}
+          </h3>
+          {/* USDT Cap Indicator */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground">
+                ${suggestedUSDT.toLocaleString()} / ${MAX_USDT_ALLOCATION.toLocaleString()}
+              </span>
+              <div className="w-16 h-1.5 bg-secondary rounded-full overflow-hidden">
+                <div 
+                  className={cn(
+                    "h-full transition-all rounded-full",
+                    suggestedUSDT >= MAX_USDT_ALLOCATION ? "bg-destructive" : 
+                    suggestedUSDT >= MAX_USDT_ALLOCATION * 0.8 ? "bg-warning" : "bg-primary"
+                  )}
+                  style={{ width: `${Math.min((suggestedUSDT / MAX_USDT_ALLOCATION) * 100, 100)}%` }}
+                />
+              </div>
+              {suggestedUSDT >= MAX_USDT_ALLOCATION && (
+                <Badge variant="destructive" className="text-[8px] h-4">AT CAP</Badge>
+              )}
+              {suggestedUSDT >= MAX_USDT_ALLOCATION * 0.8 && suggestedUSDT < MAX_USDT_ALLOCATION && (
+                <Badge variant="outline" className="text-[8px] h-4 border-warning text-warning">
+                  {Math.round((suggestedUSDT / MAX_USDT_ALLOCATION) * 100)}%
+                </Badge>
+              )}
+            </div>
+          </div>
+        </div>
 
         {loadingFloat ? (
           <div className="flex items-center justify-center py-4">

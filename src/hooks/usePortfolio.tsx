@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
+import { useTradingMode } from '@/contexts/TradingModeContext';
+import { useRealtimePrices } from './useRealtimePrices';
+import { generateDemoPortfolio, calculateDemoPortfolioValue } from '@/lib/demoPortfolio';
 
 interface Holding {
   symbol: string;
@@ -19,6 +22,9 @@ interface PortfolioData {
 
 export function usePortfolio() {
   const { user } = useAuth();
+  const { mode: tradingMode, virtualBalance, resetTrigger } = useTradingMode();
+  const { prices } = useRealtimePrices();
+  
   const [portfolio, setPortfolio] = useState<PortfolioData>({
     totalValue: 0,
     change24h: 0,
@@ -28,6 +34,26 @@ export function usePortfolio() {
   const [loading, setLoading] = useState(true);
 
   const fetchPortfolio = useCallback(async () => {
+    // Demo mode - use synthetic portfolio based on virtualBalance + real prices
+    if (tradingMode === 'demo') {
+      setLoading(true);
+      
+      // Generate demo holdings from virtual balance with real prices
+      const demoHoldings = generateDemoPortfolio(virtualBalance, prices);
+      const { totalValue, change24h, changePercent } = calculateDemoPortfolioValue(virtualBalance, prices);
+      
+      setPortfolio({
+        totalValue,
+        change24h,
+        changePercent,
+        holdings: demoHoldings,
+      });
+      
+      setLoading(false);
+      return;
+    }
+
+    // Live mode - fetch from database
     if (!user) {
       setLoading(false);
       return;
@@ -42,15 +68,8 @@ export function usePortfolio() {
 
       if (holdingsError) throw holdingsError;
 
-      // Fetch current prices
-      const { data: prices, error: pricesError } = await supabase
-        .from('price_cache')
-        .select('*');
-
-      if (pricesError) throw pricesError;
-
-      // Calculate portfolio values
-      const priceMap = new Map(prices?.map(p => [p.symbol, { price: p.price, change: p.change_24h }]) || []);
+      // Use real-time prices from hook instead of fetching again
+      const priceMap = new Map(prices.map(p => [p.symbol, { price: p.price, change: p.change_24h }]));
       
       let totalValue = 0;
       let totalChange = 0;
@@ -93,11 +112,12 @@ export function usePortfolio() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, tradingMode, virtualBalance, prices]);
 
+  // Refetch when mode, virtualBalance, prices, or resetTrigger changes
   useEffect(() => {
     fetchPortfolio();
-  }, [fetchPortfolio]);
+  }, [fetchPortfolio, resetTrigger]);
 
-  return { portfolio, loading, refetch: fetchPortfolio };
+  return { portfolio, loading, refetch: fetchPortfolio, tradingMode };
 }
