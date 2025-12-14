@@ -5,6 +5,8 @@ import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNotifications } from './useNotifications';
 import { calculateNetProfit, MIN_NET_PROFIT } from '@/lib/exchangeFees';
 import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
+import { demoDataStore } from '@/lib/demoDataStore';
+import { hitRateTracker } from '@/lib/sandbox/hitRateTracker';
 
 const EXCHANGE_CONFIGS = [
   { name: 'Binance', maxLeverage: 20, confidence: 'High' },
@@ -196,8 +198,43 @@ export function useBotTrading({
         return; // Skip - not profitable enough
       }
       
-      const tradePnl = isWin ? netProfit : -Math.abs(netProfit * 0.6); // Losers lose 60% of potential profit
       const pair = `${symbol}/USDT`;
+      let tradePnl: number;
+      
+      // ===== LIVE MODE: Execute real trades via edge function =====
+      if (tradingMode === 'live') {
+        try {
+          const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
+            body: {
+              botId,
+              mode: botType,
+              profitTarget: profitPerTrade,
+              exchanges: [currentExchange],
+              leverages: leverages,
+              pair,
+              direction,
+              isSandbox: false,
+            }
+          });
+          
+          if (error) {
+            console.error('Live trade failed:', error);
+            return; // Skip this trade
+          }
+          
+          tradePnl = data?.pnl || 0;
+          isWin = tradePnl > 0;
+        } catch (err) {
+          console.error('Live trade execution error:', err);
+          return;
+        }
+      } else {
+        // ===== DEMO MODE: Simulate locally =====
+        tradePnl = isWin ? netProfit : -Math.abs(netProfit * 0.6);
+      }
+      
+      // Record trade in hitRateTracker for analytics
+      hitRateTracker.recordTrade(isWin);
       
       // Track trade timestamps for TPM calculation
       const now = Date.now();
@@ -224,6 +261,19 @@ export function useBotTrading({
       };
       
       metricsRef.current = newMetrics;
+
+      // Route demo trades through demoDataStore (Single Source of Truth)
+      if (tradingMode === 'demo') {
+        demoDataStore.updateBalance(tradePnl, `trade-${Date.now()}-${Math.random()}`);
+        demoDataStore.addTrade({
+          pair,
+          direction,
+          pnl: tradePnl,
+          exchange: currentExchange,
+          timestamp: new Date(),
+        });
+        setVirtualBalance(prev => prev + tradePnl);
+      }
 
       // Log trade to database
       const { error: tradeError } = await supabase.from('trades').insert({
@@ -254,11 +304,6 @@ export function useBotTrading({
         max_drawdown: newMaxDrawdown,
         updated_at: new Date().toISOString(),
       }).eq('id', botId);
-
-      // Update virtual balance in demo mode (functional update)
-      if (tradingMode === 'demo') {
-        setVirtualBalance(prev => prev + tradePnl);
-      }
 
       // Notify about trade
       notifyTrade(currentExchange, pair, direction, tradePnl);
