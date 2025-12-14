@@ -413,7 +413,7 @@ export default function Bots() {
         isMobile && "hidden"
       )}>
         {/* Left Column - Spot and Leverage Bot Cards */}
-        <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-auto">
+        <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-hidden">
           <BotCard
             botType="spot"
             existingBot={spotBot}
