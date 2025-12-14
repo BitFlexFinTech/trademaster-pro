@@ -4,6 +4,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useTradingMode, MAX_USDT_ALLOCATION } from '@/contexts/TradingModeContext';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useConnectedExchanges } from '@/hooks/useConnectedExchanges';
+import { useAIStrategyMonitor } from '@/hooks/useAIStrategyMonitor';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Bot, DollarSign, Loader2, RefreshCw, BarChart3 } from 'lucide-react';
@@ -19,10 +21,9 @@ import { BotAnalysisModal } from '@/components/bots/BotAnalysisModal';
 import { BotComparisonView } from '@/components/bots/BotComparisonView';
 import { BotsMobileDrawer } from '@/components/bots/BotsMobileDrawer';
 import { BotSettingsDrawer } from '@/components/bots/BotSettingsDrawer';
+import { AIStrategyPanel } from '@/components/bots/AIStrategyPanel';
 import { toast } from 'sonner';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
-
-const exchanges = ['Binance', 'Bybit', 'OKX', 'KuCoin', 'Kraken', 'Nexo'];
 
 interface UsdtFloat {
   exchange: string;
@@ -52,6 +53,7 @@ export default function Bots() {
   } = useBotRuns();
   const { prices } = useRealtimePrices();
   const { mode: tradingMode, setMode: setTradingMode, virtualBalance, triggerSync, lastSyncTime } = useTradingMode();
+  const { connectedExchangeNames, hasConnections } = useConnectedExchanges();
 
   const [usdtFloat, setUsdtFloat] = useState<UsdtFloat[]>([]);
   const [loadingFloat, setLoadingFloat] = useState(true);
@@ -73,6 +75,38 @@ export default function Bots() {
   // Find spot and leverage bots separately
   const spotBot = bots.find(b => b.botName === 'GreenBack Spot' && b.status === 'running');
   const leverageBot = bots.find(b => b.botName === 'GreenBack Leverage' && b.status === 'running');
+
+  // Get active exchanges based on mode - connected for Live, all for Demo
+  const activeExchanges = useMemo(() => {
+    if (tradingMode === 'live' && hasConnections) {
+      return EXCHANGE_CONFIGS.filter(ex => connectedExchangeNames.includes(ex.name));
+    }
+    return EXCHANGE_CONFIGS;
+  }, [tradingMode, connectedExchangeNames, hasConnections]);
+
+  // Current running bot metrics for AI strategy monitor
+  const activeBot = spotBot || leverageBot;
+  const currentPnL = (spotBot?.currentPnl || 0) + (leverageBot?.currentPnl || 0);
+  const tradesExecuted = (spotBot?.tradesExecuted || 0) + (leverageBot?.tradesExecuted || 0);
+  const combinedHitRate = tradesExecuted > 0
+    ? ((spotBot?.tradesExecuted || 0) * (spotBot?.hitRate || 0) + (leverageBot?.tradesExecuted || 0) * (leverageBot?.hitRate || 0)) / tradesExecuted
+    : 70;
+
+  // AI Strategy Monitor hook
+  const {
+    recommendations,
+    strategyMetrics,
+    applyRecommendation: applyAIRecommendation,
+    dismissRecommendation,
+  } = useAIStrategyMonitor({
+    isRunning: !!activeBot,
+    dailyTarget: activeBot?.dailyTarget || 40,
+    profitPerTrade: activeBot?.profitPerTrade || 1,
+    lossPerTrade: botConfig.perTradeStopLoss,
+    currentPnL,
+    tradesExecuted,
+    hitRate: combinedHitRate,
+  });
 
   // Calculate suggested USDT using real prices - CAPPED at $5000
   const suggestedUSDT = useMemo(() => {
@@ -115,10 +149,12 @@ export default function Bots() {
           }
         });
 
-        setUsdtFloat(exchanges.map(ex => ({
+        // Use active exchanges (connected for Live, all for Demo)
+        const exchangeNames = activeExchanges.map(ex => ex.name);
+        setUsdtFloat(exchangeNames.map(ex => ({
           exchange: ex,
           amount: floatByExchange[ex] || 0,
-          warning: (floatByExchange[ex] || 0) < suggestedUSDT / exchanges.length,
+          warning: (floatByExchange[ex] || 0) < suggestedUSDT / exchangeNames.length,
         })));
       } catch (err) {
         console.error('Error fetching USDT float:', err);
@@ -128,7 +164,7 @@ export default function Bots() {
     }
 
     fetchUsdtFloat();
-  }, [user, suggestedUSDT]);
+  }, [user, suggestedUSDT, activeExchanges]);
 
   const activeBotCount = bots.filter(b => b.status === 'running').length;
 
@@ -171,6 +207,11 @@ export default function Bots() {
           description: `Changed from ${oldConfig.focusPairs.slice(0, 3).join(', ')}... → ${value.join(', ')}`,
         });
         break;
+      case 'signal_threshold':
+        toast.success(`Signal Threshold Updated`, {
+          description: `AI auto-adjusted to ${value}`,
+        });
+        break;
       default:
         // Handle improvement items being acknowledged
         if (type.startsWith('improvement_')) {
@@ -184,6 +225,12 @@ export default function Bots() {
     
     // Refetch bots to sync changes
     await refetch();
+  };
+
+  // Handle AI recommendation application
+  const handleAIRecommendation = async (rec: { type: string; suggestedValue: number | string }) => {
+    await applyAIRecommendation(rec as any);
+    await handleApplyRecommendation(rec.type, rec.suggestedValue);
   };
 
   // Handle stopping bot with analysis
@@ -327,7 +374,7 @@ export default function Bots() {
         ) : (
           <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
             {tradingMode === 'demo' ? (
-              EXCHANGE_CONFIGS.map((config) => {
+              activeExchanges.map((config) => {
                 // Use suggestedUSDT (volatility-based) with confidence percentages
                 const allocation = EXCHANGE_ALLOCATION_PERCENTAGES[config.confidence];
                 const amount = Math.round(suggestedUSDT * allocation);
@@ -397,15 +444,26 @@ export default function Bots() {
           />
         </div>
 
-        {/* Middle Column - Analytics Dashboard + Performance Dashboard */}
+        {/* Middle Column - AI Strategy Panel + Analytics Dashboard + Performance Dashboard */}
         <div className="lg:col-span-4 flex flex-col gap-3 overflow-hidden">
+          {/* AI Strategy Panel */}
+          <div className="h-[280px] flex-shrink-0">
+            <AIStrategyPanel
+              metrics={strategyMetrics}
+              recommendations={recommendations}
+              onApplyRecommendation={handleAIRecommendation}
+              onDismissRecommendation={dismissRecommendation}
+              isRunning={!!activeBot}
+              className="h-full"
+            />
+          </div>
           <div className="flex-1 min-h-0">
             <BotAnalyticsDashboard />
           </div>
           <div className="flex-1 min-h-0">
             <BotPerformanceDashboard />
           </div>
-          <div className="h-[160px] flex-shrink-0">
+          <div className="h-[140px] flex-shrink-0">
             <DailyPnLChart />
           </div>
         </div>

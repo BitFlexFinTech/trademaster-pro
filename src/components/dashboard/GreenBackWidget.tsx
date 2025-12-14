@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Zap, Play, Square, Target, Activity, DollarSign, Clock, TrendingUp, Sparkles, Banknote, Loader2, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -9,26 +9,13 @@ import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTradingMode, MAX_USDT_ALLOCATION } from '@/contexts/TradingModeContext';
 import { useAuth } from '@/hooks/useAuth';
+import { useConnectedExchanges } from '@/hooks/useConnectedExchanges';
 import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast as sonnerToast } from 'sonner';
-
-interface ExchangeAllocation {
-  name: string;
-  confidence: 'High' | 'Medium' | 'Low';
-  notes: string;
-}
-
-const EXCHANGE_ALLOCATIONS: ExchangeAllocation[] = [
-  { name: 'Binance', confidence: 'High', notes: 'Best liquidity' },
-  { name: 'OKX', confidence: 'High', notes: 'Low fees' },
-  { name: 'Bybit', confidence: 'Medium', notes: 'Fast execution' },
-  { name: 'Kraken', confidence: 'Medium', notes: 'Reliable' },
-  { name: 'Nexo', confidence: 'Low', notes: 'Limited pairs' },
-];
-
-const TOP_PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'DOT', 'LINK'];
+import { HitRateGauge } from '@/components/bots/HitRateGauge';
+import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
 
 interface LastTrade {
   pair: string;
@@ -44,6 +31,7 @@ export function GreenBackWidget() {
   const { notifyTrade, notifyTakeProfit } = useNotifications();
   const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger } = useTradingMode();
   const { user } = useAuth();
+  const { connectedExchangeNames, hasConnections } = useConnectedExchanges();
   
   // Find BOTH spot and leverage bots
   const spotBot = getSpotBot();
@@ -60,6 +48,24 @@ export function GreenBackWidget() {
 
   const dailyTarget = (spotBot?.dailyTarget || 40) + (leverageBot?.dailyTarget || 0);
   const profitPerTrade = spotBot?.profitPerTrade || leverageBot?.profitPerTrade || 1;
+
+  // Get active exchanges based on mode - connected for Live, all for Demo
+  const activeExchangeConfigs = useMemo(() => {
+    if (tradingMode === 'live' && hasConnections) {
+      return EXCHANGE_CONFIGS.filter(ex => connectedExchangeNames.includes(ex.name));
+    }
+    return EXCHANGE_CONFIGS;
+  }, [tradingMode, connectedExchangeNames, hasConnections]);
+
+  // Calculate required hit rate for daily target
+  const requiredHitRate = useMemo(() => {
+    const lossPerTrade = 0.60;
+    const expectedTradesPerDay = 100; // Conservative estimate
+    if (expectedTradesPerDay <= 0 || (profitPerTrade + lossPerTrade) === 0) return 95;
+    const profitNeededPerTrade = dailyTarget / expectedTradesPerDay;
+    const rate = (profitNeededPerTrade + lossPerTrade) / (profitPerTrade + lossPerTrade);
+    return Math.max(0, Math.min(100, rate * 100));
+  }, [dailyTarget, profitPerTrade]);
 
   const [metrics, setMetrics] = useState({
     currentPnL: combinedPnL,
@@ -110,7 +116,8 @@ export function GreenBackWidget() {
     const activeBot = spotBot || leverageBot;
     if (!activeBot) return;
 
-    const activeExchanges = EXCHANGE_ALLOCATIONS.map(e => e.name);
+    // Use connected exchanges for Live, all for Demo
+    const activeExchangeNames = activeExchangeConfigs.map(e => e.name);
 
     // Initialize last prices from current prices
     prices.forEach(p => {
@@ -131,7 +138,7 @@ export function GreenBackWidget() {
         return;
       }
 
-      const currentExchange = activeExchanges[idx % activeExchanges.length];
+      const currentExchange = activeExchangeNames[idx % activeExchangeNames.length];
       setActiveExchange(currentExchange);
       idx++;
 
@@ -282,7 +289,7 @@ export function GreenBackWidget() {
     const rawBase = (dailyTarget / profitPerTrade) / avgMovePercent * (tradingMode === 'demo' ? 1.3 : 1.5);
     // Cap total at MAX_USDT_ALLOCATION ($5000)
     const cappedBase = Math.min(rawBase, MAX_USDT_ALLOCATION);
-    const totalBase = cappedBase / EXCHANGE_ALLOCATIONS.length;
+    const totalBase = cappedBase / activeExchangeConfigs.length;
     if (confidence === 'High') return Math.round(totalBase * 1.5);
     if (confidence === 'Medium') return Math.round(totalBase);
     return Math.round(totalBase * 0.6);
@@ -393,6 +400,51 @@ export function GreenBackWidget() {
         </div>
       )}
 
+      {/* Compact Hit Rate Gauge - Always visible when bots running */}
+      {anyBotRunning && (
+        <div className="mb-3 flex-shrink-0 p-2 bg-secondary/30 rounded-lg border border-border/50">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-medium text-muted-foreground">Hit Rate</span>
+            <Badge
+              variant="outline"
+              className={cn(
+                'text-[8px]',
+                metrics.hitRate >= 95 ? 'border-primary text-primary' :
+                metrics.hitRate >= 90 ? 'border-yellow-500 text-yellow-500' :
+                'border-destructive text-destructive'
+              )}
+            >
+              {metrics.hitRate >= 95 ? 'ON TARGET' : metrics.hitRate >= 90 ? 'WARNING' : 'CRITICAL'}
+            </Badge>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className={cn(
+              'text-xl font-bold font-mono',
+              metrics.hitRate >= 95 ? 'text-primary' :
+              metrics.hitRate >= 90 ? 'text-yellow-500' :
+              'text-destructive'
+            )}>
+              {metrics.hitRate.toFixed(1)}%
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              / {requiredHitRate.toFixed(0)}% req
+            </span>
+          </div>
+          {/* Mini gauge bar */}
+          <div className="h-1.5 bg-secondary rounded-full overflow-hidden mt-1">
+            <div
+              className={cn(
+                'h-full rounded-full transition-all',
+                metrics.hitRate >= 95 ? 'bg-primary' :
+                metrics.hitRate >= 90 ? 'bg-yellow-500' :
+                'bg-destructive'
+              )}
+              style={{ width: `${Math.min((metrics.hitRate / 100) * 100, 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Progress Bar */}
       <div className="mb-3 flex-shrink-0">
         <div className="flex items-center justify-between text-xs mb-1">
@@ -463,11 +515,11 @@ export function GreenBackWidget() {
             {/* USDT Cap Indicator */}
             <div className="flex items-center gap-1.5">
               <span className="text-[9px] text-muted-foreground font-mono">
-                ${EXCHANGE_ALLOCATIONS.reduce((sum, ex) => sum + calculateAllocation(ex.confidence), 0).toLocaleString()} / ${MAX_USDT_ALLOCATION.toLocaleString()}
+                ${activeExchangeConfigs.reduce((sum, ex) => sum + calculateAllocation(ex.confidence), 0).toLocaleString()} / ${MAX_USDT_ALLOCATION.toLocaleString()}
               </span>
               <div className="w-12 h-1.5 bg-secondary rounded-full overflow-hidden">
                 {(() => {
-                  const totalAlloc = EXCHANGE_ALLOCATIONS.reduce((sum, ex) => sum + calculateAllocation(ex.confidence), 0);
+                  const totalAlloc = activeExchangeConfigs.reduce((sum, ex) => sum + calculateAllocation(ex.confidence), 0);
                   const capPercent = (totalAlloc / MAX_USDT_ALLOCATION) * 100;
                   return (
                     <div 
@@ -490,7 +542,7 @@ export function GreenBackWidget() {
                 <span>Confidence</span>
                 <span>Notes</span>
               </div>
-              {EXCHANGE_ALLOCATIONS.map(ex => (
+              {activeExchangeConfigs.map(ex => (
                 <div key={ex.name} className="grid grid-cols-4 gap-1 px-2 py-1.5 border-t border-border/50">
                   <span className="text-foreground">{ex.name}</span>
                   <span className="font-mono text-primary">${calculateAllocation(ex.confidence)}</span>
