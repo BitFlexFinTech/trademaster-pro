@@ -134,7 +134,7 @@ interface BotTradeRequest {
 
 // ============ EXCHANGE ORDER PLACEMENT FUNCTIONS ============
 
-async function placeBinanceOrder(apiKey: string, apiSecret: string, symbol: string, side: string, quantity: string): Promise<{ orderId: string; status: string; avgPrice: number }> {
+async function placeBinanceOrder(apiKey: string, apiSecret: string, symbol: string, side: string, quantity: string): Promise<{ orderId: string; status: string; avgPrice: number; executedQty: string }> {
   const timestamp = Date.now();
   const params = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
   const signature = await hmacSha256(apiSecret, params);
@@ -160,7 +160,33 @@ async function placeBinanceOrder(apiKey: string, apiSecret: string, symbol: stri
     avgPrice = parseFloat(data.price) || 0;
   }
   
-  return { orderId: data.orderId.toString(), status: data.status, avgPrice };
+  // Return executedQty for accurate exit orders
+  return { orderId: data.orderId.toString(), status: data.status, avgPrice, executedQty: data.executedQty || quantity };
+}
+
+// Helper: Place Binance order with retry logic
+async function placeBinanceOrderWithRetry(
+  apiKey: string, 
+  apiSecret: string, 
+  symbol: string, 
+  side: string, 
+  quantity: string,
+  maxRetries: number = 3
+): Promise<{ orderId: string; status: string; avgPrice: number; executedQty: string } | null> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await placeBinanceOrder(apiKey, apiSecret, symbol, side, quantity);
+      console.log(`${side} order succeeded on attempt ${attempt}`);
+      return result;
+    } catch (e) {
+      console.warn(`${side} order attempt ${attempt}/${maxRetries} failed:`, e instanceof Error ? e.message : e);
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 500)); // Wait 500ms before retry
+      }
+    }
+  }
+  console.error(`All ${maxRetries} ${side} order attempts failed for ${symbol}`);
+  return null;
 }
 
 async function placeBybitOrder(apiKey: string, apiSecret: string, symbol: string, side: string, qty: string): Promise<{ orderId: string; status: string; avgPrice: number }> {
@@ -575,23 +601,29 @@ serve(async (req) => {
         const quantity = roundToStepSize(rawQuantity, lotInfo.stepSize);
         console.log(`Order quantity: ${quantity} (raw: ${rawQuantity}, stepSize: ${lotInfo.stepSize}, minQty: ${lotInfo.minQty})`);
 
-        let entryOrder: { orderId: string; status: string; avgPrice: number } | null = null;
+        let entryOrder: { orderId: string; status: string; avgPrice: number; executedQty: string } | null = null;
 
         // Place ENTRY order
         if (exchangeName === "binance") {
           entryOrder = await placeBinanceOrder(apiKey, apiSecret, symbol, side, quantity);
         } else if (exchangeName === "bybit") {
-          entryOrder = await placeBybitOrder(apiKey, apiSecret, symbol, side === 'BUY' ? 'Buy' : 'Sell', quantity);
+          const bybitResult = await placeBybitOrder(apiKey, apiSecret, symbol, side === 'BUY' ? 'Buy' : 'Sell', quantity);
+          entryOrder = { ...bybitResult, executedQty: quantity };
         } else if (exchangeName === "okx") {
-          entryOrder = await placeOKXOrder(apiKey, apiSecret, passphrase, pair.replace("/", "-"), side.toLowerCase(), quantity);
+          const okxResult = await placeOKXOrder(apiKey, apiSecret, passphrase, pair.replace("/", "-"), side.toLowerCase(), quantity);
+          entryOrder = { ...okxResult, executedQty: quantity };
         } else if (exchangeName === "kraken") {
-          entryOrder = await placeKrakenOrder(apiKey, apiSecret, symbol, side.toLowerCase(), quantity);
+          const krakenResult = await placeKrakenOrder(apiKey, apiSecret, symbol, side.toLowerCase(), quantity);
+          entryOrder = { ...krakenResult, executedQty: quantity };
         } else if (exchangeName === "nexo") {
-          entryOrder = await placeNexoOrder(apiKey, apiSecret, symbol, side.toLowerCase(), quantity);
+          const nexoResult = await placeNexoOrder(apiKey, apiSecret, symbol, side.toLowerCase(), quantity);
+          entryOrder = { ...nexoResult, executedQty: quantity };
         }
 
         if (entryOrder) {
-          console.log(`Entry order placed: ${entryOrder.orderId}, avg price: ${entryOrder.avgPrice}`);
+          // Use the ACTUAL executed quantity from the entry order for exit
+          const actualExecutedQty = entryOrder.executedQty || quantity;
+          console.log(`Entry order placed: ${entryOrder.orderId}, avg price: ${entryOrder.avgPrice}, executedQty: ${actualExecutedQty}`);
           tradeResult.orderId = entryOrder.orderId;
           tradeResult.realTrade = true;
           tradeResult.entryPrice = entryOrder.avgPrice || currentPrice;
@@ -603,18 +635,23 @@ serve(async (req) => {
           const exitPrice = await fetchPrice(pair);
           const exitSide = direction === 'long' ? 'SELL' : 'BUY';
           
-          let exitOrder: { orderId: string; status: string; avgPrice: number } | null = null;
+          let exitOrder: { orderId: string; status: string; avgPrice: number; executedQty: string } | null = null;
           
+          // Use retry logic for Binance exit orders with EXACT executedQty from entry
           if (exchangeName === "binance") {
-            exitOrder = await placeBinanceOrder(apiKey, apiSecret, symbol, exitSide, quantity);
+            exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, 3);
           } else if (exchangeName === "bybit") {
-            exitOrder = await placeBybitOrder(apiKey, apiSecret, symbol, exitSide === 'BUY' ? 'Buy' : 'Sell', quantity);
+            const bybitResult = await placeBybitOrder(apiKey, apiSecret, symbol, exitSide === 'BUY' ? 'Buy' : 'Sell', actualExecutedQty);
+            exitOrder = { ...bybitResult, executedQty: actualExecutedQty };
           } else if (exchangeName === "okx") {
-            exitOrder = await placeOKXOrder(apiKey, apiSecret, passphrase, pair.replace("/", "-"), exitSide.toLowerCase(), quantity);
+            const okxResult = await placeOKXOrder(apiKey, apiSecret, passphrase, pair.replace("/", "-"), exitSide.toLowerCase(), actualExecutedQty);
+            exitOrder = { ...okxResult, executedQty: actualExecutedQty };
           } else if (exchangeName === "kraken") {
-            exitOrder = await placeKrakenOrder(apiKey, apiSecret, symbol, exitSide.toLowerCase(), quantity);
+            const krakenResult = await placeKrakenOrder(apiKey, apiSecret, symbol, exitSide.toLowerCase(), actualExecutedQty);
+            exitOrder = { ...krakenResult, executedQty: actualExecutedQty };
           } else if (exchangeName === "nexo") {
-            exitOrder = await placeNexoOrder(apiKey, apiSecret, symbol, exitSide.toLowerCase(), quantity);
+            const nexoResult = await placeNexoOrder(apiKey, apiSecret, symbol, exitSide.toLowerCase(), actualExecutedQty);
+            exitOrder = { ...nexoResult, executedQty: actualExecutedQty };
           }
           
           if (exitOrder) {
@@ -626,6 +663,11 @@ serve(async (req) => {
               ? tradeResult.exitPrice - tradeResult.entryPrice
               : tradeResult.entryPrice - tradeResult.exitPrice;
             tradeResult.pnl = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
+          } else {
+            // Exit failed after retries - log orphaned position for manual cleanup
+            console.error(`EXIT ORDER FAILED for ${actualExecutedQty} ${symbol} - ORPHANED POSITION. Use Close All Positions to recover.`);
+            tradeResult.exitPrice = exitPrice;
+            tradeResult.pnl = 0; // Unknown P&L since position still open
           }
         }
       } catch (exchangeError) {

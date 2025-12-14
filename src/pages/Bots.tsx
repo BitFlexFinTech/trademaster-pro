@@ -9,7 +9,7 @@ import { useAIStrategyMonitor } from '@/hooks/useAIStrategyMonitor';
 import { useRecommendationHistory } from '@/hooks/useRecommendationHistory';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Bot, DollarSign, Loader2, RefreshCw, BarChart3 } from 'lucide-react';
+import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { BotHistory } from '@/components/bots/BotHistory';
@@ -59,6 +59,7 @@ export default function Bots() {
   const [usdtFloat, setUsdtFloat] = useState<UsdtFloat[]>([]);
   const [loadingFloat, setLoadingFloat] = useState(true);
   const [showComparison, setShowComparison] = useState(false);
+  const [closingPositions, setClosingPositions] = useState(false);
 
   // Bot configuration state for applying recommendations
   const [botConfig, setBotConfig] = useState({
@@ -266,6 +267,56 @@ export default function Bots() {
     await stopBotWithAnalysis(botId, botName);
   };
 
+  // Handle closing all positions on Binance
+  const handleCloseAllPositions = async () => {
+    if (spotBot || leverageBot) {
+      toast.error('Cannot close positions while bot is running. Stop the bot first.');
+      return;
+    }
+
+    if (!window.confirm('This will sell ALL non-USDT crypto assets in your Binance account to USDT. Continue?')) {
+      return;
+    }
+
+    setClosingPositions(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('convert-to-usdt', {
+        body: { botId: 'manual-close' },
+      });
+
+      if (error) throw error;
+
+      if (data?.success) {
+        const closedCount = data.closedPositions?.filter((p: { success: boolean }) => p.success).length || 0;
+        const totalRecovered = data.totalUsdtRecovered || 0;
+        
+        if (closedCount > 0) {
+          toast.success(`Closed ${closedCount} positions`, {
+            description: `Recovered $${totalRecovered.toFixed(2)} USDT`,
+          });
+        } else {
+          toast.info('No positions to close', {
+            description: data.message || 'All assets already in USDT',
+          });
+        }
+
+        // Refresh USDT float display
+        triggerSync();
+      } else {
+        toast.error('Failed to close positions', {
+          description: data?.error || 'Unknown error',
+        });
+      }
+    } catch (err) {
+      console.error('Close positions error:', err);
+      toast.error('Failed to close positions', {
+        description: err instanceof Error ? err.message : 'Unknown error',
+      });
+    } finally {
+      setClosingPositions(false);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
@@ -288,6 +339,23 @@ export default function Bots() {
             <BarChart3 className="w-3 h-3" />
             Compare Bots
           </Button>
+          {/* Close All Positions - Live Mode Only */}
+          {tradingMode === 'live' && (
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-6 text-xs gap-1 hidden md:flex"
+              onClick={handleCloseAllPositions}
+              disabled={closingPositions || !!spotBot || !!leverageBot}
+            >
+              {closingPositions ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <XCircle className="w-3 h-3" />
+              )}
+              Close All Positions
+            </Button>
+          )}
           {/* Mobile drawer trigger */}
           {isMobile && (
             <BotsMobileDrawer
