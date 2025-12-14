@@ -48,7 +48,7 @@ interface BotStats {
 
 export function useBotRuns() {
   const { user } = useAuth();
-  const { resetTrigger } = useTradingMode();
+  const { resetTrigger, mode: tradingMode } = useTradingMode();
   const [bots, setBots] = useState<BotRun[]>([]);
   const [stats, setStats] = useState<BotStats>({ totalBots: 0, activeBots: 0, totalPnl: 0, totalTrades: 0 });
   const [loading, setLoading] = useState(true);
@@ -63,11 +63,14 @@ export function useBotRuns() {
       return;
     }
 
+    const isSandbox = tradingMode === 'demo';
+
     try {
       const { data, error } = await supabase
         .from('bot_runs')
         .select('*')
         .eq('user_id', user.id)
+        .eq('is_sandbox', isSandbox)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -100,9 +103,9 @@ export function useBotRuns() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, tradingMode]);
 
-  const startBot = async (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number) => {
+  const startBot = async (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number, isSandbox: boolean = true) => {
     if (!user) {
       toast.error('Please login to start bots');
       return null;
@@ -116,6 +119,7 @@ export function useBotRuns() {
         .eq('user_id', user.id)
         .eq('bot_name', botName)
         .eq('status', 'running')
+        .eq('is_sandbox', isSandbox)
         .single();
 
       if (existingBot) {
@@ -133,6 +137,7 @@ export function useBotRuns() {
           profit_per_trade: profitPerTrade,
           status: 'running',
           started_at: new Date().toISOString(),
+          is_sandbox: isSandbox,
         })
         .select()
         .single();
@@ -292,11 +297,11 @@ export function useBotRuns() {
   const getSpotBot = () => bots.find(b => b.botName === 'GreenBack Spot' && b.status === 'running');
   const getLeverageBot = () => bots.find(b => b.botName === 'GreenBack Leverage' && b.status === 'running');
   
-  const startSpotBot = (dailyTarget: number, profitPerTrade: number) => 
-    startBot('GreenBack Spot', 'spot', dailyTarget, profitPerTrade);
+  const startSpotBot = (dailyTarget: number, profitPerTrade: number, isSandbox: boolean = true) => 
+    startBot('GreenBack Spot', 'spot', dailyTarget, profitPerTrade, isSandbox);
   
-  const startLeverageBot = (dailyTarget: number, profitPerTrade: number) => 
-    startBot('GreenBack Leverage', 'leverage', dailyTarget, profitPerTrade);
+  const startLeverageBot = (dailyTarget: number, profitPerTrade: number, isSandbox: boolean = true) => 
+    startBot('GreenBack Leverage', 'leverage', dailyTarget, profitPerTrade, isSandbox);
 
   // Update bot configuration (persists to database)
   const updateBotConfig = async (botId: string, config: { profitPerTrade?: number; dailyTarget?: number; stopLoss?: number }) => {

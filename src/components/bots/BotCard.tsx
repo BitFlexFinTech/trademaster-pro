@@ -29,7 +29,7 @@ interface BotCardProps {
   botType: 'spot' | 'leverage';
   existingBot: any;
   prices: Array<{ symbol: string; price: number; change_24h?: number }>;
-  onStartBot: (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number) => Promise<any>;
+  onStartBot: (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number, isSandbox: boolean) => Promise<any>;
   onStopBot: (botId: string) => Promise<void>;
   onUpdateBotPnl: (botId: string, pnl: number, trades: number, hitRate: number) => Promise<void>;
   suggestedUSDT: number;
@@ -327,7 +327,7 @@ export function BotCard({
       resetProgressNotifications();
     } else {
       resetProgressNotifications();
-      await onStartBot(botName, botType, dailyTarget, profitPerTrade);
+      await onStartBot(botName, botType, dailyTarget, profitPerTrade, tradingMode === 'demo');
     }
   };
 
