@@ -109,6 +109,20 @@ export function useBotRuns() {
     }
 
     try {
+      // Check if bot with same name is already running - prevent duplicates
+      const { data: existingBot } = await supabase
+        .from('bot_runs')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('bot_name', botName)
+        .eq('status', 'running')
+        .single();
+
+      if (existingBot) {
+        toast.warning(`${botName} is already running`);
+        return existingBot;
+      }
+
       const { data, error } = await supabase
         .from('bot_runs')
         .insert({

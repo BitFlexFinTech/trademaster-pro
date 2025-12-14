@@ -1,10 +1,28 @@
+import { useEffect, useState } from 'react';
 import { useBotAnalytics } from '@/hooks/useBotAnalytics';
+import { useTradingMode } from '@/contexts/TradingModeContext';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
 import { Calendar, TrendingUp, TrendingDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function DailyPnLChart() {
   const { analytics, loading } = useBotAnalytics('30d', 'all', 'all');
+  const { resetTrigger } = useTradingMode();
+  const [chartData, setChartData] = useState<Array<{ date: string; pnl: number }>>([]);
+
+  // Listen to reset trigger - clear chart
+  useEffect(() => {
+    if (resetTrigger > 0) {
+      setChartData([]);
+    }
+  }, [resetTrigger]);
+
+  // Update chart data when analytics loads
+  useEffect(() => {
+    if (!loading && analytics?.pnlHistory) {
+      setChartData(analytics.pnlHistory.slice(-14));
+    }
+  }, [analytics, loading]);
 
   if (loading) {
     return (
@@ -13,8 +31,6 @@ export function DailyPnLChart() {
       </div>
     );
   }
-
-  const chartData = analytics.pnlHistory.slice(-14); // Last 14 days
 
   const totalProfit = chartData.reduce((sum, d) => sum + (d.pnl > 0 ? d.pnl : 0), 0);
   const totalLoss = chartData.reduce((sum, d) => sum + (d.pnl < 0 ? Math.abs(d.pnl) : 0), 0);
