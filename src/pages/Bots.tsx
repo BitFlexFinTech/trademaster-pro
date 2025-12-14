@@ -60,7 +60,8 @@ export default function Bots() {
   const [botConfig, setBotConfig] = useState({
     profitPerTrade: 1,
     amountPerTrade: 100,
-    stopLoss: 0.60,
+    dailyStopLoss: 5,
+    perTradeStopLoss: 0.60,
     focusPairs: ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'DOT', 'LINK'],
   });
 
@@ -147,10 +148,16 @@ export default function Bots() {
           description: `Changed from $${oldConfig.amountPerTrade.toFixed(0)} → $${value.toFixed(0)}`,
         });
         break;
-      case 'stop_loss':
-        setBotConfig(prev => ({ ...prev, stopLoss: value }));
-        toast.success(`Stop Loss Updated`, {
-          description: `Changed from -$${oldConfig.stopLoss.toFixed(2)} → -$${value.toFixed(2)}`,
+      case 'daily_stop_loss':
+        setBotConfig(prev => ({ ...prev, dailyStopLoss: value }));
+        toast.success(`Daily Stop Loss Updated`, {
+          description: `Changed from -$${oldConfig.dailyStopLoss.toFixed(2)} → -$${value.toFixed(2)}`,
+        });
+        break;
+      case 'per_trade_stop_loss':
+        setBotConfig(prev => ({ ...prev, perTradeStopLoss: value }));
+        toast.success(`Per-Trade Stop Loss Updated`, {
+          description: `Changed from -$${oldConfig.perTradeStopLoss.toFixed(2)} → -$${value.toFixed(2)}`,
         });
         break;
       case 'focus_pairs':
@@ -209,6 +216,9 @@ export default function Bots() {
               analyzeBot={analyzeBot}
               suggestedUSDT={suggestedUSDT}
               usdtFloat={usdtFloat}
+              dailyStopLoss={botConfig.dailyStopLoss}
+              perTradeStopLoss={botConfig.perTradeStopLoss}
+              onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
             />
           )}
         </div>
@@ -356,6 +366,10 @@ export default function Bots() {
             onUpdateBotPnl={updateBotPnl}
             suggestedUSDT={suggestedUSDT}
             usdtFloat={usdtFloat}
+            dailyStopLoss={botConfig.dailyStopLoss}
+            perTradeStopLoss={botConfig.perTradeStopLoss}
+            onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+            isAnyBotRunning={!!spotBot || !!leverageBot}
           />
           <BotCard
             botType="leverage"
@@ -366,6 +380,10 @@ export default function Bots() {
             onUpdateBotPnl={updateBotPnl}
             suggestedUSDT={suggestedUSDT}
             usdtFloat={usdtFloat}
+            dailyStopLoss={botConfig.dailyStopLoss}
+            perTradeStopLoss={botConfig.perTradeStopLoss}
+            onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+            isAnyBotRunning={!!spotBot || !!leverageBot}
           />
         </div>
 

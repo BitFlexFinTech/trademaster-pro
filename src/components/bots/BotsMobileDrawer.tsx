@@ -21,6 +21,9 @@ interface BotsMobileDrawerProps {
   analyzeBot: (botId: string, botName: string) => Promise<void>;
   suggestedUSDT: number;
   usdtFloat: Array<{ exchange: string; amount: number; warning: boolean }>;
+  dailyStopLoss?: number;
+  perTradeStopLoss?: number;
+  onConfigChange?: (key: string, value: number) => void;
 }
 
 export function BotsMobileDrawer({
@@ -34,6 +37,9 @@ export function BotsMobileDrawer({
   analyzeBot,
   suggestedUSDT,
   usdtFloat,
+  dailyStopLoss = 5,
+  perTradeStopLoss = 0.60,
+  onConfigChange,
 }: BotsMobileDrawerProps) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('bots');
@@ -81,6 +87,10 @@ export function BotsMobileDrawer({
                 onUpdateBotPnl={updateBotPnl}
                 suggestedUSDT={suggestedUSDT}
                 usdtFloat={usdtFloat}
+                dailyStopLoss={dailyStopLoss}
+                perTradeStopLoss={perTradeStopLoss}
+                onConfigChange={onConfigChange}
+                isAnyBotRunning={!!spotBot || !!leverageBot}
               />
               <BotCard
                 botType="leverage"
@@ -91,6 +101,10 @@ export function BotsMobileDrawer({
                 onUpdateBotPnl={updateBotPnl}
                 suggestedUSDT={suggestedUSDT}
                 usdtFloat={usdtFloat}
+                dailyStopLoss={dailyStopLoss}
+                perTradeStopLoss={perTradeStopLoss}
+                onConfigChange={onConfigChange}
+                isAnyBotRunning={!!spotBot || !!leverageBot}
               />
             </TabsContent>
 

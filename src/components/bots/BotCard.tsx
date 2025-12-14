@@ -27,6 +27,10 @@ interface BotCardProps {
   onUpdateBotPnl: (botId: string, pnl: number, trades: number, hitRate: number) => Promise<void>;
   suggestedUSDT: number;
   usdtFloat: Array<{ exchange: string; amount: number }>;
+  dailyStopLoss?: number;
+  perTradeStopLoss?: number;
+  onConfigChange?: (key: string, value: number) => void;
+  isAnyBotRunning?: boolean;
 }
 
 export function BotCard({
@@ -38,6 +42,10 @@ export function BotCard({
   onUpdateBotPnl,
   suggestedUSDT,
   usdtFloat,
+  dailyStopLoss = 5,
+  perTradeStopLoss = 0.60,
+  onConfigChange,
+  isAnyBotRunning = false,
 }: BotCardProps) {
   const { user } = useAuth();
   const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger } = useTradingMode();
@@ -116,11 +124,11 @@ export function BotCard({
 
     let idx = 0;
     const interval = setInterval(async () => {
-      // CRITICAL: Enforce daily stop loss at -$5
-      if (metrics.currentPnL <= -5) {
+      // CRITICAL: Enforce daily stop loss (configurable, default -$5)
+      if (metrics.currentPnL <= -dailyStopLoss) {
         const { toast } = await import('sonner');
         toast.error('⚠️ Daily Stop Loss Hit', {
-          description: 'GreenBack stopped: -$5 daily limit reached.',
+          description: `GreenBack stopped: -$${dailyStopLoss} daily limit reached.`,
         });
         onStopBot(existingBot.id);
         return;
@@ -144,11 +152,11 @@ export function BotCard({
       const direction = priceChange >= 0 ? 'long' : 'short';
       const isWin = Math.random() < 0.70;
       const leverage = botType === 'leverage' ? (leverages[currentExchange] || 1) : 1;
-      const tradePnl = isWin ? profitPerTrade * (botType === 'leverage' ? Math.min(leverage / 5, 2) : 1) : -0.60;
+      const tradePnl = isWin ? profitPerTrade * (botType === 'leverage' ? Math.min(leverage / 5, 2) : 1) : -perTradeStopLoss;
       const pair = `${symbol}/USDT`;
 
       setMetrics(prev => {
-        const newPnl = Math.min(Math.max(prev.currentPnL + tradePnl, -5), dailyTarget * 1.5);
+        const newPnl = Math.min(Math.max(prev.currentPnL + tradePnl, -dailyStopLoss), dailyTarget * 1.5);
         const newTrades = prev.tradesExecuted + 1;
         const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
         const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
@@ -208,7 +216,7 @@ export function BotCard({
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, usdtFloat, botName, onStopBot]);
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, usdtFloat, botName, onStopBot, dailyStopLoss, perTradeStopLoss]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
@@ -349,6 +357,34 @@ export function BotCard({
         </div>
       </div>
 
+      {/* Stop Loss Configuration */}
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label className="text-[10px] text-muted-foreground block mb-1">Daily Stop Loss ($)</label>
+          <Input
+            type="number"
+            value={dailyStopLoss}
+            onChange={(e) => onConfigChange?.('dailyStopLoss', Math.max(1, Number(e.target.value)))}
+            disabled={isAnyBotRunning}
+            className="h-8 text-xs font-mono"
+            min={1}
+            step={1}
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-muted-foreground block mb-1">Stop Loss/Trade ($)</label>
+          <Input
+            type="number"
+            value={perTradeStopLoss}
+            onChange={(e) => onConfigChange?.('perTradeStopLoss', Math.max(0.1, Number(e.target.value)))}
+            disabled={isAnyBotRunning}
+            className="h-8 text-xs font-mono"
+            min={0.1}
+            step={0.1}
+          />
+        </div>
+      </div>
+
       {/* Leverage Sliders (only for leverage bot) */}
       {botType === 'leverage' && (
         <div className="mb-3 space-y-2">
@@ -421,7 +457,7 @@ export function BotCard({
 
       <div className="flex items-center gap-2 mt-2 text-[8px] text-muted-foreground">
         <AlertTriangle className="w-2.5 h-2.5 text-warning" />
-        <span>Daily stop: -$5 | SL: -$0.60/trade</span>
+        <span>Daily stop: -${dailyStopLoss} | SL: -${perTradeStopLoss.toFixed(2)}/trade</span>
       </div>
     </div>
   );

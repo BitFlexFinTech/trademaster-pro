@@ -48,7 +48,8 @@ interface BotStats {
 interface CurrentConfig {
   profitPerTrade: number;
   amountPerTrade: number;
-  stopLoss: number;
+  dailyStopLoss: number;
+  perTradeStopLoss: number;
   focusPairs: string[];
 }
 
@@ -260,20 +261,20 @@ export function BotAnalysisModal({
                           <AlertTriangle className="w-5 h-5 text-destructive" />
                         </div>
                         <div>
-                          <h4 className="font-medium text-foreground text-sm">Tighter Stop Loss</h4>
+                          <h4 className="font-medium text-foreground text-sm">Tighter Per-Trade Stop Loss</h4>
                           <p className="text-xs text-muted-foreground">
-                            Current: -${currentConfig?.stopLoss?.toFixed(2) || '0.60'} → New: -$0.45
+                            Current: -${currentConfig?.perTradeStopLoss?.toFixed(2) || '0.60'} → New: -$0.45
                           </p>
                         </div>
                       </div>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => handleApply('stop_loss', 0.45)}
-                        disabled={applying === 'stop_loss'}
+                        onClick={() => handleApply('per_trade_stop_loss', 0.45)}
+                        disabled={applying === 'per_trade_stop_loss'}
                         className="gap-1"
                       >
-                        {applying === 'stop_loss' ? (
+                        {applying === 'per_trade_stop_loss' ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
                         ) : (
                           <>
