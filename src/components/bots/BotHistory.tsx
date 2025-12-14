@@ -44,8 +44,10 @@ const mapToBotRun = (record: Record<string, unknown>): BotRun => ({
 
 export function BotHistory({ bots, onViewAnalysis }: BotHistoryProps) {
   const { user } = useAuth();
-  const { resetTrigger } = useTradingMode();
+  const { resetTrigger, mode: tradingMode } = useTradingMode();
   const [stoppedBots, setStoppedBots] = useState<BotRun[]>([]);
+
+  const isSandbox = tradingMode === 'demo';
 
   useEffect(() => {
     setStoppedBots(bots.filter(b => b.status === 'stopped'));
@@ -63,7 +65,7 @@ export function BotHistory({ bots, onViewAnalysis }: BotHistoryProps) {
     if (!user) return;
 
     const channel = supabase
-      .channel(`bot-history-${user.id}`)
+      .channel(`bot-history-${user.id}-${tradingMode}`)
       .on(
         'postgres_changes',
         {
@@ -73,24 +75,31 @@ export function BotHistory({ bots, onViewAnalysis }: BotHistoryProps) {
           filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
+          // Filter by current trading mode
+          const botRecord = payload.new as Record<string, unknown> | undefined;
+          const botIsSandbox = botRecord?.is_sandbox as boolean | undefined;
+          
+          // Only process if mode matches
+          if (botIsSandbox !== isSandbox) return;
+
           if (payload.eventType === 'UPDATE') {
             const updatedBot = payload.new;
-            if (updatedBot.status === 'stopped') {
+            if ((updatedBot as Record<string, unknown>).status === 'stopped') {
               setStoppedBots(prev => {
-                const exists = prev.find(b => b.id === updatedBot.id);
+                const exists = prev.find(b => b.id === (updatedBot as Record<string, unknown>).id);
                 if (exists) {
-                  return prev.map(b => b.id === updatedBot.id ? mapToBotRun(updatedBot) : b);
+                  return prev.map(b => b.id === (updatedBot as Record<string, unknown>).id ? mapToBotRun(updatedBot as Record<string, unknown>) : b);
                 }
-                return [mapToBotRun(updatedBot), ...prev];
+                return [mapToBotRun(updatedBot as Record<string, unknown>), ...prev];
               });
             }
           } else if (payload.eventType === 'INSERT') {
-            const newBot = payload.new;
+            const newBot = payload.new as Record<string, unknown>;
             if (newBot.status === 'stopped') {
               setStoppedBots(prev => [mapToBotRun(newBot), ...prev]);
             }
           } else if (payload.eventType === 'DELETE') {
-            const deletedId = payload.old?.id;
+            const deletedId = (payload.old as Record<string, unknown> | undefined)?.id;
             if (deletedId) {
               setStoppedBots(prev => prev.filter(b => b.id !== deletedId));
             }
@@ -102,7 +111,7 @@ export function BotHistory({ bots, onViewAnalysis }: BotHistoryProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user, tradingMode, isSandbox]);
 
   if (stoppedBots.length === 0) {
     return (

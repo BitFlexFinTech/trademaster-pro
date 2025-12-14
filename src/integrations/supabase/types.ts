@@ -152,6 +152,7 @@ export type Database = {
           daily_target: number | null
           hit_rate: number | null
           id: string
+          is_sandbox: boolean | null
           max_drawdown: number | null
           mode: string
           profit_per_trade: number | null
@@ -171,6 +172,7 @@ export type Database = {
           daily_target?: number | null
           hit_rate?: number | null
           id?: string
+          is_sandbox?: boolean | null
           max_drawdown?: number | null
           mode?: string
           profit_per_trade?: number | null
@@ -190,6 +192,7 @@ export type Database = {
           daily_target?: number | null
           hit_rate?: number | null
           id?: string
+          is_sandbox?: boolean | null
           max_drawdown?: number | null
           mode?: string
           profit_per_trade?: number | null
