@@ -5,7 +5,7 @@ import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useTradingMode, MAX_USDT_ALLOCATION } from '@/contexts/TradingModeContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Bot, DollarSign, Loader2, RefreshCw } from 'lucide-react';
+import { Bot, DollarSign, Loader2, RefreshCw, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { BotHistory } from '@/components/bots/BotHistory';
@@ -15,6 +15,7 @@ import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
 import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboard';
 import { DailyPnLChart } from '@/components/bots/DailyPnLChart';
 import { BotAnalysisModal } from '@/components/bots/BotAnalysisModal';
+import { BotComparisonView } from '@/components/bots/BotComparisonView';
 import { toast } from 'sonner';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES } from '@/lib/exchangeConfig';
 
@@ -49,6 +50,7 @@ export default function Bots() {
 
   const [usdtFloat, setUsdtFloat] = useState<UsdtFloat[]>([]);
   const [loadingFloat, setLoadingFloat] = useState(true);
+  const [showComparison, setShowComparison] = useState(false);
 
   // Bot configuration state for applying recommendations
   const [botConfig, setBotConfig] = useState({
@@ -167,6 +169,15 @@ export default function Bots() {
           <Bot className="w-5 h-5 text-primary" />
           <h1 className="text-lg font-bold text-foreground">Trading Bots</h1>
           <span className="live-indicator text-xs">{activeBotCount} Active</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-xs gap-1"
+            onClick={() => setShowComparison(true)}
+          >
+            <BarChart3 className="w-3 h-3" />
+            Compare Bots
+          </Button>
         </div>
 
         {/* Demo/Live Toggle */}
@@ -368,6 +379,12 @@ export default function Bots() {
         onApplyRecommendation={handleApplyRecommendation}
         loading={analysisLoading}
         currentConfig={botConfig}
+      />
+
+      {/* Comparison Modal */}
+      <BotComparisonView
+        open={showComparison}
+        onOpenChange={setShowComparison}
       />
     </div>
   );

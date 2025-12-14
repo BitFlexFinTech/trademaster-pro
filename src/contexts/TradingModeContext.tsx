@@ -58,6 +58,10 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('virtualBalance', String(newBalance));
     // Trigger sync for all components
     setResetTrigger(prev => prev + 1);
+    // Notify user
+    toast.success('Virtual Balance Updated', {
+      description: `Balance set to $${newBalance.toLocaleString()}. All components synced.`,
+    });
   }, []);
 
   const setDemoAllocation = useCallback((allocation: DemoAllocation) => {
