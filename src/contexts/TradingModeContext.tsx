@@ -5,7 +5,7 @@ interface TradingModeContextType {
   mode: 'demo' | 'live';
   setMode: (mode: 'demo' | 'live') => void;
   virtualBalance: number;
-  setVirtualBalance: (balance: number) => void;
+  setVirtualBalance: (balance: number | ((prev: number) => number)) => void;
   resetDemo: (userId: string) => Promise<void>;
 }
 
@@ -15,11 +15,19 @@ const DEFAULT_VIRTUAL_BALANCE = 15000;
 
 export function TradingModeProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<'demo' | 'live'>('demo');
-  const [virtualBalance, setVirtualBalance] = useState(DEFAULT_VIRTUAL_BALANCE);
+  const [virtualBalance, setVirtualBalanceState] = useState(DEFAULT_VIRTUAL_BALANCE);
+
+  const setVirtualBalance = useCallback((balance: number | ((prev: number) => number)) => {
+    if (typeof balance === 'function') {
+      setVirtualBalanceState(prev => balance(prev));
+    } else {
+      setVirtualBalanceState(balance);
+    }
+  }, []);
 
   const resetDemo = useCallback(async (userId: string) => {
     // Reset virtual balance to $15,000
-    setVirtualBalance(DEFAULT_VIRTUAL_BALANCE);
+    setVirtualBalanceState(DEFAULT_VIRTUAL_BALANCE);
     localStorage.setItem('virtualBalance', String(DEFAULT_VIRTUAL_BALANCE));
 
     // Clear demo trades from database
@@ -29,12 +37,12 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
     await supabase.from('bot_runs').delete().eq('user_id', userId);
   }, []);
 
-  // Persist to localStorage
+  // Load from localStorage on mount
   useEffect(() => {
     const savedMode = localStorage.getItem('tradingMode');
     const savedBalance = localStorage.getItem('virtualBalance');
     if (savedMode) setMode(savedMode as 'demo' | 'live');
-    if (savedBalance) setVirtualBalance(Number(savedBalance));
+    if (savedBalance) setVirtualBalanceState(Number(savedBalance));
   }, []);
 
   useEffect(() => {
