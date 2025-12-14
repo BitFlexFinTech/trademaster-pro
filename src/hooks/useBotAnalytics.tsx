@@ -27,6 +27,27 @@ interface PnLHistory {
   cumulative: number;
 }
 
+interface WinLossStreak {
+  currentStreak: number;
+  currentStreakType: 'win' | 'loss' | 'none';
+  longestWinStreak: number;
+  longestLossStreak: number;
+}
+
+interface PairPerformance {
+  pair: string;
+  profit: number;
+  trades: number;
+  winRate: number;
+}
+
+interface HourlyPerformance {
+  hour: number;
+  profit: number;
+  trades: number;
+  winRate: number;
+}
+
 export interface BotAnalytics {
   winCount: number;
   lossCount: number;
@@ -41,6 +62,11 @@ export interface BotAnalytics {
   expectancy: number;
   totalProfit: number;
   totalTrades: number;
+  // New comprehensive metrics
+  streaks: WinLossStreak;
+  bestPerformingPairs: PairPerformance[];
+  worstPerformingPairs: PairPerformance[];
+  optimalTradingHours: HourlyPerformance[];
 }
 
 type TimeframeFilter = '7d' | '30d' | '90d' | 'all';
@@ -108,6 +134,13 @@ export function useBotAnalytics(
   }, [user, timeframe, modeFilter, botTypeFilter]);
 
   const analytics = useMemo<BotAnalytics>(() => {
+    const defaultStreaks: WinLossStreak = {
+      currentStreak: 0,
+      currentStreakType: 'none',
+      longestWinStreak: 0,
+      longestLossStreak: 0,
+    };
+
     if (trades.length === 0) {
       return {
         winCount: 0,
@@ -123,6 +156,10 @@ export function useBotAnalytics(
         expectancy: 0,
         totalProfit: 0,
         totalTrades: 0,
+        streaks: defaultStreaks,
+        bestPerformingPairs: [],
+        worstPerformingPairs: [],
+        optimalTradingHours: [],
       };
     }
 
@@ -147,6 +184,90 @@ export function useBotAnalytics(
     const expectancy = (winRate / 100 * avgWinAmount) - (lossRate / 100 * avgLossAmount);
 
     const totalProfit = trades.reduce((sum, t) => sum + t.profit_loss, 0);
+
+    // Calculate win/loss streaks
+    const sortedTrades = [...trades].sort((a, b) => 
+      new Date(a.closed_at || a.created_at).getTime() - new Date(b.closed_at || b.created_at).getTime()
+    );
+
+    let currentStreak = 0;
+    let currentStreakType: 'win' | 'loss' | 'none' = 'none';
+    let longestWinStreak = 0;
+    let longestLossStreak = 0;
+    let tempWinStreak = 0;
+    let tempLossStreak = 0;
+
+    sortedTrades.forEach((trade, index) => {
+      const isWin = trade.profit_loss > 0;
+      
+      if (isWin) {
+        tempWinStreak++;
+        tempLossStreak = 0;
+        if (tempWinStreak > longestWinStreak) longestWinStreak = tempWinStreak;
+      } else {
+        tempLossStreak++;
+        tempWinStreak = 0;
+        if (tempLossStreak > longestLossStreak) longestLossStreak = tempLossStreak;
+      }
+
+      // Track current streak (from the end)
+      if (index === sortedTrades.length - 1) {
+        currentStreak = isWin ? tempWinStreak : tempLossStreak;
+        currentStreakType = isWin ? 'win' : 'loss';
+      }
+    });
+
+    const streaks: WinLossStreak = {
+      currentStreak,
+      currentStreakType,
+      longestWinStreak,
+      longestLossStreak,
+    };
+
+    // Calculate pair performance
+    const pairMap = new Map<string, { profit: number; trades: number; wins: number }>();
+    trades.forEach(t => {
+      const pair = t.pair || 'Unknown';
+      const current = pairMap.get(pair) || { profit: 0, trades: 0, wins: 0 };
+      pairMap.set(pair, {
+        profit: current.profit + t.profit_loss,
+        trades: current.trades + 1,
+        wins: current.wins + (t.profit_loss > 0 ? 1 : 0),
+      });
+    });
+
+    const pairPerformance: PairPerformance[] = Array.from(pairMap.entries())
+      .map(([pair, data]) => ({
+        pair,
+        profit: data.profit,
+        trades: data.trades,
+        winRate: data.trades > 0 ? (data.wins / data.trades) * 100 : 0,
+      }))
+      .sort((a, b) => b.profit - a.profit);
+
+    const bestPerformingPairs = pairPerformance.slice(0, 5);
+    const worstPerformingPairs = pairPerformance.slice(-5).reverse();
+
+    // Calculate hourly performance (optimal trading times)
+    const hourMap = new Map<number, { profit: number; trades: number; wins: number }>();
+    trades.forEach(t => {
+      const hour = new Date(t.closed_at || t.created_at).getHours();
+      const current = hourMap.get(hour) || { profit: 0, trades: 0, wins: 0 };
+      hourMap.set(hour, {
+        profit: current.profit + t.profit_loss,
+        trades: current.trades + 1,
+        wins: current.wins + (t.profit_loss > 0 ? 1 : 0),
+      });
+    });
+
+    const optimalTradingHours: HourlyPerformance[] = Array.from(hourMap.entries())
+      .map(([hour, data]) => ({
+        hour,
+        profit: data.profit,
+        trades: data.trades,
+        winRate: data.trades > 0 ? (data.wins / data.trades) * 100 : 0,
+      }))
+      .sort((a, b) => b.profit - a.profit);
 
     // Profit by exchange
     const exchangeMap = new Map<string, { profit: number; trades: number; wins: number }>();
@@ -207,6 +328,10 @@ export function useBotAnalytics(
       expectancy,
       totalProfit,
       totalTrades: trades.length,
+      streaks,
+      bestPerformingPairs,
+      worstPerformingPairs,
+      optimalTradingHours,
     };
   }, [trades]);
 
