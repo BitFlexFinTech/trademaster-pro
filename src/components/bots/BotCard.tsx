@@ -14,6 +14,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
 import { calculateNetProfit, MIN_NET_PROFIT } from '@/lib/exchangeFees';
 import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
+import { demoDataStore } from '@/lib/demoDataStore';
+import { hitRateTracker } from '@/lib/sandbox/hitRateTracker';
 import {
   Tooltip,
   TooltipContent,
@@ -209,7 +211,42 @@ export function BotCard({
         return; // Skip - not profitable enough
       }
       
-      const tradePnl = isWin ? netProfit : -Math.abs(netProfit * 0.6);
+      let tradePnl: number;
+      
+      // ===== LIVE MODE: Execute real trades via edge function =====
+      if (tradingMode === 'live') {
+        try {
+          const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
+            body: {
+              botId: existingBot.id,
+              mode: botType,
+              profitTarget: profitPerTrade,
+              exchanges: [currentExchange],
+              leverages: leverages,
+              pair,
+              direction,
+              isSandbox: false,
+            }
+          });
+          
+          if (error) {
+            console.error('Live trade failed:', error);
+            return; // Skip this trade
+          }
+          
+          tradePnl = data?.pnl || 0;
+          isWin = tradePnl > 0;
+        } catch (err) {
+          console.error('Live trade execution error:', err);
+          return;
+        }
+      } else {
+        // ===== DEMO MODE: Simulate locally =====
+        tradePnl = isWin ? netProfit : -Math.abs(netProfit * 0.6);
+      }
+      
+      // Record trade in hitRateTracker for analytics
+      hitRateTracker.recordTrade(isWin);
 
       // Track trades per minute
       const now = Date.now();
@@ -223,6 +260,19 @@ export function BotCard({
         const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
         const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
         const newMaxDrawdown = Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown);
+
+        // Route demo trades through demoDataStore (Single Source of Truth)
+        if (tradingMode === 'demo') {
+          demoDataStore.updateBalance(tradePnl, `trade-${Date.now()}-${Math.random()}`);
+          demoDataStore.addTrade({
+            pair,
+            direction,
+            pnl: tradePnl,
+            exchange: currentExchange,
+            timestamp: new Date(),
+          });
+          setVirtualBalance(prev => prev + tradePnl);
+        }
 
         if (user) {
           supabase.from('trades').insert({
@@ -253,10 +303,6 @@ export function BotCard({
 
         // Notify daily progress at 50%, 75%, 90%, 100%
         notifyDailyProgress(newPnl, dailyTarget, botName);
-
-        if (tradingMode === 'demo') {
-          setVirtualBalance(prev => prev + tradePnl);
-        }
 
         onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
 
