@@ -1,17 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useBacktest } from '@/hooks/useBacktest';
 import { useTradingMode } from '@/contexts/TradingModeContext';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { FlaskConical, Play, RotateCcw, Calendar, Loader2, Pencil, Check, X } from 'lucide-react';
+import { FlaskConical, Play, RotateCcw, Calendar, Loader2, Pencil, Check, X, DollarSign, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES } from '@/lib/exchangeConfig';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { toast } from 'sonner';
 
 const assets = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'AVAX/USDT'];
 
 export default function Sandbox() {
   const { currentBacktest, monthlyBreakdown, running, runBacktest, resetBacktest } = useBacktest();
-  const { virtualBalance, resetTrigger, updateVirtualBalance } = useTradingMode();
+  const { virtualBalance, resetTrigger, updateVirtualBalance, resetDemo } = useTradingMode();
+  const { user } = useAuth();
   
   // Inline edit state for virtual balance
   const [editingBalance, setEditingBalance] = useState(false);
@@ -19,6 +24,7 @@ export default function Sandbox() {
   const [selectedAsset, setSelectedAsset] = useState('BTC/USDT');
   const [startDate, setStartDate] = useState('2024-01-01');
   const [endDate, setEndDate] = useState('2024-06-30');
+  const [resettingAll, setResettingAll] = useState(false);
 
   // Reset backtest when demo is reset
   useEffect(() => {
@@ -29,6 +35,27 @@ export default function Sandbox() {
 
   const handleRunBacktest = () => {
     runBacktest(selectedAsset, startDate, endDate, virtualBalance);
+  };
+
+  const handleResetAllDemoData = async () => {
+    if (!user) {
+      toast.error('Not authenticated');
+      return;
+    }
+    
+    setResettingAll(true);
+    try {
+      await resetDemo(user.id);
+      resetBacktest();
+      toast.success('Demo Data Reset Complete', {
+        description: 'All trades, bot runs, backtests cleared. Virtual balance reset to $1,000.',
+      });
+    } catch (err) {
+      console.error('Reset failed:', err);
+      toast.error('Reset failed', { description: 'Could not reset demo data. Try again.' });
+    } finally {
+      setResettingAll(false);
+    }
   };
 
   return (
@@ -42,10 +69,66 @@ export default function Sandbox() {
               {running ? 'Running...' : currentBacktest ? 'Completed' : 'Ready'}
             </span>
           </div>
+          
+          {/* Reset All Demo Data Button */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" size="sm" className="gap-2" disabled={resettingAll}>
+                {resettingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Reset All Demo Data
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reset All Demo Data?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete:
+                  <ul className="list-disc list-inside mt-2 space-y-1">
+                    <li>All sandbox/demo trades</li>
+                    <li>All bot run history</li>
+                    <li>All backtest results</li>
+                    <li>Bot analytics data</li>
+                  </ul>
+                  <p className="mt-2 font-medium">Virtual balance will reset to $1,000.</p>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleResetAllDemoData} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  Reset Everything
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+
+        {/* Exchange Allocation Display */}
+        <div className="card-terminal p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <DollarSign className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm text-muted-foreground">Virtual USDT Allocation by Exchange</h3>
+          </div>
+          <div className="grid grid-cols-5 gap-2">
+            {EXCHANGE_CONFIGS.map((config) => {
+              const allocation = EXCHANGE_ALLOCATION_PERCENTAGES[config.confidence];
+              const amount = Math.round(virtualBalance * allocation);
+              return (
+                <div key={config.name} className="flex flex-col items-center p-2 rounded bg-secondary/50">
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                    <span className="text-[10px] text-foreground">{config.name}</span>
+                  </div>
+                  <span className="font-mono text-xs font-bold text-primary">
+                    ${amount.toLocaleString()}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="card-terminal p-4">
+          <div className="card-terminal p-4">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-primary">$</span>
               <h3 className="text-sm text-muted-foreground">Virtual Balance</h3>
@@ -153,7 +236,7 @@ export default function Sandbox() {
             {running ? 'Running...' : 'Start Backtest'}
           </Button>
           <Button variant="outline" className="gap-2" onClick={resetBacktest}>
-            <RotateCcw className="w-4 h-4" />Reset
+            <RotateCcw className="w-4 h-4" />Reset Backtest
           </Button>
         </div>
 
