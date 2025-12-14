@@ -16,22 +16,9 @@ import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboa
 import { DailyPnLChart } from '@/components/bots/DailyPnLChart';
 import { BotAnalysisModal } from '@/components/bots/BotAnalysisModal';
 import { toast } from 'sonner';
+import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES } from '@/lib/exchangeConfig';
 
 const exchanges = ['Binance', 'Bybit', 'OKX', 'KuCoin', 'Kraken', 'Nexo'];
-
-interface ExchangeConfig {
-  name: string;
-  maxLeverage: number;
-  confidence: 'High' | 'Medium' | 'Low';
-}
-
-const EXCHANGE_CONFIGS: ExchangeConfig[] = [
-  { name: 'Binance', maxLeverage: 20, confidence: 'High' },
-  { name: 'OKX', maxLeverage: 20, confidence: 'High' },
-  { name: 'Bybit', maxLeverage: 25, confidence: 'Medium' },
-  { name: 'Kraken', maxLeverage: 5, confidence: 'Medium' },
-  { name: 'Nexo', maxLeverage: 3, confidence: 'Low' },
-];
 
 interface UsdtFloat {
   exchange: string;
@@ -277,8 +264,9 @@ export default function Bots() {
           <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
             {tradingMode === 'demo' ? (
               EXCHANGE_CONFIGS.map((config) => {
-                const allocation = config.confidence === 'High' ? 0.30 : config.confidence === 'Medium' ? 0.20 : 0.10;
-                const amount = Math.round(virtualBalance * allocation);
+                // Use suggestedUSDT (volatility-based) with confidence percentages
+                const allocation = EXCHANGE_ALLOCATION_PERCENTAGES[config.confidence];
+                const amount = Math.round(suggestedUSDT * allocation);
                 return (
                   <div key={config.name} className="flex flex-col items-center p-2 rounded bg-secondary/50">
                     <div className="flex items-center gap-1 mb-0.5">
