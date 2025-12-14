@@ -111,6 +111,76 @@ async function getBinanceFreeStableBalance(
   }
 }
 
+// Fetch free USDT balance from Bybit account
+async function getBybitFreeStableBalance(
+  apiKey: string,
+  apiSecret: string,
+): Promise<number> {
+  try {
+    const timestamp = Date.now().toString();
+    const recvWindow = "5000";
+    const params = `accountType=UNIFIED&coin=USDT`;
+    const signPayload = timestamp + apiKey + recvWindow + params;
+    const signature = await hmacSha256(apiSecret, signPayload);
+
+    const response = await fetch(
+      `https://api.bybit.com/v5/account/wallet-balance?${params}`,
+      {
+        method: "GET",
+        headers: {
+          "X-BAPI-API-KEY": apiKey,
+          "X-BAPI-SIGN": signature,
+          "X-BAPI-TIMESTAMP": timestamp,
+          "X-BAPI-RECV-WINDOW": recvWindow,
+        },
+      },
+    );
+
+    const data = await response.json();
+    if (data.retCode !== 0) {
+      console.error("Failed to fetch Bybit balance:", data.retMsg);
+      return 0;
+    }
+
+    // Parse UNIFIED account balance
+    const accounts = data.result?.list || [];
+    for (const account of accounts) {
+      const coins = account.coin || [];
+      const usdt = coins.find((c: { coin: string }) => c.coin === "USDT");
+      if (usdt) {
+        const free = parseFloat(usdt.availableToWithdraw || usdt.walletBalance || "0");
+        return Number.isFinite(free) ? free : 0;
+      }
+    }
+    return 0;
+  } catch (e) {
+    console.error("Error fetching Bybit account balance:", e);
+    return 0;
+  }
+}
+
+// Get Bybit lot size info
+async function getBybitLotSize(symbol: string): Promise<{ stepSize: string; minQty: string; minNotional: number }> {
+  try {
+    const response = await fetch(`https://api.bybit.com/v5/market/instruments-info?category=spot&symbol=${symbol}`);
+    const data = await response.json();
+    
+    if (data.retCode !== 0 || !data.result?.list?.length) {
+      return { stepSize: '0.0001', minQty: '0.0001', minNotional: 5 };
+    }
+    
+    const info = data.result.list[0];
+    return {
+      stepSize: info.lotSizeFilter?.basePrecision || '0.0001',
+      minQty: info.lotSizeFilter?.minOrderQty || '0.0001',
+      minNotional: parseFloat(info.lotSizeFilter?.minOrderAmt || '5') || 5
+    };
+  } catch (e) {
+    console.error('Failed to fetch Bybit lot size:', e);
+    return { stepSize: '0.0001', minQty: '0.0001', minNotional: 5 };
+  }
+}
+
 // Top 10 liquid USDT pairs
 const TOP_PAIRS = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT',
@@ -641,16 +711,30 @@ serve(async (req) => {
             } else {
               insufficientBalanceExchanges.push(`${exchange.exchange_name} ($${balance.toFixed(2)})`);
             }
+          } else if (exName === "bybit") {
+            // Check Bybit balance
+            const bybitLotInfo = await getBybitLotSize(symbol);
+            const balance = await getBybitFreeStableBalance(decryptedKey, decryptedSecret);
+            console.log(`${exchange.exchange_name} free USDT: $${balance}, min notional: $${bybitLotInfo.minNotional}`);
+            
+            const minRequired = bybitLotInfo.minNotional * 1.1;
+            if (balance >= minRequired) {
+              selectedExchange = exchange;
+              exchangeName = exName;
+              apiKey = decryptedKey;
+              apiSecret = decryptedSecret;
+              passphrase = decryptedPassphrase;
+              freeBalance = balance;
+              lotInfo = bybitLotInfo;
+              console.log(`✅ Selected ${exchange.exchange_name} with $${balance} available`);
+              break;
+            } else {
+              insufficientBalanceExchanges.push(`${exchange.exchange_name} ($${balance.toFixed(2)})`);
+            }
           } else {
-            // For other exchanges, try to use them (no balance check implemented yet)
-            selectedExchange = exchange;
-            exchangeName = exName;
-            apiKey = decryptedKey;
-            apiSecret = decryptedSecret;
-            passphrase = decryptedPassphrase;
-            freeBalance = 100; // Assume sufficient for non-Binance
-            console.log(`✅ Selected ${exchange.exchange_name} (balance check not implemented)`);
-            break;
+            // For other exchanges (OKX, Kraken, Nexo), skip if we don't have balance check
+            console.log(`Skipping ${exchange.exchange_name}: balance check not implemented, will try after Binance/Bybit`);
+            insufficientBalanceExchanges.push(`${exchange.exchange_name} (balance check not implemented)`);
           }
         } catch (e) {
           console.error(`Failed to check ${exchange.exchange_name}:`, e);
@@ -747,10 +831,29 @@ serve(async (req) => {
         adjustedPositionSize = Math.min(adjustedPositionSize, maxByFree);
         console.log(`Adjusted position size by free balance: $${adjustedPositionSize} (max by free: $${maxByFree})`);
 
-        // Ensure minimum notional value is met
+        // Ensure minimum notional value is met - but only if we have the balance!
         if (adjustedPositionSize < lotInfo.minNotional) {
-          adjustedPositionSize = lotInfo.minNotional * 1.1; // Add 10% buffer
-          console.log(`Position size increased to meet min notional: $${adjustedPositionSize}`);
+          const requiredAmount = lotInfo.minNotional * 1.1;
+          if (freeBalance >= requiredAmount) {
+            adjustedPositionSize = requiredAmount;
+            console.log(`Position size increased to meet min notional: $${adjustedPositionSize}`);
+          } else {
+            // Cannot meet minimum notional with available balance
+            console.error(`❌ Insufficient balance: have $${freeBalance}, need $${requiredAmount} for minimum order`);
+            return new Response(
+              JSON.stringify({
+                success: false,
+                error: "Real trade execution failed",
+                reason: `Insufficient balance: have $${freeBalance.toFixed(2)}, need $${requiredAmount.toFixed(2)} minimum`,
+                cannotFallbackToSimulation: true,
+                exchange: selectedExchange.exchange_name,
+              }),
+              {
+                status: 500,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
+          }
         }
 
         // Calculate and round quantity to step size
