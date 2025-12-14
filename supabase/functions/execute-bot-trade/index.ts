@@ -329,13 +329,26 @@ serve(async (req) => {
       });
     }
 
-    // Determine direction based on simple momentum (simulated AI decision)
-    const direction = Math.random() > 0.5 ? 'long' : 'short';
+    // Determine direction based on mode
+    // SPOT mode: Only LONG trades (we don't own assets to short)
+    // LEVERAGE mode: Both long and short
+    let direction: 'long' | 'short' = 'long';
+    if (mode === 'leverage') {
+      direction = Math.random() > 0.5 ? 'long' : 'short';
+    }
     
     // Calculate position size - use user-configured value, capped for safety
     const expectedMove = 0.005; // 0.5% average move
     const leverage = mode === 'leverage' ? (leverages?.[connections[0].exchange_name] || 5) : 1;
+    
+    // For spot mode, use a smaller position size (max 50% of available balance)
+    // to ensure we have enough funds
     let positionSize = Math.min(profitTarget / (expectedMove * leverage), userPositionSize);
+    if (mode === 'spot') {
+      // Use 30% of max position size for safety in spot mode
+      positionSize = Math.min(positionSize, 30);
+      console.log(`SPOT mode: Using conservative position size: $${positionSize}`);
+    }
     
     const selectedExchange = connections[0];
     const exchangeName = selectedExchange.exchange_name.toLowerCase();
