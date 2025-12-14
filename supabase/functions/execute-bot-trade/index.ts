@@ -235,7 +235,15 @@ serve(async (req) => {
     }
 
     const { botId, mode, profitTarget, exchanges, leverages, isSandbox }: BotTradeRequest = await req.json();
-    console.log(`Bot trade execution for bot ${botId}, mode: ${mode}, sandbox: ${isSandbox}`);
+    
+    console.log('========================================');
+    console.log(`🤖 BOT TRADE EXECUTION REQUEST`);
+    console.log(`   Bot ID: ${botId}`);
+    console.log(`   Mode: ${mode}`);
+    console.log(`   Sandbox: ${isSandbox}`);
+    console.log(`   Profit Target: $${profitTarget}`);
+    console.log(`   Exchanges: ${exchanges.join(', ')}`);
+    console.log('========================================');
 
     // Check daily loss limit from bot_runs
     const { data: bot } = await supabase
@@ -309,8 +317,21 @@ serve(async (req) => {
     };
 
     // ============ REAL TRADE EXECUTION (LIVE MODE) ============
-    if (!isSandbox && encryptionKey && selectedExchange.encrypted_api_key && selectedExchange.encrypted_api_secret && selectedExchange.encryption_iv) {
-      console.log(`Attempting real trade on ${exchangeName}`);
+    const hasApiCredentials = selectedExchange.encrypted_api_key && selectedExchange.encrypted_api_secret && selectedExchange.encryption_iv;
+    const canExecuteRealTrade = !isSandbox && encryptionKey && hasApiCredentials;
+    
+    console.log('----------------------------------------');
+    console.log(`🔍 TRADE EXECUTION CHECK:`);
+    console.log(`   isSandbox: ${isSandbox}`);
+    console.log(`   encryptionKey exists: ${!!encryptionKey}`);
+    console.log(`   API Key exists: ${!!selectedExchange.encrypted_api_key}`);
+    console.log(`   API Secret exists: ${!!selectedExchange.encrypted_api_secret}`);
+    console.log(`   IV exists: ${!!selectedExchange.encryption_iv}`);
+    console.log(`   => CAN EXECUTE REAL TRADE: ${canExecuteRealTrade}`);
+    console.log('----------------------------------------');
+    
+    if (canExecuteRealTrade) {
+      console.log(`✅ REAL TRADE MODE ACTIVATED for ${exchangeName.toUpperCase()}`);
       
       try {
         const apiKey = await decryptSecret(selectedExchange.encrypted_api_key, selectedExchange.encryption_iv, encryptionKey);
@@ -386,7 +407,10 @@ serve(async (req) => {
 
     // ============ SIMULATED TRADE (DEMO MODE OR FALLBACK) ============
     if (tradeResult.simulated || !tradeResult.realTrade) {
-      console.log(`Running simulated trade for ${pair}`);
+      console.log('----------------------------------------');
+      console.log(`⚠️ SIMULATION MODE for ${pair}`);
+      console.log(`   Reason: ${isSandbox ? 'Sandbox/Demo mode' : 'Missing API credentials or fallback'}`);
+      console.log('----------------------------------------');
       
       // Simulate trade outcome (70% win rate)
       const isWin = Math.random() < 0.70;

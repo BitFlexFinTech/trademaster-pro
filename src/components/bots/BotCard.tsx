@@ -117,17 +117,27 @@ export function BotCard({
     }
   }, [existingBot]);
 
-  // Trading simulation
+  // ===== TRADING LOGIC =====
+  // LIVE MODE: No local simulation - data comes from edge function via Realtime
+  // DEMO MODE: Local simulation for fast trading
   useEffect(() => {
     if (!isRunning || !existingBot) {
       setActiveExchange(null);
       return;
     }
 
-    const activeExchanges = tradingMode === 'demo'
-      ? EXCHANGE_CONFIGS.map(e => e.name)
-      : usdtFloat.filter(e => e.amount > 0).map(e => e.exchange);
+    // ===== LIVE MODE: Subscribe to database changes only =====
+    if (tradingMode === 'live') {
+      console.log('🔴 LIVE MODE: Bot reads ONLY from database - no local simulation');
+      // In Live mode, BotCard only displays data from useBotRuns which has Realtime subscription
+      // Trading happens via execute-bot-trade edge function triggered by a separate mechanism
+      return;
+    }
 
+    // ===== DEMO MODE: Local simulation =====
+    console.log('🟢 DEMO MODE: Running local trading simulation');
+    
+    const activeExchanges = EXCHANGE_CONFIGS.map(e => e.name);
     if (activeExchanges.length === 0) return;
 
     prices.forEach(p => {
@@ -164,7 +174,7 @@ export function BotCard({
       // Build price history for AI signal mode
       const history = priceHistoryRef.current.get(symbol) || { prices: [], volumes: [] };
       history.prices.push(currentPrice);
-      history.volumes.push(1000000); // Default volume
+      history.volumes.push(1000000);
       if (history.prices.length > 30) {
         history.prices.shift();
         history.volumes.shift();
@@ -175,19 +185,13 @@ export function BotCard({
       let isWin: boolean;
       
       if (tradingStrategy === 'signal') {
-        // AI Signal-Filtered Mode
-        if (history.prices.length < 26) return; // Need enough data
-        
+        if (history.prices.length < 26) return;
         const signal = generateSignalScore(history.prices, history.volumes);
-        if (!signal || !meetsHitRateCriteria(signal, 0.80)) {
-          return; // Skip - signal doesn't meet quality threshold
-        }
-        
+        if (!signal || !meetsHitRateCriteria(signal, 0.80)) return;
         direction = signal.direction;
         const winProbability = calculateWinProbability(signal);
         isWin = Math.random() < winProbability;
       } else {
-        // Profit-Focused Mode
         direction = priceChange >= 0 ? 'long' : 'short';
         isWin = true;
       }
@@ -196,59 +200,18 @@ export function BotCard({
       const positionSize = 100 * leverage;
       const pair = `${symbol}/USDT`;
 
-      // Calculate exit price to achieve target profit
       const targetProfit = Math.max(profitPerTrade, MIN_NET_PROFIT);
       const priceMovementPercent = targetProfit / positionSize;
       const exitPrice = direction === 'long'
         ? currentPrice * (1 + priceMovementPercent)
         : currentPrice * (1 - priceMovementPercent);
 
-      // Calculate net profit after fees
       const netProfit = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange);
+      if (netProfit < MIN_NET_PROFIT) return;
       
-      // ONLY trade if we can make at least $0.10 profit after fees
-      if (netProfit < MIN_NET_PROFIT) {
-        return; // Skip - not profitable enough
-      }
-      
-      let tradePnl: number;
-      
-      // ===== LIVE MODE: Execute real trades via edge function =====
-      if (tradingMode === 'live') {
-        try {
-          const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
-            body: {
-              botId: existingBot.id,
-              mode: botType,
-              profitTarget: profitPerTrade,
-              exchanges: [currentExchange],
-              leverages: leverages,
-              pair,
-              direction,
-              isSandbox: false,
-            }
-          });
-          
-          if (error) {
-            console.error('Live trade failed:', error);
-            return; // Skip this trade
-          }
-          
-          tradePnl = data?.pnl || 0;
-          isWin = tradePnl > 0;
-        } catch (err) {
-          console.error('Live trade execution error:', err);
-          return;
-        }
-      } else {
-        // ===== DEMO MODE: Simulate locally =====
-        tradePnl = isWin ? netProfit : -Math.abs(netProfit * 0.6);
-      }
-      
-      // Record trade in hitRateTracker for analytics
+      const tradePnl = isWin ? netProfit : -Math.abs(netProfit * 0.6);
       hitRateTracker.recordTrade(isWin);
 
-      // Track trades per minute
       const now = Date.now();
       tradeTimestampsRef.current.push(now);
       tradeTimestampsRef.current = tradeTimestampsRef.current.filter(t => now - t < 60000);
@@ -261,18 +224,10 @@ export function BotCard({
         const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
         const newMaxDrawdown = Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown);
 
-        // Route demo trades through demoDataStore (Single Source of Truth)
-        if (tradingMode === 'demo') {
-          demoDataStore.updateBalance(tradePnl, `trade-${Date.now()}-${Math.random()}`);
-          demoDataStore.addTrade({
-            pair,
-            direction,
-            pnl: tradePnl,
-            exchange: currentExchange,
-            timestamp: new Date(),
-          });
-          setVirtualBalance(prev => prev + tradePnl);
-        }
+        // DEMO MODE: Route through demoDataStore
+        demoDataStore.updateBalance(tradePnl, `trade-${Date.now()}-${Math.random()}`);
+        demoDataStore.addTrade({ pair, direction, pnl: tradePnl, exchange: currentExchange, timestamp: new Date() });
+        setVirtualBalance(prev => prev + tradePnl);
 
         if (user) {
           supabase.from('trades').insert({
@@ -286,7 +241,7 @@ export function BotCard({
             profit_loss: tradePnl,
             profit_percentage: (tradePnl / 100) * 100,
             exchange_name: currentExchange,
-            is_sandbox: tradingMode === 'demo',
+            is_sandbox: true, // Always true for demo
             status: 'closed',
             closed_at: new Date().toISOString(),
           }).then(({ error }) => {
@@ -295,15 +250,11 @@ export function BotCard({
         }
 
         notifyTrade(currentExchange, pair, direction, tradePnl);
-
         if (isWin && Math.random() > 0.6) {
           const tpLevel = Math.ceil(Math.random() * 3);
           setTimeout(() => notifyTakeProfit(tpLevel, pair, tradePnl * (tpLevel / 3)), 500);
         }
-
-        // Notify daily progress at 50%, 75%, 90%, 100%
         notifyDailyProgress(newPnl, dailyTarget, botName);
-
         onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
 
         return {
@@ -315,10 +266,10 @@ export function BotCard({
           tradesPerMinute: tpm,
         };
       });
-    }, 200); // 200ms for fast profit-focused trading (up to 300 trades/min)
+    }, 200);
 
     return () => clearInterval(interval);
-  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, usdtFloat, botName, onStopBot, dailyStopLoss, perTradeStopLoss, tradingStrategy]);
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
