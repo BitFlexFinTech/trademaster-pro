@@ -7,6 +7,7 @@ import { calculateNetProfit, MIN_NET_PROFIT } from '@/lib/exchangeFees';
 import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
 import { demoDataStore } from '@/lib/demoDataStore';
 import { hitRateTracker } from '@/lib/sandbox/hitRateTracker';
+import { toast } from 'sonner';
 
 const EXCHANGE_CONFIGS = [
   { name: 'Binance', maxLeverage: 20, confidence: 'High' },
@@ -204,11 +205,19 @@ export function useBotTrading({
       // ===== LIVE MODE: Execute real trades via edge function =====
       if (tradingMode === 'live') {
         try {
-          // Ensure we have a valid session before calling edge function
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session) {
-            console.error('No valid session for live trading');
-            return; // Skip - user needs to re-authenticate
+          // Try to refresh session before trading to prevent JWT expiry
+          const { data: { session }, error: sessionError } = await supabase.auth.refreshSession();
+          
+          if (sessionError || !session) {
+            console.error('Session refresh failed:', sessionError?.message);
+            toast.error('Session expired', {
+              description: 'Please re-login to continue live trading',
+              action: {
+                label: 'Login',
+                onClick: () => window.location.href = '/auth'
+              }
+            });
+            return; // Stop trading - user needs to re-authenticate
           }
           
           const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
