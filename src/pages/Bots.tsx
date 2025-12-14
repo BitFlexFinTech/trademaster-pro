@@ -12,6 +12,7 @@ import { BotHistory } from '@/components/bots/BotHistory';
 import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
 import { BotCard } from '@/components/bots/BotCard';
 import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
+import { DailyPnLChart } from '@/components/bots/DailyPnLChart';
 
 const exchanges = ['Binance', 'Bybit', 'OKX', 'KuCoin', 'Kraken', 'Nexo'];
 
@@ -223,9 +224,14 @@ export default function Bots() {
           />
         </div>
 
-        {/* Middle Column - Analytics Dashboard */}
-        <div className="lg:col-span-4 overflow-hidden">
-          <BotAnalyticsDashboard />
+        {/* Middle Column - Analytics Dashboard + Daily P&L Chart */}
+        <div className="lg:col-span-4 flex flex-col gap-3 overflow-hidden">
+          <div className="flex-1 min-h-0">
+            <BotAnalyticsDashboard />
+          </div>
+          <div className="h-[200px] flex-shrink-0">
+            <DailyPnLChart />
+          </div>
         </div>
 
         {/* Right Column - Recent Trades & Bot History */}

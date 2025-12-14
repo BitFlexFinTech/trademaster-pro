@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, TrendingUp, Sparkles, Banknote, Loader2 } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, TrendingUp, Sparkles, Banknote, Loader2, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +12,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useToast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
 
 interface ExchangeAllocation {
@@ -31,52 +30,69 @@ const EXCHANGE_ALLOCATIONS: ExchangeAllocation[] = [
 
 const TOP_PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'DOT', 'LINK'];
 
+interface LastTrade {
+  pair: string;
+  direction: 'long' | 'short';
+  pnl: number;
+  exchange: string;
+  timestamp: number;
+}
+
 export function GreenBackWidget() {
-  const { bots, stats, startBot, stopBot, updateBotPnl, refetch } = useBotRuns();
+  const { bots, stats, startBot, stopBot, updateBotPnl, refetch, getSpotBot, getLeverageBot } = useBotRuns();
   const { prices } = useRealtimePrices();
   const { notifyTrade, notifyTakeProfit } = useNotifications();
   const { mode: tradingMode, virtualBalance, setVirtualBalance } = useTradingMode();
   const { user } = useAuth();
-  const { toast } = useToast();
   
-  // Find either spot or leverage bot (prefer spot for widget)
-  const existingBot = bots.find(b => 
-    (b.botName === 'GreenBack Spot' || b.botName === 'GreenBack Leverage' || b.botName === 'GreenBack') && 
-    b.status === 'running'
-  );
-  const isRunning = !!existingBot;
+  // Find BOTH spot and leverage bots
+  const spotBot = getSpotBot();
+  const leverageBot = getLeverageBot();
+  const anyBotRunning = !!spotBot || !!leverageBot;
+  const runningBotCount = (spotBot ? 1 : 0) + (leverageBot ? 1 : 0);
 
-  const dailyTarget = existingBot?.dailyTarget || 40;
-  const profitPerTrade = existingBot?.profitPerTrade || 1;
+  // Combined metrics from both bots
+  const combinedPnL = (spotBot?.currentPnl || 0) + (leverageBot?.currentPnl || 0);
+  const combinedTrades = (spotBot?.tradesExecuted || 0) + (leverageBot?.tradesExecuted || 0);
+  const combinedHitRate = combinedTrades > 0 
+    ? ((spotBot?.tradesExecuted || 0) * (spotBot?.hitRate || 0) + (leverageBot?.tradesExecuted || 0) * (leverageBot?.hitRate || 0)) / combinedTrades
+    : 0;
+
+  const dailyTarget = (spotBot?.dailyTarget || 40) + (leverageBot?.dailyTarget || 0);
+  const profitPerTrade = spotBot?.profitPerTrade || leverageBot?.profitPerTrade || 1;
 
   const [metrics, setMetrics] = useState({
-    currentPnL: existingBot?.currentPnl || 0,
-    tradesExecuted: existingBot?.tradesExecuted || 0,
-    hitRate: existingBot?.hitRate || 0,
+    currentPnL: combinedPnL,
+    tradesExecuted: combinedTrades,
+    hitRate: combinedHitRate,
     avgTimeToTP: 12.3,
   });
 
   const [activeExchange, setActiveExchange] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [lastTrade, setLastTrade] = useState<LastTrade | null>(null);
+  const [tradePulse, setTradePulse] = useState(false);
   const lastPricesRef = useRef<Record<string, number>>({});
 
+  // Sync metrics from database
   useEffect(() => {
-    if (existingBot) {
-      setMetrics({
-        currentPnL: existingBot.currentPnl,
-        tradesExecuted: existingBot.tradesExecuted,
-        hitRate: existingBot.hitRate,
-        avgTimeToTP: 12.3,
-      });
-    }
-  }, [existingBot]);
+    setMetrics({
+      currentPnL: combinedPnL,
+      tradesExecuted: combinedTrades,
+      hitRate: combinedHitRate,
+      avgTimeToTP: 12.3,
+    });
+  }, [combinedPnL, combinedTrades, combinedHitRate]);
 
   // Real price-based trading simulation with sound notifications
   useEffect(() => {
-    if (!isRunning || !existingBot) {
+    if (!anyBotRunning) {
       setActiveExchange(null);
       return;
     }
+
+    const activeBot = spotBot || leverageBot;
+    if (!activeBot) return;
 
     const activeExchanges = EXCHANGE_ALLOCATIONS.map(e => e.name);
 
@@ -107,10 +123,17 @@ export function GreenBackWidget() {
       if (Math.abs(priceChange) < 0.001) return;
 
       // Determine trade direction and outcome based on price movement
-      const direction = priceChange >= 0 ? 'long' : 'short';
+      const direction: 'long' | 'short' = priceChange >= 0 ? 'long' : 'short';
       const isWin = Math.random() < 0.70; // 70% win rate
       const tradePnl = isWin ? profitPerTrade : -0.60;
       const pair = `${symbol}/USDT`;
+
+      // Trigger trade pulse animation
+      setTradePulse(true);
+      setTimeout(() => setTradePulse(false), 600);
+
+      // Set last trade for display
+      setLastTrade({ pair, direction, pnl: tradePnl, exchange: currentExchange, timestamp: Date.now() });
 
       setMetrics(prev => {
         const newPnl = Math.min(Math.max(prev.currentPnL + tradePnl, -5), dailyTarget * 1.5);
@@ -132,7 +155,7 @@ export function GreenBackWidget() {
             entry_price: currentPrice,
             exit_price: exitPrice,
             amount: 100,
-            leverage: 1,
+            leverage: leverageBot ? 5 : 1,
             profit_loss: tradePnl,
             profit_percentage: (tradePnl / 100) * 100,
             exchange_name: currentExchange,
@@ -155,19 +178,18 @@ export function GreenBackWidget() {
 
         // Daily target notification
         if (newPnl >= dailyTarget && prev.currentPnL < dailyTarget) {
-          toast({
-            title: '🎯 Daily Target Reached!',
+          sonnerToast.success('🎯 Daily Target Reached!', {
             description: `GreenBack hit $${dailyTarget} target! Bot continues running.`,
           });
         }
 
         // Update in demo mode virtual balance
         if (tradingMode === 'demo') {
-          setVirtualBalance(virtualBalance + tradePnl);
+          setVirtualBalance(prev => prev + tradePnl);
         }
 
-        // Update database
-        updateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
+        // Update database for active bot
+        updateBotPnl(activeBot.id, newPnl, newTrades, newHitRate);
 
         return {
           ...prev,
@@ -179,13 +201,22 @@ export function GreenBackWidget() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isRunning, dailyTarget, profitPerTrade, existingBot, prices, notifyTrade, notifyTakeProfit, toast, tradingMode, updateBotPnl, setVirtualBalance, user, virtualBalance]);
+  }, [anyBotRunning, dailyTarget, profitPerTrade, spotBot, leverageBot, prices, notifyTrade, notifyTakeProfit, tradingMode, updateBotPnl, setVirtualBalance, user]);
 
-  const handleStartStop = async () => {
-    if (isRunning && existingBot) {
-      await stopBot(existingBot.id);
+  const handleStartSpot = async () => {
+    if (spotBot) {
+      await stopBot(spotBot.id);
     } else {
       await startBot('GreenBack Spot', 'spot', 40, 1);
+    }
+    refetch();
+  };
+
+  const handleStartLeverage = async () => {
+    if (leverageBot) {
+      await stopBot(leverageBot.id);
+    } else {
+      await startBot('GreenBack Leverage', 'leverage', 40, 1);
     }
     refetch();
   };
@@ -194,8 +225,9 @@ export function GreenBackWidget() {
     if (metrics.currentPnL <= 0) return;
     setWithdrawing(true);
     try {
+      const botId = spotBot?.id || leverageBot?.id;
       const { data, error } = await supabase.functions.invoke('withdraw-bot-profits', {
-        body: { botId: existingBot?.id }
+        body: { botId }
       });
       if (error) throw error;
       
@@ -214,7 +246,6 @@ export function GreenBackWidget() {
 
   // Calculate suggested USDT allocation using real prices
   const calculateAllocation = (confidence: 'High' | 'Medium' | 'Low'): number => {
-    // Use real volatility from prices
     const avgVolatility = prices.length > 0
       ? prices.slice(0, 10).reduce((sum, p) => sum + Math.abs(p.change_24h || 0), 0) / Math.min(prices.length, 10) / 24
       : 0.5;
@@ -228,14 +259,14 @@ export function GreenBackWidget() {
 
   // AI-generated insights based on metrics
   const getAIInsight = (): string => {
-    if (!isRunning && stats.totalTrades === 0) {
-      return "Start the bot to begin automated scalping across top exchanges.";
+    if (!anyBotRunning && stats.totalTrades === 0) {
+      return "Start Spot or Leverage bot to begin automated scalping across exchanges.";
+    }
+    if (runningBotCount === 2) {
+      return `Both bots running: Combined ${metrics.hitRate.toFixed(0)}% hit rate across ${metrics.tradesExecuted} trades.`;
     }
     if (metrics.hitRate >= 70) {
-      return `Excellent performance with ${metrics.hitRate.toFixed(0)}% hit rate. Consider increasing daily target.`;
-    }
-    if (metrics.hitRate >= 50) {
-      return `Solid ${metrics.hitRate.toFixed(0)}% hit rate. Bot is performing within expected parameters.`;
+      return `Excellent performance with ${metrics.hitRate.toFixed(0)}% hit rate. Consider starting both bots.`;
     }
     if (metrics.currentPnL >= dailyTarget) {
       return "Daily target achieved! Bot continues running for additional profits.";
@@ -244,21 +275,25 @@ export function GreenBackWidget() {
   };
 
   return (
-    <div className="card-terminal p-4 h-full flex flex-col">
+    <div className={cn(
+      "card-terminal p-4 h-full flex flex-col transition-all duration-300",
+      tradePulse && lastTrade && lastTrade.pnl >= 0 && "animate-trade-pulse",
+      tradePulse && lastTrade && lastTrade.pnl < 0 && "animate-trade-pulse-loss"
+    )}>
       {/* Header */}
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <div className="flex items-center gap-2">
-          <div className="relative">
+          <div className={cn("relative", anyBotRunning && "animate-glow rounded-full")}>
             <Zap className="w-5 h-5 text-primary" />
-            {isRunning && (
+            {anyBotRunning && (
               <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
             )}
           </div>
           <div>
-            <span className="font-semibold text-foreground">GreenBack Bot</span>
-            {isRunning && activeExchange && (
-              <Badge variant="outline" className="ml-2 text-[9px] animate-pulse">
-                <span className="w-1 h-1 bg-primary rounded-full mr-1" />
+            <span className="font-semibold text-foreground">GreenBack Bots</span>
+            {anyBotRunning && activeExchange && (
+              <Badge variant="outline" className="ml-2 text-[9px] animate-slide-in">
+                <span className="w-1 h-1 bg-primary rounded-full mr-1 animate-pulse" />
                 {activeExchange}
               </Badge>
             )}
@@ -268,38 +303,101 @@ export function GreenBackWidget() {
           <Badge variant={tradingMode === 'demo' ? 'secondary' : 'destructive'} className="text-[8px]">
             {tradingMode === 'demo' ? 'DEMO' : 'LIVE'}
           </Badge>
-          <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[10px]">
-            {isRunning ? 'Running' : 'Stopped'}
-          </Badge>
+          {runningBotCount > 0 && (
+            <Badge variant="default" className="text-[10px] bg-primary/20 text-primary">
+              {runningBotCount} Active
+            </Badge>
+          )}
         </div>
       </div>
 
-      {/* Progress Bar */}
-      <div className="mb-4 flex-shrink-0">
-        <div className="flex items-center justify-between text-xs mb-1">
-          <span className="text-muted-foreground">Daily Progress</span>
-          <span className="text-foreground font-mono">
-            ${metrics.currentPnL.toFixed(2)} / ${dailyTarget}
+      {/* Bot Status Indicators */}
+      <div className="grid grid-cols-2 gap-2 mb-3 flex-shrink-0">
+        <div className={cn(
+          "flex items-center justify-between p-2 rounded border transition-all duration-300",
+          spotBot ? "bg-primary/10 border-primary/30" : "bg-secondary/50 border-border/50"
+        )}>
+          <div className="flex items-center gap-2">
+            <span className={cn("w-2 h-2 rounded-full", spotBot ? "bg-primary animate-pulse" : "bg-muted-foreground")} />
+            <span className="text-xs font-medium">Spot</span>
+          </div>
+          {spotBot && (
+            <span className="text-[10px] font-mono text-primary animate-number-pop">
+              +${spotBot.currentPnl?.toFixed(2) || '0.00'}
+            </span>
+          )}
+        </div>
+        <div className={cn(
+          "flex items-center justify-between p-2 rounded border transition-all duration-300",
+          leverageBot ? "bg-warning/10 border-warning/30" : "bg-secondary/50 border-border/50"
+        )}>
+          <div className="flex items-center gap-2">
+            <span className={cn("w-2 h-2 rounded-full", leverageBot ? "bg-warning animate-pulse" : "bg-muted-foreground")} />
+            <span className="text-xs font-medium">Leverage</span>
+          </div>
+          {leverageBot && (
+            <span className="text-[10px] font-mono text-warning animate-number-pop">
+              +${leverageBot.currentPnl?.toFixed(2) || '0.00'}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Last Trade Indicator */}
+      {lastTrade && Date.now() - lastTrade.timestamp < 5000 && (
+        <div className={cn(
+          "flex items-center gap-2 p-2 rounded mb-3 text-xs animate-slide-in flex-shrink-0",
+          lastTrade.pnl >= 0 ? "bg-primary/10 border border-primary/30" : "bg-destructive/10 border border-destructive/30"
+        )}>
+          {lastTrade.direction === 'long' ? (
+            <ArrowUpRight className={cn("w-4 h-4", lastTrade.pnl >= 0 ? "text-primary" : "text-destructive")} />
+          ) : (
+            <ArrowDownRight className={cn("w-4 h-4", lastTrade.pnl >= 0 ? "text-primary" : "text-destructive")} />
+          )}
+          <span className="text-foreground font-medium">{lastTrade.pair}</span>
+          <span className="text-muted-foreground">{lastTrade.exchange}</span>
+          <span className={cn("font-mono font-bold ml-auto", lastTrade.pnl >= 0 ? "text-primary" : "text-destructive")}>
+            {lastTrade.pnl >= 0 ? '+' : ''}${lastTrade.pnl.toFixed(2)}
           </span>
         </div>
-        <Progress value={Math.min(progressPercent, 100)} className="h-2" />
+      )}
+
+      {/* Progress Bar */}
+      <div className="mb-3 flex-shrink-0">
+        <div className="flex items-center justify-between text-xs mb-1">
+          <span className="text-muted-foreground">Daily Progress</span>
+          <span className={cn("font-mono transition-all", tradePulse && "animate-number-pop")}>
+            <span className={metrics.currentPnL >= 0 ? "text-primary" : "text-destructive"}>
+              ${metrics.currentPnL.toFixed(2)}
+            </span>
+            <span className="text-muted-foreground"> / ${dailyTarget}</span>
+          </span>
+        </div>
+        <div className="relative">
+          <Progress value={Math.min(progressPercent, 100)} className="h-2" />
+          {progressPercent >= 100 && (
+            <div className="absolute inset-0 bg-gradient-to-r from-primary/0 via-primary/30 to-primary/0 animate-progress-glow" />
+          )}
+        </div>
         {progressPercent >= 100 && (
-          <p className="text-[10px] text-primary mt-1">Target reached! Bot continues running.</p>
+          <p className="text-[10px] text-primary mt-1 animate-pulse">🎯 Target reached! Bots continue running.</p>
         )}
       </div>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-4 gap-2 mb-4 flex-shrink-0">
+      <div className="grid grid-cols-4 gap-2 mb-3 flex-shrink-0">
         <div className="bg-secondary/50 p-2 rounded text-center">
           <DollarSign className="w-3 h-3 mx-auto text-primary mb-1" />
-          <p className={cn('text-sm font-bold font-mono', metrics.currentPnL >= 0 ? 'text-primary' : 'text-destructive')}>
+          <p className={cn('text-sm font-bold font-mono transition-all', metrics.currentPnL >= 0 ? 'text-primary' : 'text-destructive', tradePulse && 'animate-number-pop')}>
             ${metrics.currentPnL.toFixed(2)}
           </p>
-          <p className="text-[9px] text-muted-foreground">P&L</p>
+          <p className="text-[9px] text-muted-foreground">Combined P&L</p>
         </div>
         <div className="bg-secondary/50 p-2 rounded text-center">
           <Activity className="w-3 h-3 mx-auto text-muted-foreground mb-1" />
-          <p className="text-sm font-bold text-foreground font-mono">{metrics.tradesExecuted}</p>
+          <p className={cn("text-sm font-bold text-foreground font-mono", tradePulse && "animate-number-pop")}>
+            {metrics.tradesExecuted}
+          </p>
           <p className="text-[9px] text-muted-foreground">Trades</p>
         </div>
         <div className="bg-secondary/50 p-2 rounded text-center">
@@ -315,7 +413,7 @@ export function GreenBackWidget() {
       </div>
 
       {/* AI Insight */}
-      <div className="bg-secondary/30 border border-border/50 rounded p-3 mb-4 flex-shrink-0">
+      <div className="bg-secondary/30 border border-border/50 rounded p-3 mb-3 flex-shrink-0">
         <div className="flex items-center gap-2 mb-1">
           <Sparkles className="w-3 h-3 text-primary" />
           <span className="text-[10px] font-medium text-muted-foreground">AI INSIGHT</span>
@@ -323,14 +421,14 @@ export function GreenBackWidget() {
         <p className="text-xs text-foreground">{getAIInsight()}</p>
       </div>
 
-      {/* Recommended USDT Allocation - Show when not running */}
-      {!isRunning && (
-        <div className="flex-1 min-h-0 mb-4">
+      {/* Recommended USDT Allocation - Show when no bots running */}
+      {!anyBotRunning && (
+        <div className="flex-1 min-h-0 mb-3">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="w-3 h-3 text-muted-foreground" />
             <span className="text-[10px] font-medium text-muted-foreground">RECOMMENDED USDT ALLOCATION</span>
           </div>
-          <ScrollArea className="h-full max-h-[120px]">
+          <ScrollArea className="h-full max-h-[100px]">
             <div className="bg-secondary/30 rounded overflow-hidden text-[10px]">
               <div className="grid grid-cols-4 gap-1 px-2 py-1.5 bg-muted/50 text-muted-foreground font-medium">
                 <span>Exchange</span>
@@ -362,9 +460,9 @@ export function GreenBackWidget() {
       )}
 
       {/* Cumulative Stats when running */}
-      {isRunning && (
-        <div className="flex-1 min-h-0 mb-4">
-          <div className="grid grid-cols-2 gap-3">
+      {anyBotRunning && (
+        <div className="flex-1 min-h-0 mb-3">
+          <div className="grid grid-cols-2 gap-2">
             <div className="bg-secondary/30 p-3 rounded">
               <p className="text-[10px] text-muted-foreground mb-1">Total Bot P&L</p>
               <p className={cn('text-lg font-bold font-mono', stats.totalPnl >= 0 ? 'text-primary' : 'text-destructive')}>
@@ -382,20 +480,30 @@ export function GreenBackWidget() {
       {/* Action Buttons */}
       <div className="flex gap-2 mt-auto flex-shrink-0">
         <Button
-          className={cn('flex-1 gap-2', isRunning ? 'btn-outline-primary' : 'btn-primary')}
-          onClick={handleStartStop}
+          className={cn('flex-1 gap-1 text-xs', spotBot ? 'btn-outline-primary' : 'btn-primary')}
+          onClick={handleStartSpot}
+          size="sm"
         >
-          {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-          {isRunning ? 'Stop Bot' : 'Start Bot'}
+          {spotBot ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+          {spotBot ? 'Stop Spot' : 'Start Spot'}
+        </Button>
+        <Button
+          className={cn('flex-1 gap-1 text-xs', leverageBot ? 'btn-outline-primary' : '')}
+          variant={leverageBot ? "outline" : "secondary"}
+          onClick={handleStartLeverage}
+          size="sm"
+        >
+          {leverageBot ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+          {leverageBot ? 'Stop Lev' : 'Start Leverage'}
         </Button>
         {metrics.currentPnL > 0 && (
-          <Button variant="outline" className="gap-1" onClick={handleWithdrawProfits} disabled={withdrawing}>
+          <Button variant="outline" size="sm" className="gap-1" onClick={handleWithdrawProfits} disabled={withdrawing}>
             {withdrawing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Banknote className="w-3 h-3" />}
-            ${metrics.currentPnL.toFixed(2)}
+            ${metrics.currentPnL.toFixed(0)}
           </Button>
         )}
         <Link to="/bots">
-          <Button variant="outline" size="icon">
+          <Button variant="outline" size="icon" className="h-8 w-8">
             <Activity className="w-4 h-4" />
           </Button>
         </Link>
