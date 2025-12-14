@@ -141,10 +141,13 @@ export function GreenBackWidget() {
         const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
         const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
 
-        // Calculate exit price based on direction and P&L
+        // Calculate exit price correctly based on position size and P&L
+        const positionSize = 100;
+        const leverage = leverageBot ? 5 : 1;
+        const priceChangePercent = tradePnl / (positionSize * leverage);
         const exitPrice = direction === 'long'
-          ? currentPrice * (1 + (tradePnl / 100))
-          : currentPrice * (1 - (tradePnl / 100));
+          ? currentPrice * (1 + priceChangePercent)
+          : currentPrice * (1 - priceChangePercent);
 
         // Save trade to database for persistent logging
         if (user) {

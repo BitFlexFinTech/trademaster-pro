@@ -1,7 +1,28 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
+
+interface AnalysisReport {
+  summary: string;
+  insights: string[];
+  recommendedProfitPerTrade: number;
+  recommendedAmountPerTrade: number;
+  improvements: string[];
+}
+
+interface AnalysisData {
+  analysis: AnalysisReport | null;
+  stats: {
+    totalTrades: number;
+    winningTrades: number;
+    losingTrades: number;
+    totalPnl: number;
+    avgWin: number;
+    avgLoss: number;
+    hitRate: number;
+  } | null;
+}
 
 interface BotRun {
   id: string;
@@ -29,6 +50,10 @@ export function useBotRuns() {
   const [bots, setBots] = useState<BotRun[]>([]);
   const [stats, setStats] = useState<BotStats>({ totalBots: 0, activeBots: 0, totalPnl: 0, totalTrades: 0 });
   const [loading, setLoading] = useState(true);
+  const [analysisData, setAnalysisData] = useState<AnalysisData>({ analysis: null, stats: null });
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+  const [analyzedBotName, setAnalyzedBotName] = useState('');
 
   const fetchBots = useCallback(async () => {
     if (!user) {
@@ -155,6 +180,85 @@ export function useBotRuns() {
     fetchBots();
   }, [fetchBots]);
 
+  // Subscribe to realtime updates for bot_runs table
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('bot-runs-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'bot_runs',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          // Refetch bots when any change occurs
+          fetchBots();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, fetchBots]);
+
+  // Analyze bot performance
+  const analyzeBot = async (botId: string, botName: string) => {
+    setAnalysisLoading(true);
+    setShowAnalysisModal(true);
+    setAnalyzedBotName(botName);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-bot-performance', {
+        body: { botId }
+      });
+
+      if (error) throw error;
+
+      setAnalysisData({
+        analysis: data.analysis,
+        stats: data.stats,
+      });
+    } catch (err) {
+      console.error('Analysis failed:', err);
+      toast.error('Failed to analyze bot performance');
+      setAnalysisData({ analysis: null, stats: null });
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+
+  // Stop bot with automatic analysis
+  const stopBotWithAnalysis = async (botId: string, botName: string) => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from('bot_runs')
+        .update({ 
+          status: 'stopped',
+          stopped_at: new Date().toISOString(),
+        })
+        .eq('id', botId)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      
+      toast.success('Bot stopped');
+      fetchBots();
+      
+      // Trigger analysis after stopping
+      await analyzeBot(botId, botName);
+    } catch (error) {
+      console.error('Error stopping bot:', error);
+      toast.error('Failed to stop bot');
+    }
+  };
+
   // Helper methods for specific bot types
   const getSpotBot = () => bots.find(b => b.botName === 'GreenBack Spot' && b.status === 'running');
   const getLeverageBot = () => bots.find(b => b.botName === 'GreenBack Leverage' && b.status === 'running');
@@ -170,12 +274,20 @@ export function useBotRuns() {
     stats, 
     loading, 
     startBot, 
-    stopBot, 
+    stopBot,
+    stopBotWithAnalysis,
     updateBotPnl,
     refetch: fetchBots,
     getSpotBot,
     getLeverageBot,
     startSpotBot,
     startLeverageBot,
+    // Analysis state
+    analyzeBot,
+    analysisData,
+    analysisLoading,
+    showAnalysisModal,
+    setShowAnalysisModal,
+    analyzedBotName,
   };
 }

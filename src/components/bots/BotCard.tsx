@@ -144,9 +144,12 @@ export function BotCard({
         const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
         const newMaxDrawdown = Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown);
 
+        // Calculate exit price correctly based on position size and P&L
+        const positionSize = 100;
+        const priceChangePercent = tradePnl / (positionSize * leverage);
         const exitPrice = direction === 'long'
-          ? currentPrice * (1 + (tradePnl / 100))
-          : currentPrice * (1 - (tradePnl / 100));
+          ? currentPrice * (1 + priceChangePercent)
+          : currentPrice * (1 - priceChangePercent);
 
         if (user) {
           supabase.from('trades').insert({
@@ -176,7 +179,7 @@ export function BotCard({
         }
 
         if (tradingMode === 'demo') {
-          setVirtualBalance(virtualBalance + tradePnl);
+          setVirtualBalance(prev => prev + tradePnl);
         }
 
         onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
