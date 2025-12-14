@@ -16,10 +16,10 @@ serve(async (req) => {
       throw new Error('Encryption key not configured');
     }
 
-    const { apiSecret, passphrase } = await req.json();
+    const { apiKey, apiSecret, passphrase } = await req.json();
 
-    if (!apiSecret) {
-      throw new Error('API secret is required');
+    if (!apiKey || !apiSecret) {
+      throw new Error('API key and secret are required');
     }
 
     // Generate random IV (12 bytes for GCM)
@@ -35,6 +35,14 @@ serve(async (req) => {
       { name: 'AES-GCM' },
       false,
       ['encrypt']
+    );
+
+    // Encrypt API key
+    const apiKeyBytes = new TextEncoder().encode(apiKey);
+    const encryptedApiKey = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      cryptoKey,
+      apiKeyBytes
     );
 
     // Encrypt API secret
@@ -58,6 +66,7 @@ serve(async (req) => {
     }
 
     // Convert to base64
+    const encryptedApiKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(encryptedApiKey)));
     const encryptedSecretBase64 = btoa(String.fromCharCode(...new Uint8Array(encryptedSecret)));
     const ivBase64 = btoa(String.fromCharCode(...iv));
 
@@ -65,6 +74,7 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
+        encryptedApiKey: encryptedApiKeyBase64,
         encryptedSecret: encryptedSecretBase64,
         encryptedPassphrase,
         iv: ivBase64,

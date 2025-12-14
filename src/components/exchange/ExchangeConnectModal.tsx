@@ -100,9 +100,10 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
     setLoading(true);
 
     try {
-      // Encrypt the API secret
+      // Encrypt API key and secret
       const { data: encryptedData, error: encryptError } = await supabase.functions.invoke('encrypt-api-key', {
         body: {
+          apiKey,
           apiSecret,
           passphrase: requiresPassphrase ? passphrase : undefined,
         }
@@ -117,6 +118,7 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
           user_id: user.id,
           exchange_name: exchange.name,
           api_key_hash: btoa(apiKey.slice(0, 4) + '****' + apiKey.slice(-4)),
+          encrypted_api_key: encryptedData.encryptedApiKey,
           encrypted_api_secret: encryptedData.encryptedSecret,
           encrypted_passphrase: encryptedData.encryptedPassphrase,
           encryption_iv: encryptedData.iv,
