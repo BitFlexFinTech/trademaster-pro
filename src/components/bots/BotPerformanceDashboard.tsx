@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { useBotAnalytics } from '@/hooks/useBotAnalytics';
+import { useBotRuns } from '@/hooks/useBotRuns';
 import { useTradingMode } from '@/contexts/TradingModeContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -11,6 +14,8 @@ import {
   AlertTriangle,
   ArrowUp,
   ArrowDown,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { 
@@ -22,10 +27,44 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
+import { toast } from 'sonner';
 
 export function BotPerformanceDashboard() {
   const { mode } = useTradingMode();
   const { analytics, loading } = useBotAnalytics('30d', mode, 'all');
+  const { bots, analyzeBot, analysisLoading } = useBotRuns();
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Find most recent bot to analyze - use startedAt for sorting since stoppedAt may not exist
+  const handleRefreshAnalysis = async () => {
+    // Prefer running bot, then most recent stopped bot
+    const runningBot = bots.find(b => b.status === 'running');
+    const stoppedBots = bots.filter(b => b.status === 'stopped').sort((a, b) => 
+      new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime()
+    );
+    const targetBot = runningBot || stoppedBots[0];
+
+    if (!targetBot) {
+      toast.info('No bots available', {
+        description: 'Start a bot first to generate performance analysis.',
+      });
+      return;
+    }
+
+    setRefreshing(true);
+    try {
+      await analyzeBot(targetBot.id, targetBot.botName);
+      toast.success('Analysis refreshed', {
+        description: `Generated new insights for ${targetBot.botName}`,
+      });
+    } catch (err) {
+      toast.error('Analysis failed', {
+        description: 'Could not generate performance analysis.',
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -52,9 +91,25 @@ export function BotPerformanceDashboard() {
       <div className="flex items-center gap-2 mb-3 flex-shrink-0">
         <Award className="w-4 h-4 text-primary" />
         <span className="font-semibold text-foreground text-sm">Performance Insights</span>
-        <Badge variant="outline" className="text-[8px] ml-auto">
-          {mode === 'demo' ? 'DEMO' : 'LIVE'}
-        </Badge>
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-xs"
+            onClick={handleRefreshAnalysis}
+            disabled={refreshing || analysisLoading}
+          >
+            {refreshing || analysisLoading ? (
+              <Loader2 className="w-3 h-3 animate-spin mr-1" />
+            ) : (
+              <RefreshCw className="w-3 h-3 mr-1" />
+            )}
+            Analyze
+          </Button>
+          <Badge variant="outline" className="text-[8px]">
+            {mode === 'demo' ? 'DEMO' : 'LIVE'}
+          </Badge>
+        </div>
       </div>
 
       {analytics.totalTrades === 0 ? (

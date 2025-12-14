@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Bell, Clock, LogOut, User } from 'lucide-react';
+import { RefreshCw, Bell, Clock, LogOut, User, Pencil, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useTradingMode } from '@/contexts/TradingModeContext';
@@ -14,14 +15,37 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 
 export function Header() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const { user, signOut } = useAuth();
   const { prices, loading, refreshData } = useRealtimePrices();
-  const { mode: tradingMode, setMode: setTradingMode, virtualBalance } = useTradingMode();
+  const { mode: tradingMode, setMode: setTradingMode, virtualBalance, updateVirtualBalance } = useTradingMode();
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const navigate = useNavigate();
+  
+  // Virtual balance editing state
+  const [editingBalance, setEditingBalance] = useState(false);
+  const [balanceInput, setBalanceInput] = useState(String(virtualBalance));
+
+  const handleSaveBalance = () => {
+    const newBalance = parseFloat(balanceInput);
+    if (!isNaN(newBalance) && newBalance >= 0) {
+      updateVirtualBalance(newBalance);
+      setEditingBalance(false);
+    }
+  };
+
+  const handleResetBalance = () => {
+    updateVirtualBalance(1000);
+    setBalanceInput('1000');
+    setEditingBalance(false);
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -99,9 +123,40 @@ export function Header() {
             Live
           </Label>
           {tradingMode === 'demo' && (
-            <span className="text-[10px] text-muted-foreground font-mono ml-1">
-              ${virtualBalance.toFixed(0)}
-            </span>
+            <Popover open={editingBalance} onOpenChange={(open) => {
+              setEditingBalance(open);
+              if (open) setBalanceInput(String(virtualBalance));
+            }}>
+              <PopoverTrigger asChild>
+                <button className="text-[10px] text-muted-foreground font-mono ml-1 hover:text-primary flex items-center gap-1 transition-colors">
+                  ${virtualBalance.toFixed(0)}
+                  <Pencil className="w-2.5 h-2.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-48 p-2" align="start">
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">Virtual Balance</label>
+                  <Input
+                    type="number"
+                    value={balanceInput}
+                    onChange={(e) => setBalanceInput(e.target.value)}
+                    className="h-8 text-sm"
+                    min={0}
+                  />
+                  <div className="flex gap-1">
+                    <Button size="sm" className="h-7 flex-1 text-xs" onClick={handleSaveBalance}>
+                      <Check className="w-3 h-3 mr-1" /> Save
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleResetBalance}>
+                      Reset
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingBalance(false)}>
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
           )}
         </div>
 
