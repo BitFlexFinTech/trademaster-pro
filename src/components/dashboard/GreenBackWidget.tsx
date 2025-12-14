@@ -106,7 +106,9 @@ export function GreenBackWidget() {
     });
   }, [combinedPnL, combinedTrades, combinedHitRate]);
 
-  // Real price-based trading simulation with sound notifications
+  // ===== TRADING LOGIC =====
+  // LIVE MODE: No local simulation - data comes from edge function via Realtime
+  // DEMO MODE: Local simulation for fast trading
   useEffect(() => {
     if (!anyBotRunning) {
       setActiveExchange(null);
@@ -116,10 +118,19 @@ export function GreenBackWidget() {
     const activeBot = spotBot || leverageBot;
     if (!activeBot) return;
 
-    // Use connected exchanges for Live, all for Demo
+    // ===== LIVE MODE: Display only - no local simulation =====
+    if (tradingMode === 'live') {
+      console.log('🔴 LIVE MODE: Widget reads ONLY from database - no local simulation');
+      // In Live mode, metrics are synced from useBotRuns which has Realtime subscription
+      // We just display what's in the database
+      return;
+    }
+
+    // ===== DEMO MODE: Local simulation =====
+    console.log('🟢 DEMO MODE: Running local trading simulation');
+    
     const activeExchangeNames = activeExchangeConfigs.map(e => e.name);
 
-    // Initialize last prices from current prices
     prices.forEach(p => {
       if (!lastPricesRef.current[p.symbol]) {
         lastPricesRef.current[p.symbol] = p.price;
@@ -142,7 +153,6 @@ export function GreenBackWidget() {
       setActiveExchange(currentExchange);
       idx++;
 
-      // Pick random pair from available prices
       const symbol = TOP_PAIRS[Math.floor(Math.random() * TOP_PAIRS.length)];
       const priceData = prices.find(p => p.symbol.toUpperCase() === symbol);
       if (!priceData) return;
@@ -152,20 +162,15 @@ export function GreenBackWidget() {
       const priceChange = lastPrice > 0 ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
       lastPricesRef.current[symbol] = currentPrice;
 
-      // Skip if no meaningful price movement
       if (Math.abs(priceChange) < 0.001) return;
 
-      // Determine trade direction and outcome based on price movement
       const direction: 'long' | 'short' = priceChange >= 0 ? 'long' : 'short';
-      const isWin = Math.random() < 0.70; // 70% win rate
+      const isWin = Math.random() < 0.70;
       const tradePnl = isWin ? profitPerTrade : -0.60;
       const pair = `${symbol}/USDT`;
 
-      // Trigger trade pulse animation
       setTradePulse(true);
       setTimeout(() => setTradePulse(false), 600);
-
-      // Set last trade for display
       setLastTrade({ pair, direction, pnl: tradePnl, exchange: currentExchange, timestamp: Date.now() });
 
       setMetrics(prev => {
@@ -174,7 +179,6 @@ export function GreenBackWidget() {
         const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
         const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
 
-        // Calculate exit price correctly based on position size and P&L
         const positionSize = 100;
         const leverage = leverageBot ? 5 : 1;
         const priceChangePercent = tradePnl / (positionSize * leverage);
@@ -182,7 +186,6 @@ export function GreenBackWidget() {
           ? currentPrice * (1 + priceChangePercent)
           : currentPrice * (1 - priceChangePercent);
 
-        // Save trade to database for persistent logging
         if (user) {
           supabase.from('trades').insert({
             user_id: user.id,
@@ -195,7 +198,7 @@ export function GreenBackWidget() {
             profit_loss: tradePnl,
             profit_percentage: (tradePnl / 100) * 100,
             exchange_name: currentExchange,
-            is_sandbox: tradingMode === 'demo',
+            is_sandbox: true, // Always true for demo
             status: 'closed',
             closed_at: new Date().toISOString(),
           }).then(({ error }) => {
@@ -203,28 +206,20 @@ export function GreenBackWidget() {
           });
         }
 
-        // Play sound and show notification for trade
         notifyTrade(currentExchange, pair, direction, tradePnl);
-
-        // Check TP levels (simulate hitting TP1, TP2, TP3)
         if (isWin && Math.random() > 0.6) {
           const tpLevel = Math.ceil(Math.random() * 3);
           setTimeout(() => notifyTakeProfit(tpLevel, pair, tradePnl * (tpLevel / 3)), 500);
         }
 
-        // Daily target notification
         if (newPnl >= dailyTarget && prev.currentPnL < dailyTarget) {
           sonnerToast.success('🎯 Daily Target Reached!', {
             description: `GreenBack hit $${dailyTarget} target! Bot continues running.`,
           });
         }
 
-        // Update in demo mode virtual balance
-        if (tradingMode === 'demo') {
-          setVirtualBalance(prev => prev + tradePnl);
-        }
-
-        // Update database for active bot
+        // DEMO MODE: Update virtual balance
+        setVirtualBalance(prev => prev + tradePnl);
         updateBotPnl(activeBot.id, newPnl, newTrades, newHitRate);
 
         return {
@@ -237,7 +232,7 @@ export function GreenBackWidget() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [anyBotRunning, dailyTarget, profitPerTrade, spotBot, leverageBot, prices, notifyTrade, notifyTakeProfit, tradingMode, updateBotPnl, setVirtualBalance, user, stopBot, metrics.currentPnL]);
+  }, [anyBotRunning, dailyTarget, profitPerTrade, spotBot, leverageBot, prices, notifyTrade, notifyTakeProfit, tradingMode, updateBotPnl, setVirtualBalance, user, stopBot, metrics.currentPnL, activeExchangeConfigs]);
 
   const handleStartSpot = async () => {
     if (spotBot) {

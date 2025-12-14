@@ -214,11 +214,14 @@ export function useBotRuns() {
     }
   }, [resetTrigger, fetchBots]);
 
-  // Subscribe to realtime updates for bot_runs table
+  // Subscribe to realtime updates for bot_runs AND trades tables
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase
+    const isSandbox = tradingMode === 'demo';
+    
+    // Channel for bot_runs
+    const botChannel = supabase
       .channel('bot-runs-realtime')
       .on(
         'postgres_changes',
@@ -228,17 +231,41 @@ export function useBotRuns() {
           table: 'bot_runs',
           filter: `user_id=eq.${user.id}`,
         },
-        () => {
-          // Refetch bots when any change occurs
+        (payload) => {
+          console.log('📊 Bot run update received:', payload.eventType);
+          fetchBots();
+        }
+      )
+      .subscribe();
+
+    // Channel for trades - for Live mode real trade updates
+    const tradesChannel = supabase
+      .channel('trades-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'trades',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const newTrade = payload.new as { is_sandbox: boolean; pair: string; profit_loss: number };
+          // Only log for non-sandbox trades (real trades)
+          if (!newTrade.is_sandbox) {
+            console.log(`🔴 LIVE TRADE: ${newTrade.pair}, P&L: $${newTrade.profit_loss?.toFixed(2)}`);
+          }
+          // Refetch to update metrics
           fetchBots();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(botChannel);
+      supabase.removeChannel(tradesChannel);
     };
-  }, [user, fetchBots]);
+  }, [user, fetchBots, tradingMode]);
 
   // Analyze bot performance
   const analyzeBot = async (botId: string, botName: string) => {
