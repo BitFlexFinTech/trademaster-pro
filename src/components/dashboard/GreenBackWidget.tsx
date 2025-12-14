@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, TrendingUp, Sparkles } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, TrendingUp, Sparkles, Banknote, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +13,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
+import { toast as sonnerToast } from 'sonner';
 
 interface ExchangeAllocation {
   name: string;
@@ -38,7 +39,11 @@ export function GreenBackWidget() {
   const { user } = useAuth();
   const { toast } = useToast();
   
-  const existingBot = bots.find(b => b.botName === 'GreenBack' && b.status === 'running');
+  // Find either spot or leverage bot (prefer spot for widget)
+  const existingBot = bots.find(b => 
+    (b.botName === 'GreenBack Spot' || b.botName === 'GreenBack Leverage' || b.botName === 'GreenBack') && 
+    b.status === 'running'
+  );
   const isRunning = !!existingBot;
 
   const dailyTarget = existingBot?.dailyTarget || 40;
@@ -52,6 +57,7 @@ export function GreenBackWidget() {
   });
 
   const [activeExchange, setActiveExchange] = useState<string | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
   const lastPricesRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
@@ -179,9 +185,29 @@ export function GreenBackWidget() {
     if (isRunning && existingBot) {
       await stopBot(existingBot.id);
     } else {
-      await startBot('GreenBack', 'spot', 40, 1);
+      await startBot('GreenBack Spot', 'spot', 40, 1);
     }
     refetch();
+  };
+
+  const handleWithdrawProfits = async () => {
+    if (metrics.currentPnL <= 0) return;
+    setWithdrawing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('withdraw-bot-profits', {
+        body: { botId: existingBot?.id }
+      });
+      if (error) throw error;
+      
+      setMetrics(prev => ({ ...prev, currentPnL: 0 }));
+      sonnerToast.success(`💰 Withdrew $${data?.withdrawnAmount?.toFixed(2) || metrics.currentPnL.toFixed(2)}`);
+      refetch();
+    } catch (err) {
+      console.error('Withdraw failed:', err);
+      sonnerToast.error('Withdrawal failed. Try again.');
+    } finally {
+      setWithdrawing(false);
+    }
   };
 
   const progressPercent = (metrics.currentPnL / dailyTarget) * 100;
@@ -362,9 +388,15 @@ export function GreenBackWidget() {
           {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
           {isRunning ? 'Stop Bot' : 'Start Bot'}
         </Button>
-        <Link to="/bots" className="flex-1">
-          <Button variant="outline" className="w-full gap-2">
-            View Details
+        {metrics.currentPnL > 0 && (
+          <Button variant="outline" className="gap-1" onClick={handleWithdrawProfits} disabled={withdrawing}>
+            {withdrawing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Banknote className="w-3 h-3" />}
+            ${metrics.currentPnL.toFixed(2)}
+          </Button>
+        )}
+        <Link to="/bots">
+          <Button variant="outline" size="icon">
+            <Activity className="w-4 h-4" />
           </Button>
         </Link>
       </div>

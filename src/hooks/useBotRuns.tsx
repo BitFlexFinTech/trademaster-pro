@@ -155,6 +155,16 @@ export function useBotRuns() {
     fetchBots();
   }, [fetchBots]);
 
+  // Helper methods for specific bot types
+  const getSpotBot = () => bots.find(b => b.botName === 'GreenBack Spot' && b.status === 'running');
+  const getLeverageBot = () => bots.find(b => b.botName === 'GreenBack Leverage' && b.status === 'running');
+  
+  const startSpotBot = (dailyTarget: number, profitPerTrade: number) => 
+    startBot('GreenBack Spot', 'spot', dailyTarget, profitPerTrade);
+  
+  const startLeverageBot = (dailyTarget: number, profitPerTrade: number) => 
+    startBot('GreenBack Leverage', 'leverage', dailyTarget, profitPerTrade);
+
   return { 
     bots, 
     stats, 
@@ -162,6 +172,10 @@ export function useBotRuns() {
     startBot, 
     stopBot, 
     updateBotPnl,
-    refetch: fetchBots 
+    refetch: fetchBots,
+    getSpotBot,
+    getLeverageBot,
+    startSpotBot,
+    startLeverageBot,
   };
 }
