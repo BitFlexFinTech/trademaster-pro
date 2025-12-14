@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
+import { useTradingMode } from '@/contexts/TradingModeContext';
 
 interface TradeData {
   id: string;
@@ -79,8 +80,12 @@ export function useBotAnalytics(
   botTypeFilter: BotTypeFilter = 'all'
 ) {
   const { user } = useAuth();
+  const { mode: tradingMode } = useTradingMode();
   const [trades, setTrades] = useState<TradeData[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Auto-sync mode filter with current trading mode when modeFilter is 'all'
+  const effectiveModeFilter = modeFilter === 'all' ? (tradingMode === 'demo' ? 'demo' : 'live') : modeFilter;
 
   const fetchTrades = useCallback(async () => {
     if (!user) {
@@ -105,10 +110,10 @@ export function useBotAnalytics(
         query = query.gte('closed_at', startDate.toISOString());
       }
 
-      // Apply mode filter
-      if (modeFilter === 'demo') {
+      // Apply mode filter - uses effective mode filter synced with trading mode
+      if (effectiveModeFilter === 'demo') {
         query = query.eq('is_sandbox', true);
-      } else if (modeFilter === 'live') {
+      } else if (effectiveModeFilter === 'live') {
         query = query.eq('is_sandbox', false);
       }
 
@@ -128,7 +133,7 @@ export function useBotAnalytics(
     } finally {
       setLoading(false);
     }
-  }, [user, timeframe, modeFilter, botTypeFilter]);
+  }, [user, timeframe, effectiveModeFilter, botTypeFilter]);
 
   // Initial fetch
   useEffect(() => {
