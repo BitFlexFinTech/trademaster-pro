@@ -4,7 +4,7 @@ import { OpportunitiesCard } from '@/components/dashboard/OpportunitiesCard';
 import { AutoEarnCard } from '@/components/dashboard/AutoEarnCard';
 import { AiSummaryCard } from '@/components/dashboard/AiSummaryCard';
 import { VideoHighlights } from '@/components/dashboard/VideoHighlights';
-import { ArbitrageTable } from '@/components/dashboard/ArbitrageTable';
+import { GreenBackWidget } from '@/components/dashboard/GreenBackWidget';
 import { NewsSidebar } from '@/components/dashboard/NewsSidebar';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -44,9 +44,9 @@ export default function Dashboard() {
 
       {/* Main Content - Takes remaining space */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
-        {/* Arbitrage Table */}
+        {/* GreenBack Bot Widget - replaces Arbitrage table */}
         <div className="lg:col-span-9 min-h-0 overflow-hidden">
-          <ArbitrageTable opportunities={opportunities} loading={loading} />
+          <GreenBackWidget />
         </div>
 
         {/* News Sidebar */}
