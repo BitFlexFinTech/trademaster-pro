@@ -3,6 +3,7 @@ import { useBotRuns } from '@/hooks/useBotRuns';
 import { useAuth } from '@/hooks/useAuth';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useTradingMode, MAX_USDT_ALLOCATION } from '@/contexts/TradingModeContext';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Bot, DollarSign, Loader2, RefreshCw, BarChart3 } from 'lucide-react';
@@ -16,6 +17,7 @@ import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboa
 import { DailyPnLChart } from '@/components/bots/DailyPnLChart';
 import { BotAnalysisModal } from '@/components/bots/BotAnalysisModal';
 import { BotComparisonView } from '@/components/bots/BotComparisonView';
+import { BotsMobileDrawer } from '@/components/bots/BotsMobileDrawer';
 import { toast } from 'sonner';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES } from '@/lib/exchangeConfig';
 
@@ -29,6 +31,7 @@ interface UsdtFloat {
 
 export default function Bots() {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const { 
     bots, 
     stats, 
@@ -37,6 +40,7 @@ export default function Bots() {
     stopBot, 
     stopBotWithAnalysis,
     updateBotPnl, 
+    updateBotConfig,
     refetch,
     analyzeBot,
     analysisData,
@@ -122,13 +126,17 @@ export default function Bots() {
 
   const activeBotCount = bots.filter(b => b.status === 'running').length;
 
-  // Handle applying recommendations from analysis with old vs new notification
+  // Handle applying recommendations from analysis - persists to database
   const handleApplyRecommendation = async (type: string, value: any) => {
     const oldConfig = { ...botConfig };
+    const activeBot = spotBot || leverageBot || bots.find(b => b.status === 'stopped');
     
     switch (type) {
       case 'profit_per_trade':
         setBotConfig(prev => ({ ...prev, profitPerTrade: value }));
+        if (activeBot) {
+          await updateBotConfig(activeBot.id, { profitPerTrade: value });
+        }
         toast.success(`Profit Per Trade Updated`, {
           description: `Changed from $${oldConfig.profitPerTrade.toFixed(2)} → $${value.toFixed(2)}`,
         });
@@ -152,8 +160,18 @@ export default function Bots() {
         });
         break;
       default:
-        toast.info(`Recommendation noted: ${type}`);
+        // Handle improvement items being acknowledged
+        if (type.startsWith('improvement_')) {
+          toast.success(`Strategy noted`, {
+            description: `Recommendation saved for next trading session`,
+          });
+        } else {
+          toast.info(`Recommendation noted: ${type}`);
+        }
     }
+    
+    // Refetch bots to sync changes
+    await refetch();
   };
 
   // Handle stopping bot with analysis
@@ -165,19 +183,34 @@ export default function Bots() {
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           <Bot className="w-5 h-5 text-primary" />
-          <h1 className="text-lg font-bold text-foreground">Trading Bots</h1>
-          <span className="live-indicator text-xs">{activeBotCount} Active</span>
+          <h1 className="text-base md:text-lg font-bold text-foreground">Trading Bots</h1>
+          <span className="live-indicator text-xs hidden sm:inline">{activeBotCount} Active</span>
           <Button
             size="sm"
             variant="outline"
-            className="h-6 text-xs gap-1"
+            className="h-6 text-xs gap-1 hidden md:flex"
             onClick={() => setShowComparison(true)}
           >
             <BarChart3 className="w-3 h-3" />
             Compare Bots
           </Button>
+          {/* Mobile drawer trigger */}
+          {isMobile && (
+            <BotsMobileDrawer
+              spotBot={spotBot}
+              leverageBot={leverageBot}
+              bots={bots}
+              prices={prices}
+              startBot={startBot}
+              stopBot={handleStopBot}
+              updateBotPnl={updateBotPnl}
+              analyzeBot={analyzeBot}
+              suggestedUSDT={suggestedUSDT}
+              usdtFloat={usdtFloat}
+            />
+          )}
         </div>
 
         {/* Demo/Live Toggle */}
@@ -307,8 +340,11 @@ export default function Bots() {
         )}
       </div>
 
-      {/* Main Content Grid */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3">
+      {/* Main Content Grid - Hidden on mobile, use drawer instead */}
+      <div className={cn(
+        "flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3",
+        isMobile && "hidden"
+      )}>
         {/* Left Column - Spot and Leverage Bot Cards */}
         <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-auto">
           <BotCard

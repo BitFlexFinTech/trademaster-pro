@@ -269,6 +269,32 @@ export function useBotRuns() {
   const startLeverageBot = (dailyTarget: number, profitPerTrade: number) => 
     startBot('GreenBack Leverage', 'leverage', dailyTarget, profitPerTrade);
 
+  // Update bot configuration (persists to database)
+  const updateBotConfig = async (botId: string, config: { profitPerTrade?: number; dailyTarget?: number; stopLoss?: number }) => {
+    if (!user) return;
+
+    try {
+      const updateData: any = {};
+      if (config.profitPerTrade !== undefined) updateData.profit_per_trade = config.profitPerTrade;
+      if (config.dailyTarget !== undefined) updateData.daily_target = config.dailyTarget;
+
+      const { error } = await supabase
+        .from('bot_runs')
+        .update(updateData)
+        .eq('id', botId)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      
+      await fetchBots(); // Refetch to sync all components
+      return true;
+    } catch (error) {
+      console.error('Error updating bot config:', error);
+      toast.error('Failed to update bot configuration');
+      return false;
+    }
+  };
+
   return { 
     bots, 
     stats, 
@@ -277,6 +303,7 @@ export function useBotRuns() {
     stopBot,
     stopBotWithAnalysis,
     updateBotPnl,
+    updateBotConfig,
     refetch: fetchBots,
     getSpotBot,
     getLeverageBot,

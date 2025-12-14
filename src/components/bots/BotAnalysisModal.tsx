@@ -328,11 +328,28 @@ export function BotAnalysisModal({
                 </h3>
                 <div className="space-y-2">
                   {analysis.improvements.map((improvement, i) => (
-                    <div key={i} className="flex items-start gap-2 text-sm bg-secondary/30 p-3 rounded-lg">
-                      <span className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 text-xs text-primary font-medium">
-                        {i + 1}
-                      </span>
-                      <span className="text-muted-foreground">{improvement}</span>
+                    <div key={i} className="flex items-center justify-between gap-2 text-sm bg-secondary/30 p-3 rounded-lg">
+                      <div className="flex items-start gap-2 flex-1">
+                        <span className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 text-xs text-primary font-medium">
+                          {i + 1}
+                        </span>
+                        <span className="text-muted-foreground">{improvement}</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleApply(`improvement_${i}`, improvement)}
+                        disabled={applying === `improvement_${i}`}
+                        className="gap-1 h-7 text-xs flex-shrink-0"
+                      >
+                        {applying === `improvement_${i}` ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-3 h-3" /> Noted
+                          </>
+                        )}
+                      </Button>
                     </div>
                   ))}
                 </div>
