@@ -8,6 +8,7 @@ import {
   ThresholdConfig,
   DEFAULT_THRESHOLDS 
 } from './types';
+import { MIN_NET_PROFIT, calculateNetProfit } from '@/lib/exchangeFees';
 
 interface PricePoint {
   price: number;
@@ -57,7 +58,8 @@ export async function runPaperTradingTest(
   thresholds: ThresholdConfig = DEFAULT_THRESHOLDS
 ): Promise<PaperTestResult> {
   const basePrice = 50000; // BTC-like price
-  const profitPerTrade = 1;
+  const positionSize = 100; // $100 position
+  const profitPerTrade = Math.max(1, MIN_NET_PROFIT + 0.50); // Ensure min profit after fees
   const lossPerTrade = 0.60;
   
   let wins = 0;
@@ -115,13 +117,35 @@ export async function runPaperTradingTest(
       continue;
     }
     
-    // Trade passed criteria - simulate execution
+    // Trade passed criteria - simulate execution with fee check
     const winProbability = calculateWinProbability(signal);
     const isWin = Math.random() < winProbability;
     
+    // Simulate exit price and check net profit after fees
+    const entryPrice = closes[closes.length - 1];
+    const priceChangePercent = profitPerTrade / positionSize;
+    const exitPrice = isWin 
+      ? entryPrice * (1 + priceChangePercent)
+      : entryPrice * (1 - lossPerTrade / positionSize);
+    
+    // Check if net profit meets minimum threshold ($0.50)
+    const netProfit = isWin ? calculateNetProfit(entryPrice, exitPrice, positionSize, 'binance') : -lossPerTrade;
+    
+    if (isWin && netProfit < MIN_NET_PROFIT) {
+      tradesSkipped++;
+      const reason = `Below minimum profit ($${MIN_NET_PROFIT.toFixed(2)})`;
+      const existing = failureReasons.get(reason) || { count: 0, totalScore: 0, totalConfluence: 0 };
+      failureReasons.set(reason, {
+        count: existing.count + 1,
+        totalScore: existing.totalScore + signal.score,
+        totalConfluence: existing.totalConfluence + signal.confluence,
+      });
+      continue;
+    }
+    
     if (isWin) {
       wins++;
-      totalPnL += profitPerTrade;
+      totalPnL += netProfit;
     } else {
       losses++;
       totalPnL -= lossPerTrade;
