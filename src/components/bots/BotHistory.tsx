@@ -1,7 +1,8 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Clock, TrendingUp, TrendingDown, Target, Activity } from 'lucide-react';
+import { Clock, TrendingUp, TrendingDown, Target, Activity, Brain } from 'lucide-react';
 
 interface BotRun {
   id: string;
@@ -19,9 +20,10 @@ interface BotRun {
 
 interface BotHistoryProps {
   bots: BotRun[];
+  onViewAnalysis?: (botId: string, botName: string) => void;
 }
 
-export function BotHistory({ bots }: BotHistoryProps) {
+export function BotHistory({ bots, onViewAnalysis }: BotHistoryProps) {
   const stoppedBots = bots.filter(b => b.status === 'stopped');
 
   if (stoppedBots.length === 0) {
@@ -44,6 +46,7 @@ export function BotHistory({ bots }: BotHistoryProps) {
             <th className="text-right py-2 px-2 text-muted-foreground font-medium">Hit Rate</th>
             <th className="text-right py-2 px-2 text-muted-foreground font-medium">Target</th>
             <th className="text-center py-2 px-2 text-muted-foreground font-medium">Started</th>
+            <th className="text-center py-2 px-2 text-muted-foreground font-medium">Analysis</th>
           </tr>
         </thead>
         <tbody>
@@ -76,6 +79,17 @@ export function BotHistory({ bots }: BotHistoryProps) {
               </td>
               <td className="py-2 px-2 text-center text-muted-foreground">
                 {bot.startedAt ? new Date(bot.startedAt).toLocaleDateString() : '-'}
+              </td>
+              <td className="py-2 px-2 text-center">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-[10px] gap-1"
+                  onClick={() => onViewAnalysis?.(bot.id, bot.botName)}
+                >
+                  <Brain className="w-3 h-3" />
+                  View
+                </Button>
               </td>
             </tr>
           ))}

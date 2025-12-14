@@ -13,6 +13,8 @@ import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
 import { BotCard } from '@/components/bots/BotCard';
 import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
 import { DailyPnLChart } from '@/components/bots/DailyPnLChart';
+import { BotAnalysisModal } from '@/components/bots/BotAnalysisModal';
+import { toast } from 'sonner';
 
 const exchanges = ['Binance', 'Bybit', 'OKX', 'KuCoin', 'Kraken', 'Nexo'];
 
@@ -38,12 +40,35 @@ interface UsdtFloat {
 
 export default function Bots() {
   const { user } = useAuth();
-  const { bots, stats, loading, startBot, stopBot, updateBotPnl, refetch } = useBotRuns();
+  const { 
+    bots, 
+    stats, 
+    loading, 
+    startBot, 
+    stopBot, 
+    stopBotWithAnalysis,
+    updateBotPnl, 
+    refetch,
+    analyzeBot,
+    analysisData,
+    analysisLoading,
+    showAnalysisModal,
+    setShowAnalysisModal,
+    analyzedBotName,
+  } = useBotRuns();
   const { prices } = useRealtimePrices();
   const { mode: tradingMode, setMode: setTradingMode, virtualBalance } = useTradingMode();
 
   const [usdtFloat, setUsdtFloat] = useState<UsdtFloat[]>([]);
   const [loadingFloat, setLoadingFloat] = useState(true);
+
+  // Bot configuration state for applying recommendations
+  const [botConfig, setBotConfig] = useState({
+    profitPerTrade: 1,
+    amountPerTrade: 100,
+    stopLoss: 0.60,
+    focusPairs: ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'DOT', 'LINK'],
+  });
 
   // Find spot and leverage bots separately
   const spotBot = bots.find(b => b.botName === 'GreenBack Spot' && b.status === 'running');
@@ -105,6 +130,35 @@ export default function Bots() {
   }, [user, suggestedUSDT]);
 
   const activeBotCount = bots.filter(b => b.status === 'running').length;
+
+  // Handle applying recommendations from analysis
+  const handleApplyRecommendation = async (type: string, value: any) => {
+    switch (type) {
+      case 'profit_per_trade':
+        setBotConfig(prev => ({ ...prev, profitPerTrade: value }));
+        toast.success(`Profit per trade updated to $${value.toFixed(2)}`);
+        break;
+      case 'amount_per_trade':
+        setBotConfig(prev => ({ ...prev, amountPerTrade: value }));
+        toast.success(`Amount per trade updated to $${value.toFixed(0)}`);
+        break;
+      case 'stop_loss':
+        setBotConfig(prev => ({ ...prev, stopLoss: value }));
+        toast.success(`Stop loss updated to -$${value.toFixed(2)}`);
+        break;
+      case 'focus_pairs':
+        setBotConfig(prev => ({ ...prev, focusPairs: value }));
+        toast.success(`Now focusing on ${value.join(', ')}`);
+        break;
+      default:
+        toast.info(`Recommendation noted: ${type}`);
+    }
+  };
+
+  // Handle stopping bot with analysis
+  const handleStopBot = async (botId: string, botName: string) => {
+    await stopBotWithAnalysis(botId, botName);
+  };
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -207,7 +261,7 @@ export default function Bots() {
             existingBot={spotBot}
             prices={prices}
             onStartBot={startBot}
-            onStopBot={stopBot}
+            onStopBot={(botId) => handleStopBot(botId, 'GreenBack Spot')}
             onUpdateBotPnl={updateBotPnl}
             suggestedUSDT={suggestedUSDT}
             usdtFloat={usdtFloat}
@@ -217,7 +271,7 @@ export default function Bots() {
             existingBot={leverageBot}
             prices={prices}
             onStartBot={startBot}
-            onStopBot={stopBot}
+            onStopBot={(botId) => handleStopBot(botId, 'GreenBack Leverage')}
             onUpdateBotPnl={updateBotPnl}
             suggestedUSDT={suggestedUSDT}
             usdtFloat={usdtFloat}
@@ -251,11 +305,22 @@ export default function Bots() {
               Bot History
             </h3>
             <div className="flex-1 min-h-0">
-              <BotHistory bots={bots} />
+              <BotHistory bots={bots} onViewAnalysis={analyzeBot} />
             </div>
           </div>
         </div>
       </div>
+
+      {/* Analysis Modal */}
+      <BotAnalysisModal
+        open={showAnalysisModal}
+        onOpenChange={setShowAnalysisModal}
+        botName={analyzedBotName}
+        analysis={analysisData.analysis}
+        stats={analysisData.stats}
+        onApplyRecommendation={handleApplyRecommendation}
+        loading={analysisLoading}
+      />
     </div>
   );
 }
