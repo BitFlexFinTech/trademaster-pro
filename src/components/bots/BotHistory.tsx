@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Clock, TrendingUp, TrendingDown, Target, Activity, Brain, History } from 'lucide-react';
+import { Brain, History } from 'lucide-react';
+import { useTradingMode } from '@/contexts/TradingModeContext';
 
 interface BotRun {
   id: string;
@@ -24,7 +26,19 @@ interface BotHistoryProps {
 }
 
 export function BotHistory({ bots, onViewAnalysis }: BotHistoryProps) {
-  const stoppedBots = bots.filter(b => b.status === 'stopped');
+  const { resetTrigger } = useTradingMode();
+  const [stoppedBots, setStoppedBots] = useState<BotRun[]>([]);
+
+  useEffect(() => {
+    setStoppedBots(bots.filter(b => b.status === 'stopped'));
+  }, [bots]);
+
+  // Listen to reset trigger - clear history
+  useEffect(() => {
+    if (resetTrigger > 0) {
+      setStoppedBots([]);
+    }
+  }, [resetTrigger]);
 
   if (stoppedBots.length === 0) {
     return (
@@ -33,14 +47,6 @@ export function BotHistory({ bots, onViewAnalysis }: BotHistoryProps) {
         <p className="text-xs text-muted-foreground">
           No bot history yet. Start and stop a bot to see history here.
         </p>
-      </div>
-    );
-  }
-
-  if (stoppedBots.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        No bot history yet. Start and stop a bot to see history here.
       </div>
     );
   }

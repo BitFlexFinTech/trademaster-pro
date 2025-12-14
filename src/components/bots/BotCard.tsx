@@ -11,6 +11,7 @@ import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNotifications } from '@/hooks/useNotifications';
 import { supabase } from '@/integrations/supabase/client';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
+import { isProfitableAfterFees, calculateNetProfit, getFeeRate } from '@/lib/exchangeFees';
 import {
   Tooltip,
   TooltipContent,
@@ -147,13 +148,24 @@ export function BotCard({
       const priceChange = lastPrice > 0 ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
       lastPricesRef.current[symbol] = currentPrice;
 
-      if (Math.abs(priceChange) < 0.001) return;
+      // Use lower threshold (0.0001 = 0.01%) to capture more trades
+      if (Math.abs(priceChange) < 0.0001) return;
 
       const direction = priceChange >= 0 ? 'long' : 'short';
-      const isWin = Math.random() < 0.70;
       const leverage = botType === 'leverage' ? (leverages[currentExchange] || 1) : 1;
-      const tradePnl = isWin ? profitPerTrade * (botType === 'leverage' ? Math.min(leverage / 5, 2) : 1) : -perTradeStopLoss;
+      const positionSize = 100 * leverage;
       const pair = `${symbol}/USDT`;
+
+      // Calculate price movement for exit
+      const priceMovementPercent = profitPerTrade / positionSize;
+      const exitPrice = direction === 'long'
+        ? currentPrice * (1 + priceMovementPercent)
+        : currentPrice * (1 - priceMovementPercent);
+
+      // Check if trade is profitable after fees
+      const netProfit = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange);
+      const isWin = netProfit > 0 && Math.random() < 0.70;
+      const tradePnl = isWin ? netProfit : -perTradeStopLoss;
 
       setMetrics(prev => {
         const newPnl = Math.min(Math.max(prev.currentPnL + tradePnl, -dailyStopLoss), dailyTarget * 1.5);
@@ -161,13 +173,6 @@ export function BotCard({
         const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
         const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
         const newMaxDrawdown = Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown);
-
-        // Calculate exit price correctly based on position size and P&L
-        const positionSize = 100;
-        const priceChangePercent = tradePnl / (positionSize * leverage);
-        const exitPrice = direction === 'long'
-          ? currentPrice * (1 + priceChangePercent)
-          : currentPrice * (1 - priceChangePercent);
 
         if (user) {
           supabase.from('trades').insert({
