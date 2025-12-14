@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.apply-ai-suggestion]
 verify_jwt = true
+
+[functions.analyze-paper-test]
+verify_jwt = true
