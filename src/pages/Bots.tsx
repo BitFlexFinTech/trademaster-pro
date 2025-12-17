@@ -9,6 +9,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAIStrategyMonitor } from '@/hooks/useAIStrategyMonitor';
 import { useRecommendationHistory } from '@/hooks/useRecommendationHistory';
 import { useDailyTargetRecommendation } from '@/hooks/useDailyTargetRecommendation';
+import { useEmergencyKillSwitch } from '@/hooks/useEmergencyKillSwitch';
+import { useMLConfidence } from '@/hooks/useMLConfidence';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +31,8 @@ import { BotsMobileDrawer } from '@/components/bots/BotsMobileDrawer';
 import { BotSettingsDrawer } from '@/components/bots/BotSettingsDrawer';
 import { AIStrategyPanel } from '@/components/bots/AIStrategyPanel';
 import { AuditDashboardPanel } from '@/components/bots/AuditDashboardPanel';
+import { EmergencyKillBanner } from '@/components/bots/EmergencyKillBanner';
+import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { AuditReport } from '@/lib/selfAuditReporter';
 import { DashboardCharts } from '@/lib/dashboardGenerator';
 import { toast } from 'sonner';
@@ -230,6 +234,46 @@ export default function Bots() {
     addToHistory,
     removeFromHistory,
   } = useRecommendationHistory();
+
+  // Emergency Kill Switch integration
+  const {
+    config: killConfig,
+    updateConfig: updateKillConfig,
+    killStatus,
+    triggerKill,
+    lastKillEvent,
+    isKilling,
+  } = useEmergencyKillSwitch({
+    currentPnL,
+    onAutoKill: async (reason) => {
+      // Refresh data after auto-kill
+      await refetch();
+      triggerSync();
+    },
+  });
+
+  // ML Confidence tracking
+  const {
+    confidence: mlConfidence,
+    accuracy: mlAccuracy,
+    lastPrediction,
+    tradesAnalyzed,
+    fetchLatestPrediction,
+    recordPredictionOutcome,
+  } = useMLConfidence();
+
+  // Auto-apply ALL AI recommendations (not just high priority) - PHASE 8
+  useEffect(() => {
+    if (suggestedPositionSize && suggestedPositionSize !== botConfig.amountPerTrade) {
+      setBotConfig(prev => ({
+        ...prev,
+        amountPerTrade: Math.min(suggestedPositionSize, MAX_USDT_ALLOCATION)
+      }));
+      toast.info('📊 Position size auto-adjusted', {
+        description: `Set to $${suggestedPositionSize.toFixed(0)} based on balance`,
+      });
+    }
+  }, [suggestedPositionSize]);
 
   // AUTO-APPLY high priority trade speed recommendations to protect profits
   useEffect(() => {
@@ -583,6 +627,18 @@ export default function Bots() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      {/* Emergency Kill Banner - Sticky at top */}
+      <EmergencyKillBanner
+        currentPnL={currentPnL}
+        killStatus={killStatus}
+        config={killConfig}
+        onConfigChange={updateKillConfig}
+        onKillTriggered={() => triggerKill('manual')}
+        isKilling={isKilling}
+        lastKillRecovery={lastKillEvent?.total_usdt_recovered}
+        isAnyBotRunning={!!spotBot || !!leverageBot}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <div className="flex items-center gap-2 md:gap-3">

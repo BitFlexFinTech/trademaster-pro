@@ -187,6 +187,17 @@ const TOP_PAIRS = [
   'DOGE/USDT', 'ADA/USDT', 'AVAX/USDT', 'DOT/USDT', 'MATIC/USDT'
 ];
 
+// Excluded pair+direction combinations (historically unprofitable)
+const EXCLUDED_COMBOS = new Set([
+  'DOGE/USDT:long',
+  'DOT/USDT:long',
+  'AVAX/USDT:long',
+  'ADA/USDT:long',
+]);
+
+// Spot-safe pairs for LONG trades (>50% win rate historically)
+const SPOT_SAFE_PAIRS = new Set(['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'MATIC/USDT']);
+
 // Safety limits - INCREASED for profitable trading
 const DEFAULT_POSITION_SIZE = 50; // Default $50 per trade (minimum for meaningful profit)
 const MIN_POSITION_SIZE = 20; // Absolute minimum to cover fees + generate profit
@@ -205,6 +216,98 @@ interface BotTradeRequest {
   isSandbox: boolean;
   maxPositionSize?: number;
   stopLossPercent?: number; // 0.2 = 20% of profit (80% lower)
+}
+
+// Smart direction selection based on historical win rates
+async function selectSmartDirection(
+  supabase: any,
+  userId: string,
+  pair: string,
+  mode: 'spot' | 'leverage'
+): Promise<{ direction: 'long' | 'short'; confidence: number; reasoning: string }> {
+  // SPOT MODE: Only LONG trades, but check if pair is safe
+  if (mode === 'spot') {
+    if (!SPOT_SAFE_PAIRS.has(pair)) {
+      return { direction: 'long', confidence: 40, reasoning: `SPOT: ${pair} not in safe list` };
+    }
+    return { direction: 'long', confidence: 60, reasoning: `SPOT: LONG only on ${pair}` };
+  }
+
+  // LEVERAGE MODE: Smart direction selection
+  // Check if this pair+direction is excluded
+  const isLongExcluded = EXCLUDED_COMBOS.has(`${pair}:long`);
+  const isShortExcluded = EXCLUDED_COMBOS.has(`${pair}:short`);
+
+  if (isLongExcluded && !isShortExcluded) {
+    return { direction: 'short', confidence: 70, reasoning: `LONG excluded for ${pair}` };
+  }
+  if (isShortExcluded && !isLongExcluded) {
+    return { direction: 'long', confidence: 70, reasoning: `SHORT excluded for ${pair}` };
+  }
+  if (isLongExcluded && isShortExcluded) {
+    // Both excluded - default to SHORT with low confidence
+    return { direction: 'short', confidence: 50, reasoning: `Both directions excluded for ${pair}` };
+  }
+
+  // Fetch historical win rates from user's trades (last 7 days)
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  
+  const { data: trades } = await supabase
+    .from('trades')
+    .select('direction, profit_loss')
+    .eq('user_id', userId)
+    .eq('pair', pair)
+    .gte('created_at', sevenDaysAgo)
+    .limit(50);
+
+  let shortWinRate = 70; // Default: SHORT historically better
+  let longWinRate = 40;  // Default: LONG historically worse
+
+  if (trades && trades.length >= 10) {
+    const longTrades = trades.filter((t: { direction: string }) => t.direction === 'long');
+    const shortTrades = trades.filter((t: { direction: string }) => t.direction === 'short');
+    
+    if (longTrades.length >= 5) {
+      const longWins = longTrades.filter((t: { profit_loss: number | null }) => (t.profit_loss || 0) > 0).length;
+      longWinRate = (longWins / longTrades.length) * 100;
+    }
+    
+    if (shortTrades.length >= 5) {
+      const shortWins = shortTrades.filter((t: { profit_loss: number | null }) => (t.profit_loss || 0) > 0).length;
+      shortWinRate = (shortWins / shortTrades.length) * 100;
+    }
+  }
+
+  console.log(`📊 ${pair} Win Rates - SHORT: ${shortWinRate.toFixed(1)}%, LONG: ${longWinRate.toFixed(1)}%`);
+
+  // Use win rate bias for direction selection
+  const winRateDiff = shortWinRate - longWinRate;
+  
+  if (winRateDiff >= 15) {
+    // SHORT significantly better - use 80% probability for SHORT
+    const direction = Math.random() < 0.80 ? 'short' : 'long';
+    return { 
+      direction, 
+      confidence: direction === 'short' ? shortWinRate : longWinRate,
+      reasoning: `SHORT outperforms LONG by ${winRateDiff.toFixed(1)}%`
+    };
+  } else if (winRateDiff <= -15) {
+    // LONG significantly better - use 80% probability for LONG
+    const direction = Math.random() < 0.80 ? 'long' : 'short';
+    return { 
+      direction, 
+      confidence: direction === 'long' ? longWinRate : shortWinRate,
+      reasoning: `LONG outperforms SHORT by ${Math.abs(winRateDiff).toFixed(1)}%`
+    };
+  } else {
+    // Similar win rates - slight bias toward SHORT (historically better overall)
+    const direction = Math.random() < 0.6 ? 'short' : 'long';
+    return { 
+      direction, 
+      confidence: direction === 'short' ? shortWinRate : longWinRate,
+      reasoning: `Similar win rates - defaulting ${direction}`
+    };
+  }
 }
 
 // Generate unique clientOrderId for idempotency
@@ -590,13 +693,10 @@ serve(async (req) => {
       });
     }
 
-    // Determine direction based on mode
-    // SPOT mode: Only LONG trades (we don't own assets to short)
-    // LEVERAGE mode: Both long and short
-    let direction: 'long' | 'short' = 'long';
-    if (mode === 'leverage') {
-      direction = Math.random() > 0.5 ? 'long' : 'short';
-    }
+    // SMART DIRECTION SELECTION - Uses historical win rates instead of random
+    const directionResult = await selectSmartDirection(supabase, user.id, pair, mode);
+    const direction = directionResult.direction;
+    console.log(`🎯 Direction: ${direction.toUpperCase()} | Confidence: ${directionResult.confidence.toFixed(0)}% | Reason: ${directionResult.reasoning}`);
     
     // Calculate position size - use user-configured value, capped for safety
     const expectedMove = 0.005; // 0.5% average move
