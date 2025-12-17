@@ -323,6 +323,84 @@ export type Database = {
         }
         Relationships: []
       }
+      kill_events: {
+        Row: {
+          bots_killed: number | null
+          config_snapshot: Json | null
+          created_at: string | null
+          id: string
+          positions_closed: Json | null
+          reason: string
+          threshold_used: number
+          total_loss_locked: number | null
+          total_usdt_recovered: number | null
+          trigger_pnl: number
+          user_id: string
+        }
+        Insert: {
+          bots_killed?: number | null
+          config_snapshot?: Json | null
+          created_at?: string | null
+          id?: string
+          positions_closed?: Json | null
+          reason: string
+          threshold_used: number
+          total_loss_locked?: number | null
+          total_usdt_recovered?: number | null
+          trigger_pnl: number
+          user_id: string
+        }
+        Update: {
+          bots_killed?: number | null
+          config_snapshot?: Json | null
+          created_at?: string | null
+          id?: string
+          positions_closed?: Json | null
+          reason?: string
+          threshold_used?: number
+          total_loss_locked?: number | null
+          total_usdt_recovered?: number | null
+          trigger_pnl?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ml_models: {
+        Row: {
+          accuracy: number | null
+          created_at: string | null
+          id: string
+          last_trained_at: string | null
+          model_type: string
+          training_samples: number | null
+          updated_at: string | null
+          user_id: string
+          weights: Json
+        }
+        Insert: {
+          accuracy?: number | null
+          created_at?: string | null
+          id?: string
+          last_trained_at?: string | null
+          model_type?: string
+          training_samples?: number | null
+          updated_at?: string | null
+          user_id: string
+          weights?: Json
+        }
+        Update: {
+          accuracy?: number | null
+          created_at?: string | null
+          id?: string
+          last_trained_at?: string | null
+          model_type?: string
+          training_samples?: number | null
+          updated_at?: string | null
+          user_id?: string
+          weights?: Json
+        }
+        Relationships: []
+      }
       news_cache: {
         Row: {
           assets: string[] | null

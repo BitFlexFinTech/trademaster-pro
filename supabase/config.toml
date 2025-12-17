@@ -65,3 +65,9 @@ verify_jwt = true
 
 [functions.run-backtest]
 verify_jwt = true
+
+[functions.emergency-kill]
+verify_jwt = true
+
+[functions.ml-direction-predictor]
+verify_jwt = true
