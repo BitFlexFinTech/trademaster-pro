@@ -12,7 +12,9 @@ import { useDailyTargetRecommendation } from '@/hooks/useDailyTargetRecommendati
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff, Download, Power, Lock, Unlock, Edit2, Brain, Sparkles, Target, TrendingUp } from 'lucide-react';
+import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff, Download, Power, Lock, Unlock, Edit2, Brain, Sparkles, Target, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn, exportToCSV } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { BotHistory } from '@/components/bots/BotHistory';
@@ -91,6 +93,10 @@ export default function Bots() {
   // Audit Dashboard state
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
   const [dashboards, setDashboards] = useState<DashboardCharts | null>(null);
+  
+  // Collapsible sections state
+  const [usdtFloatOpen, setUsdtFloatOpen] = useState(true);
+  const [aiRecommendationOpen, setAiRecommendationOpen] = useState(false);
   
   // AI Daily Target Recommendation
   const { 
@@ -784,201 +790,184 @@ export default function Bots() {
         </div>
       )}
 
-      {/* USDT Float by Exchange - Top with Cap Indicator */}
-      <div className="card-terminal p-3 mb-3 flex-shrink-0">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-xs font-semibold text-foreground flex items-center gap-2">
-            <DollarSign className="w-3 h-3 text-muted-foreground" />
-            {tradingMode === 'demo' ? 'Virtual USDT Allocation' : 'USDT Float by Exchange'}
-          </h3>
-          {/* USDT Cap Indicator */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-muted-foreground">
-                ${suggestedUSDT.toLocaleString()} / ${MAX_USDT_ALLOCATION.toLocaleString()}
-              </span>
-              <div className="w-16 h-1.5 bg-secondary rounded-full overflow-hidden">
-                <div 
-                  className={cn(
-                    "h-full transition-all rounded-full",
-                    suggestedUSDT >= MAX_USDT_ALLOCATION ? "bg-destructive" : 
-                    suggestedUSDT >= MAX_USDT_ALLOCATION * 0.8 ? "bg-warning" : "bg-primary"
-                  )}
-                  style={{ width: `${Math.min((suggestedUSDT / MAX_USDT_ALLOCATION) * 100, 100)}%` }}
-                />
+      {/* USDT Float by Exchange - Collapsible */}
+      <Collapsible open={usdtFloatOpen} onOpenChange={setUsdtFloatOpen} className="card-terminal p-3 mb-3 flex-shrink-0">
+        <CollapsibleTrigger asChild>
+          <div className="flex items-center justify-between cursor-pointer hover:bg-secondary/30 -m-3 p-3 rounded">
+            <h3 className="text-xs font-semibold text-foreground flex items-center gap-2">
+              <DollarSign className="w-3 h-3 text-muted-foreground" />
+              {tradingMode === 'demo' ? 'Virtual USDT Allocation' : 'USDT Float by Exchange'}
+            </h3>
+            <div className="flex items-center gap-2">
+              {/* USDT Cap Indicator */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground">
+                  ${suggestedUSDT.toLocaleString()} / ${MAX_USDT_ALLOCATION.toLocaleString()}
+                </span>
+                <div className="w-16 h-1.5 bg-secondary rounded-full overflow-hidden">
+                  <div 
+                    className={cn(
+                      "h-full transition-all rounded-full",
+                      suggestedUSDT >= MAX_USDT_ALLOCATION ? "bg-destructive" : 
+                      suggestedUSDT >= MAX_USDT_ALLOCATION * 0.8 ? "bg-warning" : "bg-primary"
+                    )}
+                    style={{ width: `${Math.min((suggestedUSDT / MAX_USDT_ALLOCATION) * 100, 100)}%` }}
+                  />
+                </div>
+                {suggestedUSDT >= MAX_USDT_ALLOCATION && (
+                  <Badge variant="destructive" className="text-[8px] h-4">AT CAP</Badge>
+                )}
               </div>
-              {suggestedUSDT >= MAX_USDT_ALLOCATION && (
-                <Badge variant="destructive" className="text-[8px] h-4">AT CAP</Badge>
-              )}
-              {suggestedUSDT >= MAX_USDT_ALLOCATION * 0.8 && suggestedUSDT < MAX_USDT_ALLOCATION && (
-                <Badge variant="outline" className="text-[8px] h-4 border-warning text-warning">
-                  {Math.round((suggestedUSDT / MAX_USDT_ALLOCATION) * 100)}%
-                </Badge>
-              )}
+              {usdtFloatOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </div>
           </div>
-        </div>
+        </CollapsibleTrigger>
 
-        {loadingFloat ? (
-          <div className="flex items-center justify-center py-4">
-            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-            {tradingMode === 'demo' ? (
-              activeExchanges.map((config) => {
-                const allocation = EXCHANGE_ALLOCATION_PERCENTAGES[config.confidence];
-                const amount = Math.round(suggestedUSDT * allocation);
-                const baseBalance = baseBalancePerExchange[config.name] || DEFAULT_BASE_BALANCE;
-                const availableFloat = Math.max(0, amount - baseBalance);
-                return (
-                  <TooltipProvider key={config.name}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="flex flex-col p-2 rounded bg-secondary/50 transition-all duration-500">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] text-foreground font-medium">{config.name}</span>
-                            <Lock className="w-3 h-3 text-muted-foreground" />
-                          </div>
-                          <div className="flex justify-between text-[9px] text-muted-foreground">
-                            <span>Base:</span>
-                            {editingBaseBalance === config.name ? (
-                              <div className="flex items-center gap-1">
-                                <Input
-                                  type="number"
-                                  value={tempBaseBalance}
-                                  onChange={(e) => setTempBaseBalance(Number(e.target.value))}
-                                  className="h-4 w-12 text-[8px] px-1"
-                                />
-                                <Button size="sm" className="h-4 w-4 p-0 text-[8px]" onClick={() => handleSaveBaseBalance(config.name)}>✓</Button>
-                                <Button size="sm" variant="ghost" className="h-4 w-4 p-0 text-[8px]" onClick={handleCancelEditBaseBalance}>✕</Button>
-                              </div>
-                            ) : (
-                              <button 
-                                className="flex items-center gap-1 hover:text-primary transition-colors"
-                                onClick={() => handleEditBaseBalance(config.name)}
-                              >
-                                <span className="font-mono text-destructive">${baseBalance}</span>
-                                <Edit2 className="w-2 h-2" />
-                              </button>
-                            )}
-                          </div>
-                          <div className="flex justify-between text-[9px]">
-                            <span className="text-muted-foreground">Available:</span>
-                            <span className={cn("font-mono font-bold transition-all duration-500", availableFloat > 0 ? "text-primary" : "text-muted-foreground")}>
-                              ${availableFloat.toLocaleString()}
-                            </span>
-                          </div>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs">Base ${baseBalance} locked (never traded)</p>
-                        <p className="text-xs text-primary">Only profits above base are used</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                );
-              })
-            ) : (
-              usdtFloat.length === 0 ? (
-                <div className="col-span-5 text-center py-4 text-muted-foreground text-xs">
-                  No exchanges with balance. Connect exchanges in Settings to sync real balances.
-                </div>
-              ) : (
-                usdtFloat.map((item) => (
-                  <TooltipProvider key={item.exchange}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className={cn(
-                          "flex flex-col p-2 rounded bg-secondary/50 transition-all duration-500",
-                          item.warning && "border border-warning/50"
-                        )}>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] text-foreground font-medium">{item.exchange}</span>
-                            {item.warning ? (
-                              <AlertTriangle className="w-3 h-3 text-warning" />
-                            ) : (
-                              <Unlock className="w-3 h-3 text-primary" />
-                            )}
-                          </div>
-                          <div className="flex justify-between text-[9px]">
-                            <span className="text-muted-foreground">Balance:</span>
-                            <span className="font-mono font-bold text-primary">
-                              ${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          </div>
-                          {profitVault[item.exchange] > 0 && (
+        <CollapsibleContent className="mt-3">
+          {loadingFloat ? (
+            <div className="flex items-center justify-center py-2">
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              {tradingMode === 'demo' ? (
+                activeExchanges.slice(0, 5).map((config) => {
+                  const allocation = EXCHANGE_ALLOCATION_PERCENTAGES[config.confidence];
+                  const amount = Math.round(suggestedUSDT * allocation);
+                  const baseBalance = baseBalancePerExchange[config.name] || DEFAULT_BASE_BALANCE;
+                  const availableFloat = Math.max(0, amount - baseBalance);
+                  return (
+                    <TooltipProvider key={config.name}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex flex-col p-2 rounded bg-secondary/50 transition-all duration-500">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] text-foreground font-medium">{config.name}</span>
+                              <Lock className="w-3 h-3 text-muted-foreground" />
+                            </div>
                             <div className="flex justify-between text-[9px]">
-                              <span className="text-muted-foreground">Vaulted:</span>
-                              <span className="font-mono text-primary">
-                                ${profitVault[item.exchange].toFixed(2)}
+                              <span className="text-muted-foreground">Available:</span>
+                              <span className={cn("font-mono font-bold", availableFloat > 0 ? "text-primary" : "text-muted-foreground")}>
+                                ${availableFloat.toLocaleString()}
                               </span>
                             </div>
-                          )}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs">Real balance: ${item.amount.toFixed(2)}</p>
-                        {item.warning && <p className="text-xs text-warning">Data may be stale - sync needed</p>}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ))
-              )
-            )}
-          </div>
-        )}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">Base ${baseBalance} locked</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  );
+                })
+              ) : (
+                usdtFloat.length === 0 ? (
+                  <div className="col-span-5 text-center py-2 text-muted-foreground text-xs">
+                    No exchanges with balance. Connect exchanges in Settings.
+                  </div>
+                ) : (
+                  usdtFloat.slice(0, 5).map((item) => (
+                    <TooltipProvider key={item.exchange}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className={cn(
+                            "flex flex-col p-2 rounded bg-secondary/50",
+                            item.warning && "border border-warning/50"
+                          )}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] text-foreground font-medium">{item.exchange}</span>
+                              {item.warning ? (
+                                <AlertTriangle className="w-3 h-3 text-warning" />
+                              ) : (
+                                <Unlock className="w-3 h-3 text-primary" />
+                              )}
+                            </div>
+                            <div className="flex justify-between text-[9px]">
+                              <span className="text-muted-foreground">Balance:</span>
+                              <span className="font-mono font-bold text-primary">
+                                ${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">Real balance: ${item.amount.toFixed(2)}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ))
+                )
+              )}
+            </div>
+          )}
 
-        {/* Total Vaulted Profits Display */}
-        {Object.values(profitVault).reduce((sum, v) => sum + v, 0) > 0 && (
-          <div className="flex justify-between items-center text-[10px] border-t border-border/50 pt-2 mt-2">
-            <span className="flex items-center gap-1.5 text-muted-foreground">
-              <Lock className="h-3 w-3 text-primary" />
-              Total Vaulted Profits:
-            </span>
-            <span className="font-mono text-primary font-bold">
-              ${Object.values(profitVault).reduce((sum, v) => sum + v, 0).toFixed(2)}
-            </span>
-          </div>
-        )}
-        <div className="mt-3 pt-3 border-t border-border/50">
-          <div className="flex items-center justify-between">
+          {/* Total Vaulted Profits Display */}
+          {Object.values(profitVault).reduce((sum, v) => sum + v, 0) > 0 && (
+            <div className="flex justify-between items-center text-[10px] border-t border-border/50 pt-2 mt-2">
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <Lock className="h-3 w-3 text-primary" />
+                Total Vaulted:
+              </span>
+              <span className="font-mono text-primary font-bold">
+                ${Object.values(profitVault).reduce((sum, v) => sum + v, 0).toFixed(2)}
+              </span>
+            </div>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* AI Recommendation - Collapsible (default collapsed) */}
+      <Collapsible open={aiRecommendationOpen} onOpenChange={setAiRecommendationOpen} className="card-terminal p-3 mb-3 flex-shrink-0">
+        <CollapsibleTrigger asChild>
+          <div className="flex items-center justify-between cursor-pointer hover:bg-secondary/30 -m-3 p-3 rounded">
             <div className="flex items-center gap-2">
               <Brain className="w-4 h-4 text-primary" />
               <span className="text-xs font-medium text-foreground">AI Daily Target Recommendation</span>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 text-xs gap-1"
-              onClick={() => {
-                const floatData = usdtFloat.map(f => ({
-                  exchange: f.exchange,
-                  amount: f.amount,
-                  baseBalance: 0,
-                  availableFloat: f.amount,
-                }));
-                fetchAITargetRecommendation({
-                  usdtFloat: floatData,
-                  historicalHitRate: combinedHitRate,
-                  averageProfitPerTrade: botConfig.profitPerTrade,
-                  tradingHoursPerDay: 8,
-                  riskTolerance: 'moderate',
-                });
-              }}
-              disabled={aiTargetLoading || usdtFloat.length === 0}
-            >
-              {aiTargetLoading ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Sparkles className="w-3 h-3" />
+              {aiTargetRecommendation && (
+                <Badge variant="outline" className="text-[8px] h-4 border-primary text-primary">
+                  ${aiTargetRecommendation.dailyTarget}/day
+                </Badge>
               )}
-              Get AI Recommendation
-            </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 text-xs gap-1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const floatData = usdtFloat.map(f => ({
+                    exchange: f.exchange,
+                    amount: f.amount,
+                    baseBalance: 0,
+                    availableFloat: f.amount,
+                  }));
+                  fetchAITargetRecommendation({
+                    usdtFloat: floatData,
+                    historicalHitRate: combinedHitRate,
+                    averageProfitPerTrade: botConfig.profitPerTrade,
+                    tradingHoursPerDay: 8,
+                    riskTolerance: 'moderate',
+                  });
+                  setAiRecommendationOpen(true);
+                }}
+                disabled={aiTargetLoading || usdtFloat.length === 0}
+              >
+                {aiTargetLoading ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3 h-3" />
+                )}
+                Get
+              </Button>
+              {aiRecommendationOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </div>
           </div>
+        </CollapsibleTrigger>
 
-          {aiTargetRecommendation && (
-            <div className="mt-2 p-2 rounded bg-primary/10 border border-primary/20">
+        <CollapsibleContent className="mt-3">
+          {aiTargetRecommendation ? (
+            <div className="p-2 rounded bg-primary/10 border border-primary/20">
               <div className="grid grid-cols-3 gap-2 mb-2">
                 <div className="text-center">
                   <div className="text-[10px] text-muted-foreground">Daily Target</div>
@@ -1019,17 +1008,22 @@ export default function Bots() {
                 Apply Recommendation
               </Button>
             </div>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center py-2">
+              Click "Get" to fetch AI recommendation based on your current balance.
+            </p>
           )}
-        </div>
-      </div>
+        </CollapsibleContent>
+      </Collapsible>
 
-      {/* Main Content Grid - Hidden on mobile, use drawer instead */}
+      {/* Main Content Grid - Scrollable */}
       <div className={cn(
-        "flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3",
+        "flex-1 min-h-0 overflow-y-auto",
         isMobile && "hidden"
       )}>
-        {/* Left Column - Spot and Leverage Bot Cards */}
-        <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3">
+          {/* Left Column - Spot and Leverage Bot Cards */}
+          <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-hidden">
           <BotCard
             botType="spot"
             existingBot={spotBot}
@@ -1132,8 +1126,8 @@ export default function Bots() {
             </div>
           </div>
         </div>
+        </div>
       </div>
-
       {/* Analysis Modal */}
       <BotAnalysisModal
         open={showAnalysisModal}

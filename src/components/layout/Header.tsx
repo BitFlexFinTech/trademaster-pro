@@ -70,20 +70,12 @@ export function Header() {
     setTradingMode(checked ? 'live' : 'demo');
   };
 
-  // Use real prices or fallback to mock
-  const tickerData = prices.length > 0 
-    ? prices.map(p => ({
-        symbol: p.symbol,
-        price: p.price,
-        change: p.change_24h || 0,
-      }))
-    : [
-        { symbol: 'BTC', price: 97000, change: 2.5 },
-        { symbol: 'ETH', price: 3400, change: -1.2 },
-        { symbol: 'SOL', price: 180, change: 5.3 },
-        { symbol: 'XRP', price: 2.1, change: 3.8 },
-        { symbol: 'ADA', price: 0.95, change: -0.5 },
-      ];
+  // Use real prices only - no mock fallback
+  const tickerData = prices.map(p => ({
+    symbol: p.symbol,
+    price: p.price,
+    change: p.change_24h || 0,
+  }));
 
   // Duplicate ticker data for seamless scrolling
   const duplicatedTicker = [...tickerData, ...tickerData];
@@ -162,23 +154,29 @@ export function Header() {
 
         {/* Ticker Tape */}
         <div className="flex-1 overflow-hidden mx-4">
-          <div className="ticker-scroll flex items-center gap-6 whitespace-nowrap">
-            {duplicatedTicker.map((item, index) => (
-              <div key={`${item.symbol}-${index}`} className="flex items-center gap-2">
-                <span className="font-medium text-foreground">{item.symbol}</span>
-                <span className="text-muted-foreground font-mono">
-                  ${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span
-                  className={`font-mono text-sm ${
-                    item.change >= 0 ? 'text-primary' : 'text-destructive'
-                  }`}
-                >
-                  {item.change >= 0 ? '+' : ''}{item.change.toFixed(2)}%
-                </span>
-              </div>
-            ))}
-          </div>
+          {tickerData.length === 0 ? (
+            <div className="flex items-center gap-6 text-muted-foreground text-sm">
+              <span className="animate-pulse">Loading prices...</span>
+            </div>
+          ) : (
+            <div className="ticker-scroll flex items-center gap-6 whitespace-nowrap">
+              {duplicatedTicker.map((item, index) => (
+                <div key={`${item.symbol}-${index}`} className="flex items-center gap-2">
+                  <span className="font-medium text-foreground">{item.symbol}</span>
+                  <span className="text-muted-foreground font-mono">
+                    ${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  <span
+                    className={`font-mono text-sm ${
+                      item.change >= 0 ? 'text-primary' : 'text-destructive'
+                    }`}
+                  >
+                    {item.change >= 0 ? '+' : ''}{item.change.toFixed(2)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Right Side */}

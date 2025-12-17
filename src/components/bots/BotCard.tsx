@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
@@ -784,180 +785,174 @@ export function BotCard({
         </div>
       </div>
 
-      {/* Trading Strategy Toggle */}
-      <div className="mb-3">
-        <Label className="text-[10px] text-muted-foreground mb-1 block">Trading Strategy</Label>
-        <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-0.5">
-          <Button
-            size="sm"
-            variant={tradingStrategy === 'profit' ? 'default' : 'ghost'}
-            onClick={() => setTradingStrategy('profit')}
-            className="h-6 text-[10px] px-2 flex-1"
-            disabled={isRunning}
-          >
-            <Zap className="w-3 h-3 mr-1" />
-            Profit-Focused
-          </Button>
-          <Button
-            size="sm"
-            variant={tradingStrategy === 'signal' ? 'default' : 'ghost'}
-            onClick={() => setTradingStrategy('signal')}
-            className="h-6 text-[10px] px-2 flex-1"
-            disabled={isRunning}
-          >
-            <Brain className="w-3 h-3 mr-1" />
-            AI Signals
-          </Button>
-        </div>
-        <p className="text-[9px] text-muted-foreground mt-1">
-          {tradingStrategy === 'profit' 
-            ? `Long & Short trades, min $${MIN_NET_PROFIT.toFixed(2)} profit/trade`
-            : 'Filters trades using AI signals for 80%+ hit rate'}
-        </p>
-      </div>
-
-      {/* Configuration Row 1: Daily Target & Profit Per Trade */}
-      <div className="grid grid-cols-2 gap-3 mb-2">
-        <div>
-          <label className="text-[10px] text-muted-foreground block mb-1">Daily Target ($)</label>
-          <Input
-            type="number"
-            value={dailyTarget}
-            onChange={(e) => setDailyTarget(Number(e.target.value))}
-            disabled={isRunning}
-            className="h-8 text-xs font-mono"
-            min={10}
-          />
-        </div>
-        <div>
-          <label className="text-[10px] text-muted-foreground block mb-1">Profit/Trade ($)</label>
-          <Input
-            type="number"
-            value={profitPerTrade}
-            onChange={(e) => {
-              const val = Math.max(MIN_NET_PROFIT, Number(e.target.value));
-              setProfitPerTrade(val);
-              // Auto-update stop loss to 20% of profit
-              onConfigChange?.('perTradeStopLoss', val * 0.2);
-            }}
-            disabled={isRunning}
-            className="h-8 text-xs font-mono"
-            min={MIN_NET_PROFIT}
-            step={0.10}
-          />
-        </div>
-      </div>
-
-      {/* Configuration Row 2: Amount Per Trade & Trade Speed */}
-      <div className="grid grid-cols-2 gap-3 mb-2">
-        <div>
-          <label className="text-[10px] text-muted-foreground block mb-1">Amount/Trade ($)</label>
-          <Input
-            type="number"
-            value={localAmountPerTrade}
-            onChange={(e) => {
-              const val = Math.max(20, Math.min(5000, Number(e.target.value)));
-              setLocalAmountPerTrade(val);
-              onConfigChange?.('amountPerTrade', val);
-            }}
-            disabled={isRunning}
-            className="h-8 text-xs font-mono"
-            min={20}
-            max={5000}
-            step={10}
-          />
-        </div>
-        <div>
-          <label className="text-[10px] text-muted-foreground block mb-1 flex items-center gap-1">
-            <Timer className="w-3 h-3" /> Speed (ms)
-          </label>
-          <Input
-            type="number"
-            value={localTradeIntervalMs}
-            onChange={(e) => {
-              // Demo: min 100ms, Live: min 5000ms
-              const minInterval = tradingMode === 'live' ? 5000 : 100;
-              const val = Math.max(minInterval, Math.min(60000, Number(e.target.value)));
-              setLocalTradeIntervalMs(val);
-              onConfigChange?.('tradeIntervalMs', val);
-            }}
-            disabled={isRunning}
-            className="h-8 text-xs font-mono"
-            min={tradingMode === 'live' ? 5000 : 100}
-            max={60000}
-            step={100}
-          />
-        </div>
-      </div>
-
-      {/* Configuration Row 3: Stop Losses */}
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          <label className="text-[10px] text-muted-foreground block mb-1">Daily Stop Loss ($)</label>
-          <Input
-            type="number"
-            value={dailyStopLoss}
-            onChange={(e) => onConfigChange?.('dailyStopLoss', Math.max(1, Number(e.target.value)))}
-            disabled={isAnyBotRunning}
-            className="h-8 text-xs font-mono"
-            min={1}
-            step={1}
-          />
-        </div>
-        <div>
-          <label className="text-[10px] text-muted-foreground block mb-1">Stop Loss/Trade ($) 🔒</label>
-          <Input
-            type="number"
-            value={calculatedStopLoss.toFixed(2)}
-            disabled
-            className="h-8 text-xs font-mono bg-muted"
-            title="Auto-calculated: 20% of Profit/Trade (80% lower)"
-          />
-          <p className="text-[8px] text-muted-foreground mt-0.5">Auto: 20% of profit</p>
-        </div>
-      </div>
-
-      {/* Leverage Sliders (only for leverage bot) - Compact */}
-      {botType === 'leverage' && (
-        <div className="mb-2 space-y-1">
-          <label className="text-[9px] text-muted-foreground block">Leverage by Exchange</label>
-          {EXCHANGE_CONFIGS.slice(0, 3).map(ex => (
-            <div key={ex.name} className="flex items-center gap-1">
-              <span className="text-[9px] text-foreground w-12 truncate">{ex.name}</span>
-              <Slider
-                value={[leverages[ex.name] || 1]}
-                onValueChange={(v) => setLeverages(prev => ({ ...prev, [ex.name]: v[0] }))}
-                min={1}
-                max={ex.maxLeverage}
-                step={1}
-                disabled={isRunning}
-                className="flex-1"
-              />
-              <span className="text-[9px] font-mono text-muted-foreground w-5">{leverages[ex.name]}×</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Recommended USDT Allocation - Compact */}
-      {!isRunning && (
+      {/* Scrollable Configuration Section */}
+      <ScrollArea className="flex-1 min-h-0 max-h-[200px] pr-2">
+        {/* Trading Strategy Toggle */}
         <div className="mb-2">
-          <label className="text-[9px] text-muted-foreground block mb-1">
-            Recommended: ${suggestedUSDT.toLocaleString()}
-          </label>
-          <div className="bg-secondary/30 rounded overflow-hidden text-[9px]">
-            {EXCHANGE_CONFIGS.slice(0, 2).map(ex => {
-              const allocation = Math.round(suggestedUSDT * EXCHANGE_ALLOCATION_PERCENTAGES[ex.confidence]);
-              return (
-                <div key={ex.name} className="flex items-center justify-between px-2 py-1 border-t border-border/50 first:border-t-0">
-                  <span className="text-foreground">{ex.name}</span>
-                  <span className="font-mono text-primary">${allocation.toLocaleString()}</span>
-                </div>
-              );
-            })}
+          <Label className="text-[10px] text-muted-foreground mb-1 block">Trading Strategy</Label>
+          <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-0.5">
+            <Button
+              size="sm"
+              variant={tradingStrategy === 'profit' ? 'default' : 'ghost'}
+              onClick={() => setTradingStrategy('profit')}
+              className="h-6 text-[10px] px-2 flex-1"
+              disabled={isRunning}
+            >
+              <Zap className="w-3 h-3 mr-1" />
+              Profit
+            </Button>
+            <Button
+              size="sm"
+              variant={tradingStrategy === 'signal' ? 'default' : 'ghost'}
+              onClick={() => setTradingStrategy('signal')}
+              className="h-6 text-[10px] px-2 flex-1"
+              disabled={isRunning}
+            >
+              <Brain className="w-3 h-3 mr-1" />
+              AI Signals
+            </Button>
           </div>
         </div>
-      )}
+
+        {/* Configuration Row 1: Daily Target & Profit Per Trade */}
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">Daily Target ($)</label>
+            <Input
+              type="number"
+              value={dailyTarget}
+              onChange={(e) => setDailyTarget(Number(e.target.value))}
+              disabled={isRunning}
+              className="h-7 text-xs font-mono"
+              min={10}
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">Profit/Trade ($)</label>
+            <Input
+              type="number"
+              value={profitPerTrade}
+              onChange={(e) => {
+                const val = Math.max(MIN_NET_PROFIT, Number(e.target.value));
+                setProfitPerTrade(val);
+                onConfigChange?.('perTradeStopLoss', val * 0.2);
+              }}
+              disabled={isRunning}
+              className="h-7 text-xs font-mono"
+              min={MIN_NET_PROFIT}
+              step={0.10}
+            />
+          </div>
+        </div>
+
+        {/* Configuration Row 2: Amount Per Trade & Trade Speed */}
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">Amount ($)</label>
+            <Input
+              type="number"
+              value={localAmountPerTrade}
+              onChange={(e) => {
+                const val = Math.max(20, Math.min(5000, Number(e.target.value)));
+                setLocalAmountPerTrade(val);
+                onConfigChange?.('amountPerTrade', val);
+              }}
+              disabled={isRunning}
+              className="h-7 text-xs font-mono"
+              min={20}
+              max={5000}
+              step={10}
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1 flex items-center gap-1">
+              <Timer className="w-3 h-3" /> Speed (ms)
+            </label>
+            <Input
+              type="number"
+              value={localTradeIntervalMs}
+              onChange={(e) => {
+                const minInterval = tradingMode === 'live' ? 5000 : 100;
+                const val = Math.max(minInterval, Math.min(60000, Number(e.target.value)));
+                setLocalTradeIntervalMs(val);
+                onConfigChange?.('tradeIntervalMs', val);
+              }}
+              disabled={isRunning}
+              className="h-7 text-xs font-mono"
+              min={tradingMode === 'live' ? 5000 : 100}
+              max={60000}
+              step={100}
+            />
+          </div>
+        </div>
+
+        {/* Configuration Row 3: Stop Losses */}
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">Daily Stop ($)</label>
+            <Input
+              type="number"
+              value={dailyStopLoss}
+              onChange={(e) => onConfigChange?.('dailyStopLoss', Math.max(1, Number(e.target.value)))}
+              disabled={isAnyBotRunning}
+              className="h-7 text-xs font-mono"
+              min={1}
+              step={1}
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">SL/Trade 🔒</label>
+            <Input
+              type="number"
+              value={calculatedStopLoss.toFixed(2)}
+              disabled
+              className="h-7 text-xs font-mono bg-muted"
+            />
+          </div>
+        </div>
+
+        {/* Leverage Sliders (only for leverage bot) - Compact */}
+        {botType === 'leverage' && (
+          <div className="mb-2 space-y-1">
+            <label className="text-[9px] text-muted-foreground block">Leverage</label>
+            {EXCHANGE_CONFIGS.slice(0, 3).map(ex => (
+              <div key={ex.name} className="flex items-center gap-1">
+                <span className="text-[9px] text-foreground w-12 truncate">{ex.name}</span>
+                <Slider
+                  value={[leverages[ex.name] || 1]}
+                  onValueChange={(v) => setLeverages(prev => ({ ...prev, [ex.name]: v[0] }))}
+                  min={1}
+                  max={ex.maxLeverage}
+                  step={1}
+                  disabled={isRunning}
+                  className="flex-1"
+                />
+                <span className="text-[9px] font-mono text-muted-foreground w-5">{leverages[ex.name]}×</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Recommended USDT Allocation - Compact */}
+        {!isRunning && (
+          <div className="mb-2">
+            <label className="text-[9px] text-muted-foreground block mb-1">
+              Recommended: ${suggestedUSDT.toLocaleString()}
+            </label>
+            <div className="bg-secondary/30 rounded overflow-hidden text-[9px]">
+              {EXCHANGE_CONFIGS.slice(0, 2).map(ex => {
+                const allocation = Math.round(suggestedUSDT * EXCHANGE_ALLOCATION_PERCENTAGES[ex.confidence]);
+                return (
+                  <div key={ex.name} className="flex items-center justify-between px-2 py-0.5 border-t border-border/50 first:border-t-0">
+                    <span className="text-foreground">{ex.name}</span>
+                    <span className="font-mono text-primary">${allocation.toLocaleString()}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </ScrollArea>
 
       {/* Action Buttons */}
       <div className="flex gap-2 mt-auto">
