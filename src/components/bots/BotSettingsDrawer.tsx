@@ -14,7 +14,8 @@ interface BotSettings {
   perTradeStopLoss: number;
   profitPerTrade: number;
   amountPerTrade: number;
-  maxPositionSize: number; // NEW: configurable max trade size
+  tradeIntervalMs: number;
+  maxPositionSize: number;
   focusPairs: string[];
   leverageDefaults: Record<string, number>;
 }
@@ -232,9 +233,24 @@ export function BotSettingsDrawer({ settings, onSettingsChange, disabled }: BotS
                   className="h-8 text-sm"
                 />
               </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Trade Speed (ms)</Label>
+                <Input
+                  type="number"
+                  value={localSettings.tradeIntervalMs}
+                  onChange={(e) => setLocalSettings(prev => ({ 
+                    ...prev, 
+                    tradeIntervalMs: Math.max(100, Math.min(60000, parseInt(e.target.value) || 200))
+                  }))}
+                  min={100}
+                  max={60000}
+                  step={100}
+                  className="h-8 text-sm"
+                />
+                <span className="text-[10px] text-muted-foreground">100-60000ms (Demo: 100+, Live: 5000+)</span>
+              </div>
             </div>
           </div>
-
           {/* Leverage Defaults */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">

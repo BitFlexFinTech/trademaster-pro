@@ -66,17 +66,26 @@ export default function Bots() {
 
   // Bot configuration state for applying recommendations
   const [botConfig, setBotConfig] = useState({
-    profitPerTrade: 1,
-    amountPerTrade: 100,
-    maxPositionSize: 100, // NEW: configurable max trade size
+    profitPerTrade: 0.50,           // Minimum $0.50 profit per trade
+    amountPerTrade: 100,            // $100 per trade default
+    tradeIntervalMs: 200,           // 200ms for demo, enforced 5000ms+ for live
+    maxPositionSize: 100,
     dailyStopLoss: 5,
-    perTradeStopLoss: 0.60,
+    perTradeStopLoss: 0.10,         // Auto-calculated: profitPerTrade * 0.2
     focusPairs: [...TOP_PAIRS],
     leverageDefaults: EXCHANGE_CONFIGS.reduce((acc, config) => ({
       ...acc,
       [config.name]: Math.min(3, config.maxLeverage),
     }), {} as Record<string, number>),
   });
+
+  // Auto-calculate stop loss when profit per trade changes (80% lower = 20% of profit)
+  useEffect(() => {
+    setBotConfig(prev => ({
+      ...prev,
+      perTradeStopLoss: prev.profitPerTrade * 0.2
+    }));
+  }, [botConfig.profitPerTrade]);
 
   // Find spot and leverage bots separately
   const spotBot = bots.find(b => b.botName === 'GreenBack Spot' && b.status === 'running');
@@ -590,6 +599,8 @@ export default function Bots() {
             usdtFloat={usdtFloat}
             dailyStopLoss={botConfig.dailyStopLoss}
             perTradeStopLoss={botConfig.perTradeStopLoss}
+            amountPerTrade={botConfig.amountPerTrade}
+            tradeIntervalMs={botConfig.tradeIntervalMs}
             onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
             isAnyBotRunning={!!spotBot || !!leverageBot}
           />
@@ -604,6 +615,8 @@ export default function Bots() {
             usdtFloat={usdtFloat}
             dailyStopLoss={botConfig.dailyStopLoss}
             perTradeStopLoss={botConfig.perTradeStopLoss}
+            amountPerTrade={botConfig.amountPerTrade}
+            tradeIntervalMs={botConfig.tradeIntervalMs}
             onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
             isAnyBotRunning={!!spotBot || !!leverageBot}
           />
