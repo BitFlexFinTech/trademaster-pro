@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useAuth } from '@/hooks/useAuth';
 import { useTradingMode, DEFAULT_VIRTUAL_BALANCE } from '@/contexts/TradingModeContext';
@@ -9,6 +10,8 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 import { DemoPortfolioSettings } from '@/components/settings/DemoPortfolioSettings';
+import { AuditLogModal } from '@/components/settings/AuditLogModal';
+import { SystemHealthCheck } from '@/components/settings/SystemHealthCheck';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,11 +46,14 @@ interface ExchangeConnection {
 
 export default function DemoAccount() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { wallets, supportedWallets, connectWallet, connecting, loading: walletsLoading } = useWalletConnect();
   const { virtualBalance, resetDemo } = useTradingMode();
   const [exchanges, setExchanges] = useState<ExchangeConnection[]>([]);
   const [loadingExchanges, setLoadingExchanges] = useState(true);
   const [resetting, setResetting] = useState(false);
+  const [showAuditLog, setShowAuditLog] = useState(false);
+  const [showHealthCheck, setShowHealthCheck] = useState(false);
 
   const handleResetDemo = async () => {
     if (!user) return;
@@ -332,19 +338,35 @@ export default function DemoAccount() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
-              <Button variant="outline" className="h-16 flex-col gap-2">
+              <Button 
+                variant="outline" 
+                className="h-16 flex-col gap-2"
+                onClick={() => navigate('/sandbox')}
+              >
                 <FlaskConical className="w-5 h-5" />
                 <span className="text-xs">Sandbox Mode</span>
               </Button>
-              <Button variant="outline" className="h-16 flex-col gap-2">
+              <Button 
+                variant="outline" 
+                className="h-16 flex-col gap-2"
+                onClick={() => setShowAuditLog(true)}
+              >
                 <FileText className="w-5 h-5" />
                 <span className="text-xs">Audit Log</span>
               </Button>
-              <Button variant="outline" className="h-16 flex-col gap-2">
+              <Button 
+                variant="outline" 
+                className="h-16 flex-col gap-2"
+                onClick={() => setShowHealthCheck(true)}
+              >
                 <RefreshCw className="w-5 h-5" />
                 <span className="text-xs">Bug Scan</span>
               </Button>
-              <Button variant="outline" className="h-16 flex-col gap-2">
+              <Button 
+                variant="outline" 
+                className="h-16 flex-col gap-2"
+                onClick={() => navigate('/analytics')}
+              >
                 <Eye className="w-5 h-5" />
                 <span className="text-xs">View All</span>
               </Button>
@@ -355,6 +377,10 @@ export default function DemoAccount() {
           </div>
         </div>
       </ScrollArea>
+
+      {/* Modals */}
+      <AuditLogModal open={showAuditLog} onOpenChange={setShowAuditLog} />
+      <SystemHealthCheck open={showHealthCheck} onOpenChange={setShowHealthCheck} />
     </div>
   );
 }

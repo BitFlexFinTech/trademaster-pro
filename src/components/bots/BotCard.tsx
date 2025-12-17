@@ -129,21 +129,38 @@ export function BotCard({
 
     // ===== LIVE MODE: Execute real trades via edge function =====
     if (tradingMode === 'live') {
-      console.log('🔴 LIVE MODE: Executing real trades via edge function every 5 seconds');
+      console.log('🔴 LIVE MODE: Executing real trades via edge function every 15 seconds');
       
       let isCancelled = false;
+      const exchangeCooldowns = new Map<string, number>(); // Track rate-limited exchanges
+      let consecutiveErrors = 0;
+      const MAX_CONSECUTIVE_ERRORS = 3;
       
       const executeLiveTrade = async () => {
         if (isCancelled) return;
         
         try {
+          // Filter out exchanges on cooldown (rate limited)
+          const now = Date.now();
+          const availableExchanges = EXCHANGE_CONFIGS
+            .map(e => e.name)
+            .filter(name => {
+              const cooldownUntil = exchangeCooldowns.get(name) || 0;
+              return now > cooldownUntil;
+            });
+          
+          if (availableExchanges.length === 0) {
+            console.log('⏳ All exchanges on cooldown, waiting...');
+            return;
+          }
+          
           console.log('📤 Calling execute-bot-trade edge function...');
           const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
             body: {
               botId: existingBot.id,
               mode: botType,
               profitTarget: profitPerTrade,
-              exchanges: EXCHANGE_CONFIGS.map(e => e.name),
+              exchanges: availableExchanges,
               leverages,
               isSandbox: false,
               maxPositionSize: 100,
@@ -152,8 +169,26 @@ export function BotCard({
           
           if (error) {
             console.error('❌ Live trade error:', error);
+            consecutiveErrors++;
+            
+            // Auto-pause after too many consecutive errors
+            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+              const { toast } = await import('sonner');
+              toast.error('Bot Auto-Paused', {
+                description: `${MAX_CONSECUTIVE_ERRORS} consecutive errors. Check exchange connections.`,
+                action: {
+                  label: 'Resume',
+                  onClick: () => {
+                    consecutiveErrors = 0;
+                  }
+                }
+              });
+            }
             return;
           }
+          
+          // Reset error counter on success
+          consecutiveErrors = 0;
           
           console.log('✅ Live trade result:', data);
           
@@ -162,11 +197,22 @@ export function BotCard({
             console.warn('⚠️ Trade not executed:', data.reason || data.error);
             const { toast } = await import('sonner');
             
+            // Handle rate limiting - add exchange to cooldown
+            if (data.error?.includes('rate') || data.error?.includes('Rate') || data.error?.includes('-1015')) {
+              const exchange = data.exchange || availableExchanges[0];
+              exchangeCooldowns.set(exchange, Date.now() + 60000); // 60s cooldown
+              toast.warning(`${exchange} rate limited`, {
+                description: 'Temporarily pausing trades on this exchange.',
+                id: `rate-limit-${exchange}`,
+              });
+              return;
+            }
+            
             // Show error toast but don't spam - only show once per error type
             if (data.error?.includes('Insufficient') || data.error?.includes('Balance below')) {
               toast.error('Insufficient Balance', {
                 description: data.reason || 'Deposit more USDT to your exchange to continue trading.',
-                id: 'insufficient-balance', // Prevent duplicate toasts
+                id: 'insufficient-balance',
               });
             }
             return;
@@ -208,9 +254,9 @@ export function BotCard({
         }
       };
       
-      // Execute first trade immediately, then every 5 seconds
+      // Execute first trade immediately, then every 15 seconds (reduced from 5s to avoid rate limits)
       executeLiveTrade();
-      const interval = setInterval(executeLiveTrade, 5000);
+      const interval = setInterval(executeLiveTrade, 15000);
       
       return () => {
         console.log('🛑 STOPPING: Live trade execution loop cleanup');

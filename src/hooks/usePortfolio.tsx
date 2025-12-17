@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
@@ -18,7 +18,7 @@ interface PortfolioData {
   change24h: number;
   changePercent: number;
   holdings: Holding[];
-  availableUSDT: number; // NEW: Available USDT for trading
+  availableUSDT: number;
 }
 
 export function usePortfolio() {
@@ -34,38 +34,48 @@ export function usePortfolio() {
     availableUSDT: 0,
   });
   const [loading, setLoading] = useState(true);
+  
+  // Request deduplication - prevent concurrent fetches
+  const fetchingRef = useRef(false);
 
   const fetchPortfolio = useCallback(async () => {
-    // Demo mode - use synthetic portfolio based on virtualBalance + real prices
-    if (tradingMode === 'demo') {
-      setLoading(true);
-      
-      // Generate demo holdings from virtual balance with real prices
-      const demoHoldings = generateDemoPortfolio(virtualBalance, prices);
-      const { totalValue, change24h, changePercent } = calculateDemoPortfolioValue(virtualBalance, prices);
-      
-      // Calculate available USDT from demo allocation
-      const availableUSDT = virtualBalance * (demoAllocation.USDT / 100);
-      
-      setPortfolio({
-        totalValue,
-        change24h,
-        changePercent,
-        holdings: demoHoldings,
-        availableUSDT,
-      });
-      
-      setLoading(false);
+    // Prevent concurrent fetches (request deduplication)
+    if (fetchingRef.current) {
+      console.log('Portfolio fetch already in progress, skipping...');
       return;
     }
-
-    // Live mode - fetch from database
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
+    fetchingRef.current = true;
+    
     try {
+      // Demo mode - use synthetic portfolio based on virtualBalance + real prices
+      if (tradingMode === 'demo') {
+        setLoading(true);
+        
+        // Generate demo holdings from virtual balance with real prices
+        const demoHoldings = generateDemoPortfolio(virtualBalance, prices);
+        const { totalValue, change24h, changePercent } = calculateDemoPortfolioValue(virtualBalance, prices);
+        
+        // Calculate available USDT from demo allocation
+        const availableUSDT = virtualBalance * (demoAllocation.USDT / 100);
+        
+        setPortfolio({
+          totalValue,
+          change24h,
+          changePercent,
+          holdings: demoHoldings,
+          availableUSDT,
+        });
+        
+        setLoading(false);
+        return;
+      }
+
+      // Live mode - fetch from database
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
       // Fetch user holdings
       const { data: holdings, error: holdingsError } = await supabase
         .from('portfolio_holdings')
@@ -107,7 +117,7 @@ export function usePortfolio() {
               symbol: holding.asset_symbol,
               quantity: holding.quantity,
               value,
-              percent: 0, // Will calculate after total
+              percent: 0,
               averageBuyPrice: holding.average_buy_price || 0,
             });
           }
@@ -126,13 +136,14 @@ export function usePortfolio() {
         totalValue,
         change24h: totalChange,
         changePercent: totalValue > 0 ? (totalChange / (totalValue - totalChange)) * 100 : 0,
-        holdings: calculatedHoldings.slice(0, 5), // Top 5
+        holdings: calculatedHoldings.slice(0, 5),
         availableUSDT,
       });
     } catch (error) {
       console.error('Error fetching portfolio:', error);
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
   }, [user, tradingMode, virtualBalance, prices, demoAllocation]);
 
