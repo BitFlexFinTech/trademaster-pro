@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useBotRuns } from '@/hooks/useBotRuns';
 import { useAuth } from '@/hooks/useAuth';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
-import { useTradingMode, MAX_USDT_ALLOCATION } from '@/contexts/TradingModeContext';
+import { useTradingMode, MAX_USDT_ALLOCATION, DEFAULT_BASE_BALANCE } from '@/contexts/TradingModeContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useConnectedExchanges } from '@/hooks/useConnectedExchanges';
 import { useNavigate } from 'react-router-dom';
@@ -10,7 +10,8 @@ import { useAIStrategyMonitor } from '@/hooks/useAIStrategyMonitor';
 import { useRecommendationHistory } from '@/hooks/useRecommendationHistory';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff, Download, Power } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff, Download, Power, Lock, Unlock, Edit2 } from 'lucide-react';
 import { cn, exportToCSV } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { BotHistory } from '@/components/bots/BotHistory';
@@ -26,10 +27,13 @@ import { BotSettingsDrawer } from '@/components/bots/BotSettingsDrawer';
 import { AIStrategyPanel } from '@/components/bots/AIStrategyPanel';
 import { toast } from 'sonner';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface UsdtFloat {
   exchange: string;
   amount: number;
+  baseBalance: number;
+  availableFloat: number;
   warning: boolean;
 }
 
@@ -54,17 +58,38 @@ export default function Bots() {
     analyzedBotName,
   } = useBotRuns();
   const { prices, wsConnected, getPrice } = useRealtimePrices();
-  const { mode: tradingMode, setMode: setTradingMode, virtualBalance, triggerSync, lastSyncTime } = useTradingMode();
+  const { mode: tradingMode, setMode: setTradingMode, virtualBalance, triggerSync, lastSyncTime, baseBalancePerExchange, setBaseBalancePerExchange, getAvailableFloat } = useTradingMode();
   const { connectedExchangeNames, hasConnections, needsReconnection, hasValidCredentials } = useConnectedExchanges();
   const navigate = useNavigate();
   
-
   const [usdtFloat, setUsdtFloat] = useState<UsdtFloat[]>([]);
   const [loadingFloat, setLoadingFloat] = useState(true);
   const [showComparison, setShowComparison] = useState(false);
   const [closingPositions, setClosingPositions] = useState(false);
   const [killingAll, setKillingAll] = useState(false);
   const [exportingTrades, setExportingTrades] = useState(false);
+  const [editingBaseBalance, setEditingBaseBalance] = useState<string | null>(null);
+  const [tempBaseBalance, setTempBaseBalance] = useState<number>(DEFAULT_BASE_BALANCE);
+
+  // Debounced prices for stable USDT calculation (prevent flashing)
+  const [debouncedPrices, setDebouncedPrices] = useState(prices);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Debounce price updates - only update every 5 seconds
+  useEffect(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedPrices(prices);
+    }, 5000);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [prices]);
 
   // Bot configuration state for applying recommendations
   const [botConfig, setBotConfig] = useState({
@@ -109,11 +134,22 @@ export default function Bots() {
     ? ((spotBot?.tradesExecuted || 0) * (spotBot?.hitRate || 0) + (leverageBot?.tradesExecuted || 0) * (leverageBot?.hitRate || 0)) / tradesExecuted
     : 70;
 
-  // AI Strategy Monitor hook
+  // Build USDT float per exchange map for AI monitor
+  const usdtFloatPerExchange = useMemo(() => {
+    const map: Record<string, number> = {};
+    usdtFloat.forEach(f => {
+      map[f.exchange] = f.amount;
+    });
+    return map;
+  }, [usdtFloat]);
+
+  // AI Strategy Monitor hook with PhD-level optimization
   const {
     recommendations,
     strategyMetrics,
     suggestedPositionSize,
+    optimalProfitPerExchange,
+    tradeSpeedRecommendation,
     applyRecommendation: applyAIRecommendation,
     dismissRecommendation,
   } = useAIStrategyMonitor({
@@ -126,6 +162,9 @@ export default function Bots() {
     hitRate: combinedHitRate,
     accountBalance: tradingMode === 'demo' ? virtualBalance : usdtFloat.reduce((sum, f) => sum + f.amount, 0),
     currentPositionSize: botConfig.amountPerTrade,
+    currentTradeIntervalMs: botConfig.tradeIntervalMs,
+    baseBalancePerExchange,
+    usdtFloatPerExchange,
   });
 
   // Recommendation history for undo functionality
@@ -134,13 +173,15 @@ export default function Bots() {
     addToHistory,
     removeFromHistory,
   } = useRecommendationHistory();
+
+  // Debounced USDT calculation to prevent flashing
   const suggestedUSDT = useMemo(() => {
     const dailyTarget = 40;
     const profitPerTrade = 1;
 
-    // Use real volatility from prices
-    const avgVolatility = prices.length > 0
-      ? prices.slice(0, 10).reduce((sum, p) => sum + Math.abs(p.change_24h || 0), 0) / Math.min(prices.length, 10) / 24
+    // Use DEBOUNCED prices to prevent flashing
+    const avgVolatility = debouncedPrices.length > 0
+      ? debouncedPrices.slice(0, 10).reduce((sum, p) => sum + Math.abs(p.change_24h || 0), 0) / Math.min(debouncedPrices.length, 10) / 24
       : 0.5;
 
     const avgMovePercent = Math.max(avgVolatility / 100, 0.001);
@@ -150,7 +191,7 @@ export default function Bots() {
     const rawValue = Math.ceil(avgPositionSize * buffer);
     // Cap at MAX_USDT_ALLOCATION ($5000)
     return Math.min(rawValue, MAX_USDT_ALLOCATION);
-  }, [prices, tradingMode]);
+  }, [debouncedPrices, tradingMode]);
 
   // Fetch USDT float
   useEffect(() => {
@@ -176,11 +217,18 @@ export default function Bots() {
 
         // Use active exchanges (connected for Live, all for Demo)
         const exchangeNames = activeExchanges.map(ex => ex.name);
-        setUsdtFloat(exchangeNames.map(ex => ({
-          exchange: ex,
-          amount: floatByExchange[ex] || 0,
-          warning: (floatByExchange[ex] || 0) < suggestedUSDT / exchangeNames.length,
-        })));
+        setUsdtFloat(exchangeNames.map(ex => {
+          const amount = floatByExchange[ex] || 0;
+          const baseBalance = baseBalancePerExchange[ex] || DEFAULT_BASE_BALANCE;
+          const availableFloat = Math.max(0, amount - baseBalance);
+          return {
+            exchange: ex,
+            amount,
+            baseBalance,
+            availableFloat,
+            warning: availableFloat < 50, // Warning if available float is low
+          };
+        }));
       } catch (err) {
         console.error('Error fetching USDT float:', err);
       } finally {
@@ -675,35 +723,74 @@ export default function Bots() {
             <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
             {tradingMode === 'demo' ? (
               activeExchanges.map((config) => {
-                // Use suggestedUSDT (volatility-based) with confidence percentages
                 const allocation = EXCHANGE_ALLOCATION_PERCENTAGES[config.confidence];
                 const amount = Math.round(suggestedUSDT * allocation);
+                const baseBalance = baseBalancePerExchange[config.name] || DEFAULT_BASE_BALANCE;
+                const availableFloat = Math.max(0, amount - baseBalance);
                 return (
-                  <div key={config.name} className="flex flex-col items-center p-2 rounded bg-secondary/50">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                      <span className="text-[10px] text-foreground">{config.name}</span>
-                    </div>
-                    <span className="font-mono text-xs font-bold text-primary">
-                      ${amount.toLocaleString()}
-                    </span>
-                  </div>
+                  <TooltipProvider key={config.name}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex flex-col p-2 rounded bg-secondary/50 transition-all duration-500">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] text-foreground font-medium">{config.name}</span>
+                            <Lock className="w-3 h-3 text-muted-foreground" />
+                          </div>
+                          <div className="flex justify-between text-[9px] text-muted-foreground">
+                            <span>Base:</span>
+                            <span className="font-mono text-destructive">${baseBalance}</span>
+                          </div>
+                          <div className="flex justify-between text-[9px]">
+                            <span className="text-muted-foreground">Available:</span>
+                            <span className={cn("font-mono font-bold transition-all duration-500", availableFloat > 0 ? "text-primary" : "text-muted-foreground")}>
+                              ${availableFloat.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Base ${baseBalance} locked (never traded)</p>
+                        <p className="text-xs text-primary">Only profits above base are used</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 );
               })
             ) : (
               usdtFloat.map((item) => (
-                <div key={item.exchange} className="flex flex-col items-center p-2 rounded bg-secondary/50">
-                  <div className="flex items-center gap-1 mb-0.5">
-                    <span className={cn('w-1.5 h-1.5 rounded-full', item.warning ? 'bg-warning' : 'bg-primary')} />
-                    <span className="text-[10px] text-foreground">{item.exchange}</span>
-                  </div>
-                  <span className={cn('font-mono text-xs font-bold', item.warning ? 'text-warning' : 'text-primary')}>
-                    ${item.amount.toLocaleString()}
-                  </span>
-                </div>
+                <TooltipProvider key={item.exchange}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex flex-col p-2 rounded bg-secondary/50 transition-all duration-500">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] text-foreground font-medium">{item.exchange}</span>
+                          {item.availableFloat > 0 ? (
+                            <Unlock className="w-3 h-3 text-primary" />
+                          ) : (
+                            <Lock className="w-3 h-3 text-destructive" />
+                          )}
+                        </div>
+                        <div className="flex justify-between text-[9px] text-muted-foreground">
+                          <span>Base:</span>
+                          <span className="font-mono text-destructive">${item.baseBalance}</span>
+                        </div>
+                        <div className="flex justify-between text-[9px]">
+                          <span className="text-muted-foreground">Available:</span>
+                          <span className={cn("font-mono font-bold transition-all duration-500", item.availableFloat > 0 ? "text-primary" : "text-muted-foreground")}>
+                            ${item.availableFloat.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Total: ${item.amount} | Base locked: ${item.baseBalance}</p>
+                      <p className="text-xs text-primary">Available for trading: ${item.availableFloat}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               ))
             )}
           </div>
