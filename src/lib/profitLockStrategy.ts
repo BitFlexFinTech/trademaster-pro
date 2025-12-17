@@ -15,7 +15,7 @@ export interface PriceMonitorConfig {
 export interface PriceMonitorResult {
   exitPrice: number;
   isWin: boolean;
-  exitReason: 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'TIME_EXIT' | 'BREAKEVEN';
+  exitReason: 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'TIME_EXIT' | 'BREAKEVEN' | 'CANCELLED';
   holdTimeMs: number;
   maxProfitSeen: number;
   minProfitSeen: number;
@@ -189,11 +189,13 @@ class ProfitLockStrategyManager {
    * Monitor price and determine exit - REAL price-based, NO RANDOM
    * @param getCurrentPrice Function that returns current price
    * @param config Configuration for monitoring
+   * @param shouldCancel Optional callback to check if monitoring should be cancelled
    * @returns Promise that resolves when trade exits
    */
   async monitorPriceForExit(
     getCurrentPrice: () => number | null,
-    config: PriceMonitorConfig
+    config: PriceMonitorConfig,
+    shouldCancel?: () => boolean
   ): Promise<PriceMonitorResult> {
     const startTime = Date.now();
     const {
@@ -221,6 +223,22 @@ class ProfitLockStrategyManager {
     
     return new Promise((resolve) => {
       const checkInterval = setInterval(() => {
+        // CRITICAL: Check cancellation flag FIRST before any other logic
+        if (shouldCancel && shouldCancel()) {
+          clearInterval(checkInterval);
+          const elapsed = Date.now() - startTime;
+          console.log('🛑 Price monitor CANCELLED - bot is stopping');
+          resolve({
+            exitPrice: entryPrice, // Use entry price for cancelled trades
+            isWin: false,
+            exitReason: 'CANCELLED',
+            holdTimeMs: elapsed,
+            maxProfitSeen,
+            minProfitSeen,
+          });
+          return;
+        }
+        
         const currentPrice = getCurrentPrice();
         const elapsed = Date.now() - startTime;
         

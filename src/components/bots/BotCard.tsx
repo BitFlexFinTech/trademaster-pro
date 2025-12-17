@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -110,6 +110,7 @@ export function BotCard({
 
   const [tradingStrategy, setTradingStrategy] = useState<TradingStrategy>('profit');
   const [isExecutingTrade, setIsExecutingTrade] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   
   // Refs for trading loop - CRITICAL: Use refs to avoid dependency issues
   const lastPricesRef = useRef<Record<string, number>>({});
@@ -688,7 +689,8 @@ export function BotCard({
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
-      // CRITICAL: Set stopping flag FIRST - before anything else
+      // CRITICAL: Set stopping flag and UI state FIRST
+      setIsStopping(true);
       isStoppingRef.current = true;
       isCancelledRef.current = true;
       
@@ -698,17 +700,31 @@ export function BotCard({
         intervalRef.current = null;
       }
       
+      // Reset profit lock strategy to cancel any active monitoring
+      profitLockStrategy.reset();
+      
       console.log('🛑 STOP: Flags set, interval cleared, calling onStopBot');
+      
+      // 500ms safeguard timeout - force clear if still running
+      setTimeout(() => {
+        if (intervalRef.current) {
+          console.log('🛑 FORCE STOP: Safeguard timeout triggered');
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+      }, 500);
       
       await onStopBot(existingBot.id);
       setMetrics({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, avgTimeToTP: 12.3, maxDrawdown: 0, tradesPerMinute: 0 });
       metricsRef.current = { currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 };
       setActiveExchange(null);
       resetProgressNotifications();
+      setIsStopping(false);
     } else {
       // Starting bot - reset stop flags
       isStoppingRef.current = false;
       isCancelledRef.current = false;
+      setIsStopping(false);
       resetProgressNotifications();
       
       // INITIALIZE SESSION BALANCE (Balance Floor S) - immutable, never touched
@@ -731,6 +747,47 @@ export function BotCard({
       
       await onStartBot(botName, botType, dailyTarget, profitPerTrade, tradingMode === 'demo');
     }
+  };
+
+  // EMERGENCY STOP - Force-kill ALL trading immediately
+  const handleEmergencyStop = async () => {
+    console.log('🚨🚨🚨 EMERGENCY STOP TRIGGERED 🚨🚨🚨');
+    
+    // Set all stop flags immediately
+    setIsStopping(true);
+    isStoppingRef.current = true;
+    isCancelledRef.current = true;
+    
+    // Force clear ALL possible intervals (brute force)
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    
+    // Clear any possible lingering intervals (up to 10000)
+    for (let i = 0; i < 10000; i++) {
+      clearInterval(i);
+      clearTimeout(i);
+    }
+    
+    // Reset profit lock strategy
+    profitLockStrategy.reset();
+    
+    // Reset all state immediately
+    setActiveExchange(null);
+    setMetrics({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, avgTimeToTP: 12.3, maxDrawdown: 0, tradesPerMinute: 0 });
+    metricsRef.current = { currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 };
+    
+    // Call stop without waiting
+    if (existingBot) {
+      onStopBot(existingBot.id).catch(console.error);
+    }
+    
+    toast.warning('🚨 Emergency Stop Activated', {
+      description: 'All trading activity force-killed immediately.',
+    });
+    
+    setIsStopping(false);
   };
 
   const handleWithdrawProfits = async () => {
@@ -1050,13 +1107,40 @@ export function BotCard({
       {/* Action Buttons */}
       <div className="flex gap-2 mt-auto">
         <Button
-          className={cn('flex-1 gap-2', isRunning ? 'btn-outline-primary' : 'btn-primary')}
+          className={cn('flex-1 gap-2', isRunning && !isStopping ? 'btn-outline-primary' : 'btn-primary')}
           onClick={handleStartStop}
+          disabled={isStopping}
         >
-          {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-          {isRunning ? 'Stop' : 'Start'}
+          {isStopping ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Stopping...
+            </>
+          ) : isRunning ? (
+            <>
+              <Square className="w-4 h-4" />
+              Stop
+            </>
+          ) : (
+            <>
+              <Play className="w-4 h-4" />
+              Start
+            </>
+          )}
         </Button>
-        {isRunning && tradingMode === 'live' && (
+        {/* Emergency KILL button - only show when running */}
+        {isRunning && (
+          <Button
+            variant="destructive"
+            size="icon"
+            onClick={handleEmergencyStop}
+            title="Emergency Stop - Force kill all trading"
+            className="bg-destructive hover:bg-destructive/90"
+          >
+            <OctagonX className="w-4 h-4" />
+          </Button>
+        )}
+        {isRunning && tradingMode === 'live' && !isStopping && (
           <Button
             variant="outline"
             className="gap-1"
@@ -1067,7 +1151,7 @@ export function BotCard({
             Trade
           </Button>
         )}
-        {metrics.currentPnL > 0 && (
+        {metrics.currentPnL > 0 && !isStopping && (
           <Button variant="outline" className="gap-1" onClick={handleWithdrawProfits} disabled={withdrawing}>
             {withdrawing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Banknote className="w-3 h-3" />}
             ${metrics.currentPnL.toFixed(2)}
