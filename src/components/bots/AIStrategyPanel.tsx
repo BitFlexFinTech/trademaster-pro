@@ -247,15 +247,17 @@ export function AIStrategyPanel({
         ) : (
           <ScrollArea className="flex-1">
             <div className="space-y-1.5 pr-2">
-              {recommendations.map((rec) => {
+              {recommendations.map((rec, index) => {
                 const PriorityIcon = getPriorityIcon(rec.priority);
                 const isExpanded = expandedRec === rec.id;
                 const isApplying = applyingId === rec.id;
                 const isApplied = appliedId === rec.id;
+                // Use stable unique key combining type, index, and a slice of creation time
+                const stableKey = `${rec.type}-${index}-${rec.id.slice(-8)}`;
 
                 return (
                   <div
-                    key={rec.id}
+                    key={stableKey}
                     className={cn(
                       'border rounded-lg p-2 transition-all cursor-pointer hover:bg-muted/30',
                       getPriorityColor(rec.priority),

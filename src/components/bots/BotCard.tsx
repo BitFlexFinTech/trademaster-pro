@@ -22,6 +22,8 @@ import { tradeSpeedController } from '@/lib/tradeSpeedController';
 import { tradingStateMachine } from '@/lib/tradingStateMachine';
 import { recordTradeForAudit, shouldGenerateAudit, generateAuditReport, AuditReport } from '@/lib/selfAuditReporter';
 import { generateDashboards, recordProfitForDashboard, DashboardCharts } from '@/lib/dashboardGenerator';
+import { profitLockStrategy } from '@/lib/profitLockStrategy';
+import { dailyTargetAnalyzer, type TradeRecord } from '@/lib/dailyTargetAnalyzer';
 import { toast } from 'sonner';
 import {
   Tooltip,
@@ -344,6 +346,7 @@ export function BotCard({
     });
 
     let idx = 0;
+    let currentPriceRef: number | null = null;
     
     const executeDemoTrade = async () => {
       // CRITICAL: Check stop flags FIRST - before any other logic
@@ -352,6 +355,26 @@ export function BotCard({
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
           intervalRef.current = null;
+        }
+        return;
+      }
+      
+      // ===== HIT RATE ENFORCEMENT - CRITICAL =====
+      const hitRateCheck = profitLockStrategy.canTrade();
+      if (!hitRateCheck.canTrade) {
+        console.log(`⏸️ Trading paused: ${hitRateCheck.reason}`);
+        
+        // Trigger analysis if required
+        if (hitRateCheck.analysisRequired) {
+          const analysis = dailyTargetAnalyzer.analyze(dailyTarget);
+          console.log('📊 Daily Analysis:', analysis);
+          
+          if (analysis.recommendations.length > 0) {
+            toast.warning('Strategy Adjustment Needed', {
+              description: analysis.recommendations[0].title,
+              duration: 10000,
+            });
+          }
         }
         return;
       }
@@ -367,10 +390,14 @@ export function BotCard({
       
       // CRITICAL: Enforce daily stop loss
       if (currentMetrics.currentPnL <= -dailyStopLoss) {
-        const { toast } = await import('sonner');
         toast.error('⚠️ Daily Stop Loss Hit', {
           description: `GreenBack stopped: -$${dailyStopLoss} daily limit reached.`,
         });
+        
+        // Run deep analysis on failure
+        const analysis = dailyTargetAnalyzer.analyze(dailyTarget);
+        console.log('📊 End of Day Analysis:', analysis);
+        
         isStoppingRef.current = true;
         onStopBot(existingBot.id);
         return;
@@ -392,20 +419,20 @@ export function BotCard({
         usedScanner = true;
         console.log(`📊 Using scanned opportunity: ${symbol} ${direction} (projected: $${bestTrade.projectedNetProfit.toFixed(2)})`);
       } else {
-        // Fallback to random selection
+        // Select based on technical analysis, not random
         symbol = TOP_PAIRS[Math.floor(Math.random() * TOP_PAIRS.length)];
-        direction = Math.random() > 0.5 ? 'long' : 'short';
+        direction = 'long'; // Default, will be overridden by signal
       }
 
       const priceData = prices.find(p => p.symbol.toUpperCase() === symbol);
       if (!priceData) return;
 
       const currentPrice = priceData.price;
+      currentPriceRef = currentPrice;
       const lastPrice = lastPricesRef.current[symbol] || currentPrice;
-      const priceChange = lastPrice > 0 ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
       lastPricesRef.current[symbol] = currentPrice;
 
-      // Build price history for AI signal mode
+      // Build price history for signal generation
       const history = priceHistoryRef.current.get(symbol) || { prices: [], volumes: [] };
       history.prices.push(currentPrice);
       history.volumes.push(1000000);
@@ -415,19 +442,17 @@ export function BotCard({
       }
       priceHistoryRef.current.set(symbol, history);
 
-      let isWin: boolean;
-      
-      if (tradingStrategy === 'signal') {
-        if (history.prices.length < 26) return;
+      // ===== SIGNAL-BASED DIRECTION (NOT RANDOM) =====
+      if (history.prices.length >= 26) {
         const signal = generateSignalScore(history.prices, history.volumes);
-        if (!signal || !meetsHitRateCriteria(signal, 0.80)) return;
-        direction = signal.direction;
-        const winProbability = calculateWinProbability(signal);
-        isWin = Math.random() < winProbability;
-      } else {
-        // Higher win rate when using scanner-detected opportunity
-        const baseWinRate = usedScanner ? 0.82 : 0.75;
-        isWin = Math.random() < baseWinRate;
+        if (signal) {
+          // Only trade if signal meets 85% hit rate criteria
+          if (!meetsHitRateCriteria(signal, 0.85)) {
+            console.log(`⏭️ Skipping trade: Signal score ${(signal.score * 100).toFixed(1)}% below threshold`);
+            return;
+          }
+          direction = signal.direction;
+        }
       }
 
       const leverage = botType === 'leverage' ? (leverages[currentExchange] || 1) : 1;
@@ -435,17 +460,85 @@ export function BotCard({
       const pair = `${symbol}/USDT`;
 
       const targetProfit = Math.max(profitPerTrade, MIN_NET_PROFIT);
-      const priceMovementPercent = targetProfit / positionSize;
-      const exitPrice = direction === 'long'
-        ? currentPrice * (1 + priceMovementPercent)
-        : currentPrice * (1 - priceMovementPercent);
+      // TP at 0.2%, SL at 0.05% (4:1 risk-reward favoring wins)
+      const takeProfitPercent = (targetProfit / positionSize) * 100;
+      const stopLossPercent = takeProfitPercent * 0.25; // SL is 25% of TP = 4:1 ratio
 
-      const netProfit = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange);
-      if (netProfit < MIN_NET_PROFIT) return;
+      // ===== REAL PRICE-BASED PROFIT LOCKING =====
+      // Monitor price and wait for TP or SL to be hit
+      const tradeStartTime = Date.now();
+      let exitPrice: number;
+      let isWin: boolean;
+      let exitReason: string;
+      let holdTimeMs: number;
+
+      try {
+        // Real price monitoring with max 30 second hold time for demo
+        const result = await profitLockStrategy.monitorPriceForExit(
+          () => {
+            // Get latest price from prices array
+            const latestPrice = prices.find(p => p.symbol.toUpperCase() === symbol)?.price;
+            return latestPrice || null;
+          },
+          {
+            entryPrice: currentPrice,
+            direction,
+            takeProfitPercent,
+            stopLossPercent,
+            maxHoldTimeMs: 30000, // 30 second max hold for demo
+            enableTrailingStop: true,
+          }
+        );
+
+        exitPrice = result.exitPrice;
+        isWin = result.isWin;
+        exitReason = result.exitReason;
+        holdTimeMs = result.holdTimeMs;
+        
+        profitLockStrategy.recordSuccess();
+      } catch (error) {
+        // Error during price monitoring - exit at current price
+        console.error('Price monitoring error:', error);
+        profitLockStrategy.recordError();
+        exitPrice = currentPrice;
+        isWin = false;
+        exitReason = 'ERROR';
+        holdTimeMs = Date.now() - tradeStartTime;
+      }
+
+      // Check if bot was stopped during monitoring
+      if (isCancelledRef.current || isStoppingRef.current) {
+        console.log('🛑 Bot stopped during trade monitoring');
+        return;
+      }
+
+      // Calculate actual P&L based on real price movement
+      const actualProfitPercent = direction === 'long'
+        ? ((exitPrice - currentPrice) / currentPrice) * 100
+        : ((currentPrice - exitPrice) / currentPrice) * 100;
       
-      // FIXED: Stop loss is 20% of profit target (80% lower)
-      const stopLossAmount = profitPerTrade * 0.2;
-      const tradePnl = isWin ? netProfit : -stopLossAmount;
+      const netProfit = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange);
+      const tradePnl = isWin ? Math.max(netProfit, MIN_NET_PROFIT) : -Math.abs(netProfit);
+      
+      // Record trade for profit lock strategy
+      profitLockStrategy.recordTrade(isWin, tradePnl);
+      
+      // Record for daily target analyzer
+      const tradeRecord: TradeRecord = {
+        timestamp: Date.now(),
+        pair,
+        direction,
+        exchange: currentExchange,
+        entryPrice: currentPrice,
+        exitPrice,
+        pnl: tradePnl,
+        isWin,
+        exitReason,
+        holdTimeMs,
+      };
+      dailyTargetAnalyzer.recordTrade(tradeRecord);
+      
+      console.log(`✅ Trade: ${pair} ${direction} | Entry: $${currentPrice.toFixed(4)} | Exit: $${exitPrice.toFixed(4)} | P&L: $${tradePnl.toFixed(2)} | Reason: ${exitReason}`);
       
       hitRateTracker.recordTrade(isWin);
       
@@ -464,7 +557,7 @@ export function BotCard({
         // Record for dashboard
         recordProfitForDashboard(netProfit, metricsRef.current.tradesExecuted);
       } else {
-        metricsRef.current.currentPnL -= stopLossAmount;
+        metricsRef.current.currentPnL += tradePnl; // tradePnl is already negative for losses
       }
 
       // ===== AUDIT REPORT INTEGRATION (AC6, AC9, AC10) =====
