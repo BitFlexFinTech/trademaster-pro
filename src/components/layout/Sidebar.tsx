@@ -34,6 +34,7 @@ const navItems = [
   { to: '/signals', icon: TrendingUp, label: 'Signals' },
   { to: '/auto-earn', icon: Zap, label: 'Auto Earn' },
   { to: '/bots', icon: Bot, label: 'Bots' },
+  { to: '/pair-performance', icon: BarChart3, label: 'Pair Analytics' },
   { to: '/arbitrage', icon: ArrowRightLeft, label: 'Arbitrage' },
   { to: '/airdrops', icon: Gift, label: 'Airdrops' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },

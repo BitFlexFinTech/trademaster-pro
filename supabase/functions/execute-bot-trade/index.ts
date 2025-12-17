@@ -697,6 +697,47 @@ serve(async (req) => {
     const directionResult = await selectSmartDirection(supabase, user.id, pair, mode);
     const direction = directionResult.direction;
     console.log(`🎯 Direction: ${direction.toUpperCase()} | Confidence: ${directionResult.confidence.toFixed(0)}% | Reason: ${directionResult.reasoning}`);
+
+    // ========== CONSECUTIVE LOSS PROTECTION ==========
+    // Check for 3+ consecutive losses on this pair+direction combination
+    const { data: recentTrades } = await supabase
+      .from('trades')
+      .select('profit_loss')
+      .eq('user_id', user.id)
+      .eq('pair', pair)
+      .eq('direction', direction)
+      .eq('is_sandbox', isSandbox)
+      .eq('status', 'closed')
+      .order('created_at', { ascending: false })
+      .limit(3);
+
+    if (recentTrades && recentTrades.length >= 3) {
+      const consecutiveLosses = recentTrades.filter((t: { profit_loss: number | null }) => (t.profit_loss || 0) <= 0).length;
+      
+      if (consecutiveLosses >= 3) {
+        console.log(`⏸️ CONSECUTIVE LOSS PROTECTION: ${pair}:${direction} paused (${consecutiveLosses} consecutive losses)`);
+        
+        // Log cooldown event for analytics
+        await supabase.from('alerts').insert({
+          user_id: user.id,
+          title: `🛡️ Protection Active: ${pair}`,
+          message: `${direction.toUpperCase()} trades on ${pair} paused after 3 consecutive losses. Will auto-resume after 30 minutes.`,
+          alert_type: 'consecutive_loss_protection',
+          data: { pair, direction, consecutiveLosses, cooldownMinutes: 30 }
+        });
+        
+        return new Response(JSON.stringify({ 
+          skipped: true, 
+          reason: `${pair}:${direction} on cooldown (${consecutiveLosses} consecutive losses)`,
+          cooldownMinutes: 30,
+          pair,
+          direction
+        }), { 
+          status: 200, // Not an error, just skipped
+          headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        });
+      }
+    }
     
     // Calculate position size - use user-configured value, capped for safety
     const expectedMove = 0.005; // 0.5% average move
