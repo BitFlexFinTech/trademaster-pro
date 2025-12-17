@@ -156,12 +156,12 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
   const initializeSessionBalance = useCallback((exchange: string, balance: number) => {
     // Only set if not already initialized - S is immutable
     if (sessionStartBalanceRef.current[exchange] !== undefined) {
-      console.log(`[BALANCE FLOOR] ${exchange} already initialized: $${sessionStartBalanceRef.current[exchange]}`);
+      if (import.meta.env.DEV) console.log(`[BALANCE FLOOR] ${exchange} already initialized: $${sessionStartBalanceRef.current[exchange]}`);
       return;
     }
     sessionStartBalanceRef.current[exchange] = balance;
     setSessionStartBalance(prev => ({ ...prev, [exchange]: balance }));
-    console.log(`[BALANCE FLOOR] Initialized ${exchange}: $${balance} (immutable)`);
+    if (import.meta.env.DEV) console.log(`[BALANCE FLOOR] Initialized ${exchange}: $${balance} (immutable)`);
   }, []);
 
   // Vault profit (V) - segregated, NEVER debited for trading
@@ -172,7 +172,7 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
         ...prev,
         [exchange]: (prev[exchange] || 0) + amount
       };
-      console.log(`[PROFIT VAULT] Added $${amount.toFixed(2)} to ${exchange}. Total vaulted: $${Object.values(newVault).reduce((a, b) => a + b, 0).toFixed(2)}`);
+      if (import.meta.env.DEV) console.log(`[PROFIT VAULT] Added $${amount.toFixed(2)} to ${exchange}. Total vaulted: $${Object.values(newVault).reduce((a, b) => a + b, 0).toFixed(2)}`);
       return newVault;
     });
   }, []);
@@ -235,7 +235,7 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
       });
       setBaseBalancePerExchangeState(newBaseBalances);
       
-      console.log('[BALANCE SYNC] Real exchange balances:', newBalances);
+      if (import.meta.env.DEV) console.log('[BALANCE SYNC] Real exchange balances:', newBalances);
     } catch (err) {
       console.error('[BALANCE SYNC] Failed to fetch:', err);
     }
@@ -353,7 +353,7 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
           table: 'portfolio_holdings',
         },
         () => {
-          console.log('[REALTIME] portfolio_holdings changed, fetching balances...');
+          if (import.meta.env.DEV) console.log('[REALTIME] portfolio_holdings changed, fetching balances...');
           fetchExchangeBalances();
         }
       )

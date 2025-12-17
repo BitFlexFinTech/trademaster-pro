@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Brain, Lightbulb, Check, X, Zap, TrendingUp, AlertTriangle, Loader2, Undo2, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -247,13 +247,22 @@ export function AIStrategyPanel({
         ) : (
           <ScrollArea className="flex-1">
             <div className="space-y-1.5 pr-2">
-              {recommendations.map((rec, index) => {
+              {useMemo(() => {
+                // Deduplicate recommendations by type + title + currentValue
+                const seen = new Set<string>();
+                return recommendations.filter(rec => {
+                  const key = `${rec.type}-${rec.title}-${String(rec.currentValue)}`;
+                  if (seen.has(key)) return false;
+                  seen.add(key);
+                  return true;
+                });
+              }, [recommendations]).map((rec, index) => {
                 const PriorityIcon = getPriorityIcon(rec.priority);
                 const isExpanded = expandedRec === rec.id;
                 const isApplying = applyingId === rec.id;
                 const isApplied = appliedId === rec.id;
-                // Use stable unique key combining type, index, and a slice of creation time
-                const stableKey = `${rec.type}-${index}-${rec.id.slice(-8)}`;
+                // Use stable unique key combining rec.id and index for guaranteed uniqueness
+                const stableKey = `rec-${rec.id}-${index}`;
 
                 return (
                   <div

@@ -85,7 +85,7 @@ class TradingStateMachine {
    */
   transition(to: TradingState, reason: string, data?: Record<string, unknown>): boolean {
     if (!this.canTransition(to)) {
-      console.warn(`[STATE MACHINE] Invalid transition: ${this.state} → ${to}`);
+      if (import.meta.env.DEV) console.warn(`[STATE MACHINE] Invalid transition: ${this.state} → ${to}`);
       return false;
     }
 
@@ -98,7 +98,7 @@ class TradingStateMachine {
     };
 
     this.transitions.push(transition);
-    console.log(`[STATE] ${transition.from} → ${transition.to}: ${reason}`);
+    if (import.meta.env.DEV) console.log(`[STATE] ${transition.from} → ${transition.to}: ${reason}`);
     this.state = to;
 
     return true;
@@ -116,7 +116,7 @@ class TradingStateMachine {
     };
     
     this.transitions.push(transition);
-    console.warn(`[STATE] FORCED: ${transition.from} → ${transition.to}: ${reason}`);
+    if (import.meta.env.DEV) console.warn(`[STATE] FORCED: ${transition.from} → ${transition.to}: ${reason}`);
     this.state = to;
   }
 
