@@ -47,3 +47,6 @@ verify_jwt = true
 
 [functions.analyze-paper-test]
 verify_jwt = true
+
+[functions.recommend-daily-target]
+verify_jwt = true

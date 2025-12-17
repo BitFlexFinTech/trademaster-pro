@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useOrderBookScanning } from '@/hooks/useOrderBookScanning';
 import { supabase } from '@/integrations/supabase/client';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
 import { calculateNetProfit, MIN_NET_PROFIT } from '@/lib/exchangeFees';
@@ -18,8 +19,9 @@ import { demoDataStore } from '@/lib/demoDataStore';
 import { hitRateTracker } from '@/lib/sandbox/hitRateTracker';
 import { tradeSpeedController } from '@/lib/tradeSpeedController';
 import { tradingStateMachine } from '@/lib/tradingStateMachine';
-import { recordTradeForAudit, shouldGenerateAudit, generateAuditReport } from '@/lib/selfAuditReporter';
-import { generateDashboards, recordProfitForDashboard } from '@/lib/dashboardGenerator';
+import { recordTradeForAudit, shouldGenerateAudit, generateAuditReport, AuditReport } from '@/lib/selfAuditReporter';
+import { generateDashboards, recordProfitForDashboard, DashboardCharts } from '@/lib/dashboardGenerator';
+import { toast } from 'sonner';
 import {
   Tooltip,
   TooltipContent,
@@ -44,6 +46,7 @@ interface BotCardProps {
   tradeIntervalMs?: number;
   onConfigChange?: (key: string, value: number) => void;
   isAnyBotRunning?: boolean;
+  onAuditGenerated?: (report: AuditReport, dashboards: DashboardCharts) => void;
 }
 
 export function BotCard({
@@ -61,13 +64,25 @@ export function BotCard({
   tradeIntervalMs = 200,
   onConfigChange,
   isAnyBotRunning = false,
+  onAuditGenerated,
 }: BotCardProps) {
   const { user } = useAuth();
-  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger, lockProfit, vaultProfit, initializeSessionBalance, sessionStartBalance } = useTradingMode();
+  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger, vaultProfit, initializeSessionBalance, sessionStartBalance, profitVault, getTotalVaultedProfits } = useTradingMode();
   const { notifyTrade, notifyTakeProfit, notifyDailyProgress, resetProgressNotifications } = useNotifications();
+
+  // Order book scanning for guaranteed profit opportunities
+  const activeExchanges = EXCHANGE_CONFIGS.map(e => e.name);
 
   const isRunning = existingBot?.status === 'running';
   const botName = botType === 'spot' ? 'GreenBack Spot' : 'GreenBack Leverage';
+
+  // Order book scanning hook
+  const { bestTrade, isScanning, scanCount } = useOrderBookScanning({
+    exchanges: activeExchanges,
+    minNetProfit: MIN_NET_PROFIT,
+    scanIntervalMs: 5000,
+    enabled: isRunning && tradingMode === 'demo',
+  });
 
   // Core trading config
   const [dailyTarget, setDailyTarget] = useState(existingBot?.dailyTarget || 100);
@@ -501,7 +516,7 @@ export function BotCard({
         intervalRef.current = null;
       }
     };
-  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot?.id, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy, localAmountPerTrade, localTradeIntervalMs, lockProfit]);
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot?.id, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy, localAmountPerTrade, localTradeIntervalMs, vaultProfit]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
