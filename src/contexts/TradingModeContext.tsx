@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 
 export const DEFAULT_VIRTUAL_BALANCE = 1000;
 export const MAX_USDT_ALLOCATION = 5000;
+export const DEFAULT_BASE_BALANCE = 350;  // Locked balance per exchange
 
 // Default demo allocation percentages
 export const DEFAULT_DEMO_ALLOCATION = {
@@ -11,6 +12,17 @@ export const DEFAULT_DEMO_ALLOCATION = {
   BTC: 25,
   ETH: 15,
   SOL: 10,
+};
+
+// Default base balance per exchange (locked - never traded)
+export const DEFAULT_BASE_BALANCE_PER_EXCHANGE: Record<string, number> = {
+  Binance: 350,
+  OKX: 350,
+  Bybit: 350,
+  Kraken: 350,
+  Nexo: 350,
+  KuCoin: 350,
+  Hyperliquid: 350,
 };
 
 interface DemoAllocation {
@@ -32,6 +44,10 @@ interface TradingModeContextType {
   demoAllocation: DemoAllocation;
   setDemoAllocation: (allocation: DemoAllocation) => void;
   lastSyncTime: Date | null;
+  baseBalancePerExchange: Record<string, number>;
+  setBaseBalancePerExchange: (balances: Record<string, number>) => void;
+  getAvailableFloat: (exchange: string, totalBalance: number) => number;
+  lockedProfits: Record<string, number>;
 }
 
 const TradingModeContext = createContext<TradingModeContextType | null>(null);
@@ -42,6 +58,8 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
   const [resetTrigger, setResetTrigger] = useState(0);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [demoAllocation, setDemoAllocationState] = useState<DemoAllocation>(DEFAULT_DEMO_ALLOCATION);
+  const [baseBalancePerExchange, setBaseBalancePerExchangeState] = useState<Record<string, number>>(DEFAULT_BASE_BALANCE_PER_EXCHANGE);
+  const [lockedProfits, setLockedProfits] = useState<Record<string, number>>({});
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const setVirtualBalance = useCallback((balance: number | ((prev: number) => number)) => {
@@ -74,6 +92,19 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
     setDemoAllocationState(allocation);
     localStorage.setItem('demoAllocation', JSON.stringify(allocation));
   }, []);
+
+  // Set base balance per exchange (locked amount - never traded)
+  const setBaseBalancePerExchange = useCallback((balances: Record<string, number>) => {
+    setBaseBalancePerExchangeState(balances);
+    localStorage.setItem('baseBalancePerExchange', JSON.stringify(balances));
+    setResetTrigger(prev => prev + 1);
+  }, []);
+
+  // Calculate available float for trading (total - base)
+  const getAvailableFloat = useCallback((exchange: string, totalBalance: number): number => {
+    const baseBalance = baseBalancePerExchange[exchange] || DEFAULT_BASE_BALANCE;
+    return Math.max(0, totalBalance - baseBalance);
+  }, [baseBalancePerExchange]);
 
   const triggerSync = useCallback(async () => {
     try {
@@ -141,12 +172,20 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
     const savedMode = localStorage.getItem('tradingMode');
     const savedBalance = localStorage.getItem('virtualBalance');
     const savedAllocation = localStorage.getItem('demoAllocation');
+    const savedBaseBalance = localStorage.getItem('baseBalancePerExchange');
     
     if (savedMode) setModeState(savedMode as 'demo' | 'live');
     if (savedBalance) setVirtualBalanceState(Number(savedBalance));
     if (savedAllocation) {
       try {
         setDemoAllocationState(JSON.parse(savedAllocation));
+      } catch (e) {
+        // Use defaults if parse fails
+      }
+    }
+    if (savedBaseBalance) {
+      try {
+        setBaseBalancePerExchangeState(JSON.parse(savedBaseBalance));
       } catch (e) {
         // Use defaults if parse fails
       }
@@ -201,6 +240,10 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
       demoAllocation,
       setDemoAllocation,
       lastSyncTime,
+      baseBalancePerExchange,
+      setBaseBalancePerExchange,
+      getAvailableFloat,
+      lockedProfits,
     }}>
       {children}
     </TradingModeContext.Provider>

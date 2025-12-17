@@ -1,10 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
+import { 
+  calculateOptimalProfitPerTrade, 
+  calculateOptimalTradeSpeed,
+  getExchangeFeeRate,
+  type ExchangeConfig,
+  type ProfitRecommendation,
+  type TradeSpeedRecommendation 
+} from '@/lib/profitOptimization';
 
 interface AIRecommendation {
   id: string;
-  type: 'hit_rate' | 'signal_threshold' | 'profit_per_trade' | 'trade_frequency' | 'stop_loss' | 'position_size';
+  type: 'hit_rate' | 'signal_threshold' | 'profit_per_trade' | 'trade_frequency' | 'stop_loss' | 'position_size' | 'trade_speed' | 'optimal_profit';
   title: string;
   description: string;
   currentValue: number | string;
@@ -38,6 +46,9 @@ interface UseAIStrategyMonitorProps {
   hitRate: number;
   accountBalance?: number;
   currentPositionSize?: number;
+  currentTradeIntervalMs?: number;
+  baseBalancePerExchange?: Record<string, number>;
+  usdtFloatPerExchange?: Record<string, number>;
   onRecommendation?: (recommendation: AIRecommendation) => void;
 }
 
@@ -62,6 +73,9 @@ export function useAIStrategyMonitor({
   hitRate,
   accountBalance = 1000,
   currentPositionSize = 100,
+  currentTradeIntervalMs = 500,
+  baseBalancePerExchange = {},
+  usdtFloatPerExchange = {},
   onRecommendation,
 }: UseAIStrategyMonitorProps) {
   const { user } = useAuth();
@@ -69,6 +83,8 @@ export function useAIStrategyMonitor({
   const [strategyMetrics, setStrategyMetrics] = useState<StrategyMetrics | null>(null);
   const [signalThreshold, setSignalThreshold] = useState(0.90);
   const [suggestedPositionSize, setSuggestedPositionSize] = useState<number>(100);
+  const [optimalProfitPerExchange, setOptimalProfitPerExchange] = useState<Record<string, ProfitRecommendation>>({});
+  const [tradeSpeedRecommendation, setTradeSpeedRecommendation] = useState<TradeSpeedRecommendation | null>(null);
   const lastAnalysisRef = useRef<number>(0);
 
   /**
@@ -154,6 +170,8 @@ export function useAIStrategyMonitor({
       trade_frequency: 'Adjust Trade Frequency',
       stop_loss: 'Revise Stop Loss',
       position_size: 'Optimize Position Size',
+      trade_speed: 'Optimize Trade Speed',
+      optimal_profit: 'PhD-Level Optimal Profit',
     };
 
     return {
@@ -296,6 +314,63 @@ export function useAIStrategyMonitor({
         ));
       }
 
+      // PhD-Level Trade Speed Recommendation
+      const totalAvailableFloat = Object.values(usdtFloatPerExchange).reduce((sum, f) => sum + f, 0);
+      const totalBaseBalance = Object.values(baseBalancePerExchange).reduce((sum, b) => sum + b, 0);
+      const speedRec = calculateOptimalTradeSpeed(
+        hitRate,
+        currentPnL,
+        dailyTarget,
+        Math.max(0, totalAvailableFloat - totalBaseBalance),
+        totalBaseBalance || 350,
+        currentTradeIntervalMs
+      );
+      setTradeSpeedRecommendation(speedRec);
+
+      if (Math.abs(speedRec.suggestedIntervalMs - currentTradeIntervalMs) > 200) {
+        newRecommendations.push(generateRecommendation(
+          'trade_speed',
+          `${currentTradeIntervalMs}ms`,
+          `${speedRec.suggestedIntervalMs}ms`,
+          speedRec.reasoning,
+          speedRec.priority
+        ));
+      }
+
+      // PhD-Level Optimal Profit Per Exchange
+      const profitRecs: Record<string, ProfitRecommendation> = {};
+      const exchanges = Object.keys(usdtFloatPerExchange);
+      
+      for (const exchange of exchanges) {
+        const totalBalance = usdtFloatPerExchange[exchange] || 0;
+        const baseBalance = baseBalancePerExchange[exchange] || 350;
+        const availableFloat = Math.max(0, totalBalance - baseBalance);
+        
+        const config: ExchangeConfig = {
+          name: exchange,
+          totalBalance,
+          baseBalance,
+          availableFloat,
+          feeRate: getExchangeFeeRate(exchange),
+          volatility: 0.02, // 2% default volatility
+        };
+        
+        const profitRec = calculateOptimalProfitPerTrade(config, hitRate, lossPerTrade);
+        profitRecs[exchange] = profitRec;
+        
+        // Generate recommendation if optimal profit differs significantly
+        if (Math.abs(profitRec.optimalProfitPerTrade - profitPerTrade) > profitPerTrade * 0.3) {
+          newRecommendations.push(generateRecommendation(
+            'optimal_profit',
+            `$${profitPerTrade.toFixed(2)}`,
+            `$${profitRec.optimalProfitPerTrade.toFixed(2)}`,
+            `[${exchange}] ${profitRec.reasoning}`,
+            profitRec.riskOfRuin > 1 ? 'high' : 'medium'
+          ));
+        }
+      }
+      setOptimalProfitPerExchange(profitRecs);
+
       // Save recommendations
       if (newRecommendations.length > 0) {
         setRecommendations(prev => [...newRecommendations, ...prev].slice(0, 10));
@@ -341,6 +416,9 @@ export function useAIStrategyMonitor({
     signalThreshold,
     accountBalance,
     currentPositionSize,
+    currentTradeIntervalMs,
+    baseBalancePerExchange,
+    usdtFloatPerExchange,
     calculateRequiredHitRate,
     calculateExpectedTrades,
     calculateSuggestedPositionSize,
@@ -379,6 +457,8 @@ export function useAIStrategyMonitor({
     strategyMetrics,
     signalThreshold,
     suggestedPositionSize,
+    optimalProfitPerExchange,
+    tradeSpeedRecommendation,
     applyRecommendation,
     dismissRecommendation,
     requiredHitRate: strategyMetrics?.requiredHitRate || 95,
