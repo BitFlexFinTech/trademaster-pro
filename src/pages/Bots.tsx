@@ -71,6 +71,28 @@ export default function Bots() {
   const [editingBaseBalance, setEditingBaseBalance] = useState<string | null>(null);
   const [tempBaseBalance, setTempBaseBalance] = useState<number>(DEFAULT_BASE_BALANCE);
 
+  // Base balance edit handlers
+  const handleEditBaseBalance = useCallback((exchange: string) => {
+    setEditingBaseBalance(exchange);
+    setTempBaseBalance(baseBalancePerExchange[exchange] || DEFAULT_BASE_BALANCE);
+  }, [baseBalancePerExchange]);
+
+  const handleSaveBaseBalance = useCallback((exchange: string) => {
+    const newBalances = {
+      ...baseBalancePerExchange,
+      [exchange]: tempBaseBalance
+    };
+    setBaseBalancePerExchange(newBalances);
+    setEditingBaseBalance(null);
+    toast.success(`Base balance updated for ${exchange}`, {
+      description: `Locked: $${tempBaseBalance} (never traded)`,
+    });
+  }, [tempBaseBalance, setBaseBalancePerExchange, baseBalancePerExchange]);
+
+  const handleCancelEditBaseBalance = useCallback(() => {
+    setEditingBaseBalance(null);
+  }, []);
+
   // Debounced prices for stable USDT calculation (prevent flashing)
   const [debouncedPrices, setDebouncedPrices] = useState(prices);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -173,6 +195,22 @@ export default function Bots() {
     addToHistory,
     removeFromHistory,
   } = useRecommendationHistory();
+
+  // AUTO-APPLY high priority trade speed recommendations to protect profits
+  useEffect(() => {
+    if (tradeSpeedRecommendation?.priority === 'high') {
+      // Auto-apply to protect profits
+      setBotConfig(prev => ({
+        ...prev,
+        tradeIntervalMs: tradeSpeedRecommendation.suggestedIntervalMs
+      }));
+      
+      toast.warning('🛡️ Auto-Protecting Profits', {
+        description: `Trade speed adjusted: ${tradeSpeedRecommendation.reasoning}`,
+        duration: 5000,
+      });
+    }
+  }, [tradeSpeedRecommendation]);
 
   // Debounced USDT calculation to prevent flashing
   const suggestedUSDT = useMemo(() => {
@@ -741,7 +779,26 @@ export default function Bots() {
                           </div>
                           <div className="flex justify-between text-[9px] text-muted-foreground">
                             <span>Base:</span>
-                            <span className="font-mono text-destructive">${baseBalance}</span>
+                            {editingBaseBalance === config.name ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="number"
+                                  value={tempBaseBalance}
+                                  onChange={(e) => setTempBaseBalance(Number(e.target.value))}
+                                  className="h-4 w-12 text-[8px] px-1"
+                                />
+                                <Button size="sm" className="h-4 w-4 p-0 text-[8px]" onClick={() => handleSaveBaseBalance(config.name)}>✓</Button>
+                                <Button size="sm" variant="ghost" className="h-4 w-4 p-0 text-[8px]" onClick={handleCancelEditBaseBalance}>✕</Button>
+                              </div>
+                            ) : (
+                              <button 
+                                className="flex items-center gap-1 hover:text-primary transition-colors"
+                                onClick={() => handleEditBaseBalance(config.name)}
+                              >
+                                <span className="font-mono text-destructive">${baseBalance}</span>
+                                <Edit2 className="w-2 h-2" />
+                              </button>
+                            )}
                           </div>
                           <div className="flex justify-between text-[9px]">
                             <span className="text-muted-foreground">Available:</span>
@@ -775,7 +832,26 @@ export default function Bots() {
                         </div>
                         <div className="flex justify-between text-[9px] text-muted-foreground">
                           <span>Base:</span>
-                          <span className="font-mono text-destructive">${item.baseBalance}</span>
+                          {editingBaseBalance === item.exchange ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                value={tempBaseBalance}
+                                onChange={(e) => setTempBaseBalance(Number(e.target.value))}
+                                className="h-4 w-12 text-[8px] px-1"
+                              />
+                              <Button size="sm" className="h-4 w-4 p-0 text-[8px]" onClick={() => handleSaveBaseBalance(item.exchange)}>✓</Button>
+                              <Button size="sm" variant="ghost" className="h-4 w-4 p-0 text-[8px]" onClick={handleCancelEditBaseBalance}>✕</Button>
+                            </div>
+                          ) : (
+                            <button 
+                              className="flex items-center gap-1 hover:text-primary transition-colors"
+                              onClick={() => handleEditBaseBalance(item.exchange)}
+                            >
+                              <span className="font-mono text-destructive">${item.baseBalance}</span>
+                              <Edit2 className="w-2 h-2" />
+                            </button>
+                          )}
                         </div>
                         <div className="flex justify-between text-[9px]">
                           <span className="text-muted-foreground">Available:</span>
