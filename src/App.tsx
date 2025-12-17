@@ -30,6 +30,7 @@ import Research from "./pages/Research";
 import Portfolio from "./pages/Portfolio";
 import Notifications from "./pages/Notifications";
 import Arbitrage from "./pages/Arbitrage";
+import PairPerformance from "./pages/PairPerformance";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -66,6 +67,7 @@ const App = () => (
                     <Route path="/sandbox" element={<Sandbox />} />
                     <Route path="/charts" element={<Charts />} />
                     <Route path="/arbitrage" element={<Arbitrage />} />
+                    <Route path="/pair-performance" element={<PairPerformance />} />
                     <Route path="/news" element={<News />} />
                     <Route path="/research" element={<Research />} />
                     <Route path="/notifications" element={<Notifications />} />

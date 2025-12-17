@@ -49,6 +49,34 @@ interface HourlyPerformance {
   winRate: number;
 }
 
+// NEW: Pair + Direction performance tracking
+export interface PairDirectionPerformance {
+  pair: string;
+  direction: 'long' | 'short';
+  profit: number;
+  trades: number;
+  wins: number;
+  winRate: number;
+  consecutiveLosses: number;
+  isOnCooldown: boolean;
+  lastTradeTime: string | null;
+}
+
+export interface LongVsShort {
+  longWinRate: number;
+  shortWinRate: number;
+  longProfit: number;
+  shortProfit: number;
+  longTrades: number;
+  shortTrades: number;
+}
+
+export interface WinRateTrend {
+  timestamp: string;
+  winRate: number;
+  cumulative: number;
+}
+
 export interface BotAnalytics {
   winCount: number;
   lossCount: number;
@@ -63,11 +91,16 @@ export interface BotAnalytics {
   expectancy: number;
   totalProfit: number;
   totalTrades: number;
-  // New comprehensive metrics
+  // Comprehensive metrics
   streaks: WinLossStreak;
   bestPerformingPairs: PairPerformance[];
   worstPerformingPairs: PairPerformance[];
   optimalTradingHours: HourlyPerformance[];
+  // NEW: Pair + Direction breakdown
+  pairDirectionPerformance: PairDirectionPerformance[];
+  longVsShort: LongVsShort;
+  winRateTrend: WinRateTrend[];
+  cooldownPairs: PairDirectionPerformance[];
 }
 
 type TimeframeFilter = '7d' | '30d' | '90d' | 'all';
@@ -174,6 +207,15 @@ export function useBotAnalytics(
       longestLossStreak: 0,
     };
 
+    const defaultLongVsShort: LongVsShort = {
+      longWinRate: 0,
+      shortWinRate: 0,
+      longProfit: 0,
+      shortProfit: 0,
+      longTrades: 0,
+      shortTrades: 0,
+    };
+
     if (trades.length === 0) {
       return {
         winCount: 0,
@@ -193,6 +235,10 @@ export function useBotAnalytics(
         bestPerformingPairs: [],
         worstPerformingPairs: [],
         optimalTradingHours: [],
+        pairDirectionPerformance: [],
+        longVsShort: defaultLongVsShort,
+        winRateTrend: [],
+        cooldownPairs: [],
       };
     }
 
@@ -347,6 +393,85 @@ export function useBotAnalytics(
       };
     });
 
+    // ========== NEW: Pair + Direction Performance ==========
+    const pairDirMap = new Map<string, { profit: number; trades: number; wins: number; lastTradeTime: string | null; recentResults: boolean[] }>();
+    
+    // Sort trades by time for consecutive loss tracking
+    const sortedByTime = [...trades].sort((a, b) => 
+      new Date(a.closed_at || a.created_at).getTime() - new Date(b.closed_at || b.created_at).getTime()
+    );
+    
+    sortedByTime.forEach(t => {
+      const key = `${t.pair}:${t.direction}`;
+      const current = pairDirMap.get(key) || { profit: 0, trades: 0, wins: 0, lastTradeTime: null, recentResults: [] };
+      const isWin = (t.profit_loss || 0) > 0;
+      
+      pairDirMap.set(key, {
+        profit: current.profit + (t.profit_loss || 0),
+        trades: current.trades + 1,
+        wins: current.wins + (isWin ? 1 : 0),
+        lastTradeTime: t.closed_at || t.created_at,
+        recentResults: [...current.recentResults, isWin].slice(-5), // Keep last 5 results
+      });
+    });
+
+    const pairDirectionPerformance: PairDirectionPerformance[] = Array.from(pairDirMap.entries())
+      .map(([key, data]) => {
+        const [pair, direction] = key.split(':');
+        // Count consecutive losses from the end
+        let consecutiveLosses = 0;
+        for (let i = data.recentResults.length - 1; i >= 0; i--) {
+          if (!data.recentResults[i]) consecutiveLosses++;
+          else break;
+        }
+        
+        return {
+          pair,
+          direction: direction as 'long' | 'short',
+          profit: data.profit,
+          trades: data.trades,
+          wins: data.wins,
+          winRate: data.trades > 0 ? (data.wins / data.trades) * 100 : 0,
+          consecutiveLosses,
+          isOnCooldown: consecutiveLosses >= 3,
+          lastTradeTime: data.lastTradeTime,
+        };
+      })
+      .sort((a, b) => b.winRate - a.winRate);
+
+    const cooldownPairs = pairDirectionPerformance.filter(p => p.isOnCooldown);
+
+    // ========== Long vs Short breakdown ==========
+    const longTrades = trades.filter(t => t.direction === 'long');
+    const shortTrades = trades.filter(t => t.direction === 'short');
+    
+    const longWins = longTrades.filter(t => (t.profit_loss || 0) > 0).length;
+    const shortWins = shortTrades.filter(t => (t.profit_loss || 0) > 0).length;
+    
+    const longVsShort: LongVsShort = {
+      longWinRate: longTrades.length > 0 ? (longWins / longTrades.length) * 100 : 0,
+      shortWinRate: shortTrades.length > 0 ? (shortWins / shortTrades.length) * 100 : 0,
+      longProfit: longTrades.reduce((sum, t) => sum + (t.profit_loss || 0), 0),
+      shortProfit: shortTrades.reduce((sum, t) => sum + (t.profit_loss || 0), 0),
+      longTrades: longTrades.length,
+      shortTrades: shortTrades.length,
+    };
+
+    // ========== Win Rate Trend (rolling 50 trades) ==========
+    const winRateTrend: WinRateTrend[] = [];
+    const last50 = sortedByTime.slice(-50);
+    let cumulativeWins = 0;
+    
+    last50.forEach((t, idx) => {
+      if ((t.profit_loss || 0) > 0) cumulativeWins++;
+      const rollingRate = ((cumulativeWins / (idx + 1)) * 100);
+      winRateTrend.push({
+        timestamp: t.closed_at || t.created_at,
+        winRate: rollingRate,
+        cumulative: idx + 1,
+      });
+    });
+
     return {
       winCount,
       lossCount,
@@ -365,6 +490,10 @@ export function useBotAnalytics(
       bestPerformingPairs,
       worstPerformingPairs,
       optimalTradingHours,
+      pairDirectionPerformance,
+      longVsShort,
+      winRateTrend,
+      cooldownPairs,
     };
   }, [trades]);
 
