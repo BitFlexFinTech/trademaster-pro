@@ -120,6 +120,11 @@ export function useBotTrading({
 
     if (activeExchanges.length === 0) return;
 
+    // Error tracking for auto-pause
+    const exchangeErrors = new Map<string, number>();
+    const MAX_ERRORS_PER_EXCHANGE = 3;
+    let isPaused = false;
+
     // Initialize price reference
     prices.forEach(p => {
       if (!lastPricesRef.current[p.symbol]) {
@@ -130,7 +135,29 @@ export function useBotTrading({
     let exchangeIdx = 0;
 
     const executeTrade = async () => {
-      const currentExchange = activeExchanges[exchangeIdx % activeExchanges.length];
+      if (isPaused) return;
+      
+      // Find next exchange that hasn't errored too much
+      let attempts = 0;
+      let currentExchange = activeExchanges[exchangeIdx % activeExchanges.length];
+      while (attempts < activeExchanges.length) {
+        const errors = exchangeErrors.get(currentExchange) || 0;
+        if (errors < MAX_ERRORS_PER_EXCHANGE) break;
+        exchangeIdx++;
+        currentExchange = activeExchanges[exchangeIdx % activeExchanges.length];
+        attempts++;
+      }
+      
+      // All exchanges have too many errors - pause
+      if (attempts >= activeExchanges.length) {
+        isPaused = true;
+        toast.error('Bot Auto-Paused', {
+          description: 'All exchanges experiencing errors. Check connections.',
+          duration: 10000,
+        });
+        return;
+      }
+      
       setActiveExchange(currentExchange);
       exchangeIdx++;
 
@@ -255,8 +282,14 @@ export function useBotTrading({
           
           if (error) {
             console.error('Live trade failed:', error);
+            // Track error for this exchange
+            const currentErrors = exchangeErrors.get(currentExchange) || 0;
+            exchangeErrors.set(currentExchange, currentErrors + 1);
             return; // Skip this trade
           }
+          
+          // Reset error count on successful response
+          exchangeErrors.set(currentExchange, 0);
           
           // Handle user-facing errors (like insufficient balance)
           if (data?.errorType === 'EXCHANGE_USER_ERROR') {
