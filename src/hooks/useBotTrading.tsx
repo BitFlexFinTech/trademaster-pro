@@ -47,6 +47,9 @@ interface UseBotTradingProps {
   isRunning: boolean;
   dailyTarget: number;
   profitPerTrade: number;
+  amountPerTrade?: number;
+  tradeIntervalMs?: number;
+  stopLossPercent?: number;
   leverages: Record<string, number>;
   prices: Array<{ symbol: string; price: number; change_24h?: number; volume?: number }>;
   usdtFloat: Array<{ exchange: string; amount: number }>;
@@ -61,6 +64,9 @@ export function useBotTrading({
   isRunning,
   dailyTarget,
   profitPerTrade,
+  amountPerTrade = 100,
+  tradeIntervalMs = 200,
+  stopLossPercent = 0.2, // 20% of profit = 80% lower
   leverages,
   prices,
   usdtFloat,
@@ -186,8 +192,8 @@ export function useBotTrading({
       // Calculate leverage for leverage bot
       const leverage = botType === 'leverage' ? (leverages[currentExchange] || 1) : 1;
       
-      // Position size - fixed at $100 per trade
-      const positionSize = 100;
+      // Position size - configurable
+      const positionSize = amountPerTrade;
       
       let direction: 'long' | 'short';
       let isWin: boolean;
@@ -305,7 +311,9 @@ export function useBotTrading({
         }
       } else {
         // ===== DEMO MODE: Simulate locally =====
-        tradePnl = isWin ? netProfit : -Math.abs(netProfit * 0.6);
+        // Stop loss is 20% of profit target (80% lower)
+        const stopLossAmount = profitPerTrade * stopLossPercent;
+        tradePnl = isWin ? netProfit : -stopLossAmount;
       }
       
       // Record trade in hitRateTracker for analytics
@@ -410,8 +418,8 @@ export function useBotTrading({
       onMetricsUpdate(newMetrics);
     };
 
-    // Execute trades every 200ms for fast profit-focused trading
-    const interval = setInterval(executeTrade, 200);
+    // Execute trades at configurable interval
+    const interval = setInterval(executeTrade, tradeIntervalMs);
 
     return () => clearInterval(interval);
   }, [
@@ -420,7 +428,10 @@ export function useBotTrading({
     user, 
     tradingMode, 
     dailyTarget, 
-    profitPerTrade, 
+    profitPerTrade,
+    amountPerTrade,
+    tradeIntervalMs,
+    stopLossPercent,
     prices, 
     leverages, 
     botType, 

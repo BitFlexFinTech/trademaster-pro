@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -36,6 +36,8 @@ interface BotCardProps {
   usdtFloat: Array<{ exchange: string; amount: number }>;
   dailyStopLoss?: number;
   perTradeStopLoss?: number;
+  amountPerTrade?: number;
+  tradeIntervalMs?: number;
   onConfigChange?: (key: string, value: number) => void;
   isAnyBotRunning?: boolean;
 }
@@ -50,7 +52,9 @@ export function BotCard({
   suggestedUSDT,
   usdtFloat,
   dailyStopLoss = 5,
-  perTradeStopLoss = 0.60,
+  perTradeStopLoss = 0.10,
+  amountPerTrade = 100,
+  tradeIntervalMs = 200,
   onConfigChange,
   isAnyBotRunning = false,
 }: BotCardProps) {
@@ -61,8 +65,12 @@ export function BotCard({
   const isRunning = existingBot?.status === 'running';
   const botName = botType === 'spot' ? 'GreenBack Spot' : 'GreenBack Leverage';
 
+  // Core trading config
   const [dailyTarget, setDailyTarget] = useState(existingBot?.dailyTarget || 100);
-  const [profitPerTrade, setProfitPerTrade] = useState(Math.max(existingBot?.profitPerTrade || 0.50, 0.10));
+  const [profitPerTrade, setProfitPerTrade] = useState(Math.max(existingBot?.profitPerTrade || 0.50, MIN_NET_PROFIT));
+  const [localAmountPerTrade, setLocalAmountPerTrade] = useState(amountPerTrade);
+  const [localTradeIntervalMs, setLocalTradeIntervalMs] = useState(tradeIntervalMs);
+  
   const [leverages, setLeverages] = useState<Record<string, number>>({
     Binance: 5, OKX: 5, Bybit: 5, Kraken: 2, Nexo: 2,
   });
@@ -80,9 +88,17 @@ export function BotCard({
 
   const [tradingStrategy, setTradingStrategy] = useState<TradingStrategy>('profit');
   const [isExecutingTrade, setIsExecutingTrade] = useState(false);
+  
+  // Refs for trading loop
   const lastPricesRef = useRef<Record<string, number>>({});
   const priceHistoryRef = useRef<Map<string, { prices: number[], volumes: number[] }>>(new Map());
   const tradeTimestampsRef = useRef<number[]>([]);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isCancelledRef = useRef(false);
+
+  // Calculate stop loss automatically: 20% of profit (80% lower)
+  const calculatedStopLoss = profitPerTrade * 0.2;
+
   // Listen to reset trigger - reset local state
   useEffect(() => {
     if (resetTrigger > 0) {
@@ -118,29 +134,43 @@ export function BotCard({
     }
   }, [existingBot]);
 
-  // ===== TRADING LOGIC =====
-  // LIVE MODE: No local simulation - data comes from edge function via Realtime
-  // DEMO MODE: Local simulation for fast trading
+  // Sync local config with parent
   useEffect(() => {
+    setLocalAmountPerTrade(amountPerTrade);
+  }, [amountPerTrade]);
+
+  useEffect(() => {
+    setLocalTradeIntervalMs(tradeIntervalMs);
+  }, [tradeIntervalMs]);
+
+  // ===== TRADING LOGIC =====
+  useEffect(() => {
+    // Clear any existing interval first
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
     if (!isRunning || !existingBot) {
       setActiveExchange(null);
+      isCancelledRef.current = true;
       return;
     }
 
+    isCancelledRef.current = false;
+
     // ===== LIVE MODE: Execute real trades via edge function =====
     if (tradingMode === 'live') {
-      console.log('🔴 LIVE MODE: Executing real trades via edge function every 15 seconds');
+      console.log(`🔴 LIVE MODE: Executing real trades via edge function every ${localTradeIntervalMs}ms`);
       
-      let isCancelled = false;
-      const exchangeCooldowns = new Map<string, number>(); // Track rate-limited exchanges
+      const exchangeCooldowns = new Map<string, number>();
       let consecutiveErrors = 0;
       const MAX_CONSECUTIVE_ERRORS = 3;
       
       const executeLiveTrade = async () => {
-        if (isCancelled) return;
+        if (isCancelledRef.current) return;
         
         try {
-          // Filter out exchanges on cooldown (rate limited)
           const now = Date.now();
           const availableExchanges = EXCHANGE_CONFIGS
             .map(e => e.name)
@@ -163,7 +193,8 @@ export function BotCard({
               exchanges: availableExchanges,
               leverages,
               isSandbox: false,
-              maxPositionSize: 100,
+              maxPositionSize: localAmountPerTrade,
+              stopLossPercent: 0.2, // 20% of profit = 80% lower
             }
           });
           
@@ -171,36 +202,25 @@ export function BotCard({
             console.error('❌ Live trade error:', error);
             consecutiveErrors++;
             
-            // Auto-pause after too many consecutive errors
             if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
               const { toast } = await import('sonner');
               toast.error('Bot Auto-Paused', {
                 description: `${MAX_CONSECUTIVE_ERRORS} consecutive errors. Check exchange connections.`,
-                action: {
-                  label: 'Resume',
-                  onClick: () => {
-                    consecutiveErrors = 0;
-                  }
-                }
               });
             }
             return;
           }
           
-          // Reset error counter on success
           consecutiveErrors = 0;
-          
           console.log('✅ Live trade result:', data);
           
-          // Handle failure responses from edge function
           if (data?.success === false) {
             console.warn('⚠️ Trade not executed:', data.reason || data.error);
             const { toast } = await import('sonner');
             
-            // Handle rate limiting - add exchange to cooldown
             if (data.error?.includes('rate') || data.error?.includes('Rate') || data.error?.includes('-1015')) {
               const exchange = data.exchange || availableExchanges[0];
-              exchangeCooldowns.set(exchange, Date.now() + 60000); // 60s cooldown
+              exchangeCooldowns.set(exchange, Date.now() + 60000);
               toast.warning(`${exchange} rate limited`, {
                 description: 'Temporarily pausing trades on this exchange.',
                 id: `rate-limit-${exchange}`,
@@ -208,22 +228,19 @@ export function BotCard({
               return;
             }
             
-            // Show error toast but don't spam - only show once per error type
             if (data.error?.includes('Insufficient') || data.error?.includes('Balance below')) {
               toast.error('Insufficient Balance', {
-                description: data.reason || 'Deposit more USDT to your exchange to continue trading.',
+                description: data.reason || 'Deposit more USDT to your exchange.',
                 id: 'insufficient-balance',
               });
             }
             return;
           }
           
-          // Update active exchange indicator
           if (data?.exchange) {
             setActiveExchange(data.exchange);
           }
           
-          // Update metrics from successful trade
           if (data?.success && data?.pnl !== undefined) {
             setMetrics(prev => {
               const newPnl = prev.currentPnL + data.pnl;
@@ -241,11 +258,9 @@ export function BotCard({
               };
             });
             
-            // Sync to database
             onUpdateBotPnl(existingBot.id, data.pnl, 1, data.pnl > 0 ? 100 : 0);
           }
           
-          // Notify on trade
           if (data?.pair && data?.direction) {
             notifyTrade(data.exchange, data.pair, data.direction, data.pnl || 0);
           }
@@ -254,19 +269,23 @@ export function BotCard({
         }
       };
       
-      // Execute first trade immediately, then every 15 seconds (reduced from 5s to avoid rate limits)
+      // Use configurable interval for live mode (minimum 5000ms for rate limit protection)
+      const liveInterval = Math.max(localTradeIntervalMs, 5000);
       executeLiveTrade();
-      const interval = setInterval(executeLiveTrade, 15000);
+      intervalRef.current = setInterval(executeLiveTrade, liveInterval);
       
       return () => {
         console.log('🛑 STOPPING: Live trade execution loop cleanup');
-        isCancelled = true;
-        clearInterval(interval);
+        isCancelledRef.current = true;
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
       };
     }
 
     // ===== DEMO MODE: Local simulation =====
-    console.log('🟢 DEMO MODE: Running local trading simulation');
+    console.log(`🟢 DEMO MODE: Running local trading simulation every ${localTradeIntervalMs}ms`);
     
     const activeExchanges = EXCHANGE_CONFIGS.map(e => e.name);
     if (activeExchanges.length === 0) return;
@@ -278,9 +297,16 @@ export function BotCard({
     });
 
     let idx = 0;
-    const interval = setInterval(async () => {
-      // CRITICAL: Enforce daily stop loss (configurable, default -$5)
-      if (metrics.currentPnL <= -dailyStopLoss) {
+    let winsCount = Math.round(metrics.hitRate * metrics.tradesExecuted / 100);
+    
+    const executeDemoTrade = async () => {
+      if (isCancelledRef.current) return;
+      
+      // Get current metrics from state
+      const currentMetrics = metrics;
+      
+      // CRITICAL: Enforce daily stop loss
+      if (currentMetrics.currentPnL <= -dailyStopLoss) {
         const { toast } = await import('sonner');
         toast.error('⚠️ Daily Stop Loss Hit', {
           description: `GreenBack stopped: -$${dailyStopLoss} daily limit reached.`,
@@ -323,12 +349,13 @@ export function BotCard({
         const winProbability = calculateWinProbability(signal);
         isWin = Math.random() < winProbability;
       } else {
-        direction = priceChange >= 0 ? 'long' : 'short';
-        isWin = true;
+        // Both long and short trades for profit
+        direction = Math.random() > 0.5 ? 'long' : 'short';
+        isWin = Math.random() < 0.75; // 75% win rate in profit mode
       }
 
       const leverage = botType === 'leverage' ? (leverages[currentExchange] || 1) : 1;
-      const positionSize = 100 * leverage;
+      const positionSize = localAmountPerTrade * leverage;
       const pair = `${symbol}/USDT`;
 
       const targetProfit = Math.max(profitPerTrade, MIN_NET_PROFIT);
@@ -340,7 +367,10 @@ export function BotCard({
       const netProfit = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange);
       if (netProfit < MIN_NET_PROFIT) return;
       
-      const tradePnl = isWin ? netProfit : -Math.abs(netProfit * 0.6);
+      // FIXED: Stop loss is 20% of profit target (80% lower)
+      const stopLossAmount = profitPerTrade * 0.2;
+      const tradePnl = isWin ? netProfit : -stopLossAmount;
+      
       hitRateTracker.recordTrade(isWin);
 
       const now = Date.now();
@@ -348,17 +378,18 @@ export function BotCard({
       tradeTimestampsRef.current = tradeTimestampsRef.current.filter(t => now - t < 60000);
       const tpm = tradeTimestampsRef.current.length;
 
+      if (isWin) winsCount++;
+      
       setMetrics(prev => {
         const newPnl = Math.min(Math.max(prev.currentPnL + tradePnl, -dailyStopLoss), dailyTarget * 1.5);
         const newTrades = prev.tradesExecuted + 1;
-        const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
-        const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
+        const newHitRate = newTrades > 0 ? (winsCount / newTrades) * 100 : 0;
         const newMaxDrawdown = Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown);
 
         // DEMO MODE: Route through demoDataStore
         demoDataStore.updateBalance(tradePnl, `trade-${Date.now()}-${Math.random()}`);
         demoDataStore.addTrade({ pair, direction, pnl: tradePnl, exchange: currentExchange, timestamp: new Date() });
-        setVirtualBalance(prev => prev + tradePnl);
+        setVirtualBalance(prevBal => prevBal + tradePnl);
 
         if (user) {
           supabase.from('trades').insert({
@@ -367,12 +398,12 @@ export function BotCard({
             direction,
             entry_price: currentPrice,
             exit_price: exitPrice,
-            amount: 100,
+            amount: localAmountPerTrade,
             leverage,
             profit_loss: tradePnl,
-            profit_percentage: (tradePnl / 100) * 100,
+            profit_percentage: (tradePnl / localAmountPerTrade) * 100,
             exchange_name: currentExchange,
-            is_sandbox: true, // Always true for demo
+            is_sandbox: true,
             status: 'closed',
             closed_at: new Date().toISOString(),
           }).then(({ error }) => {
@@ -397,23 +428,36 @@ export function BotCard({
           tradesPerMinute: tpm,
         };
       });
-    }, 200);
+    };
+    
+    intervalRef.current = setInterval(executeDemoTrade, localTradeIntervalMs);
 
     return () => {
       console.log('🛑 STOPPING: Demo trade simulation loop cleanup');
-      clearInterval(interval);
+      isCancelledRef.current = true;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     };
-  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy]);
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy, localAmountPerTrade, localTradeIntervalMs, metrics.currentPnL, metrics.tradesExecuted, metrics.hitRate]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
+      // CRITICAL: Stop the trading loop FIRST
+      isCancelledRef.current = true;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      
       await onStopBot(existingBot.id);
       setMetrics({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, avgTimeToTP: 12.3, maxDrawdown: 0, tradesPerMinute: 0 });
+      setActiveExchange(null);
       resetProgressNotifications();
     } else {
       resetProgressNotifications();
       
-      // In live mode, sync balances before starting bot
       if (tradingMode === 'live') {
         const { toast } = await import('sonner');
         toast.info('Syncing exchange balances...');
@@ -421,7 +465,6 @@ export function BotCard({
           await supabase.functions.invoke('sync-exchange-balances');
         } catch (err) {
           console.error('Pre-start sync failed:', err);
-          // Continue anyway - bot will use cached balances
         }
       }
       
@@ -438,10 +481,8 @@ export function BotCard({
       });
       if (error) throw error;
       
-      // Reset local P&L after successful withdrawal
       setMetrics(prev => ({ ...prev, currentPnL: 0 }));
       
-      // Show success notification via sonner
       const { toast } = await import('sonner');
       toast.success(`💰 Withdrew $${data?.withdrawnAmount?.toFixed(2) || metrics.currentPnL.toFixed(2)}`);
     } catch (err) {
@@ -453,7 +494,6 @@ export function BotCard({
     }
   };
 
-  // Manual trade execution for Live mode
   const handleExecuteTradeNow = async () => {
     if (!existingBot || tradingMode !== 'live') return;
     setIsExecutingTrade(true);
@@ -470,7 +510,8 @@ export function BotCard({
           exchanges: EXCHANGE_CONFIGS.map(e => e.name),
           leverages,
           isSandbox: false,
-          maxPositionSize: 100,
+          maxPositionSize: localAmountPerTrade,
+          stopLossPercent: 0.2,
         }
       });
       
@@ -603,13 +644,13 @@ export function BotCard({
         </div>
         <p className="text-[9px] text-muted-foreground mt-1">
           {tradingStrategy === 'profit' 
-            ? 'Trades as fast as possible, min $0.10 profit/trade'
+            ? `Long & Short trades, min $${MIN_NET_PROFIT.toFixed(2)} profit/trade`
             : 'Filters trades using AI signals for 80%+ hit rate'}
         </p>
       </div>
 
-      {/* Configuration */}
-      <div className="grid grid-cols-2 gap-3 mb-3">
+      {/* Configuration Row 1: Daily Target & Profit Per Trade */}
+      <div className="grid grid-cols-2 gap-3 mb-2">
         <div>
           <label className="text-[10px] text-muted-foreground block mb-1">Daily Target ($)</label>
           <Input
@@ -626,16 +667,63 @@ export function BotCard({
           <Input
             type="number"
             value={profitPerTrade}
-            onChange={(e) => setProfitPerTrade(Math.max(0.10, Number(e.target.value)))}
+            onChange={(e) => {
+              const val = Math.max(MIN_NET_PROFIT, Number(e.target.value));
+              setProfitPerTrade(val);
+              // Auto-update stop loss to 20% of profit
+              onConfigChange?.('perTradeStopLoss', val * 0.2);
+            }}
             disabled={isRunning}
             className="h-8 text-xs font-mono"
-            min={0.10}
-            step={0.05}
+            min={MIN_NET_PROFIT}
+            step={0.10}
           />
         </div>
       </div>
 
-      {/* Stop Loss Configuration */}
+      {/* Configuration Row 2: Amount Per Trade & Trade Speed */}
+      <div className="grid grid-cols-2 gap-3 mb-2">
+        <div>
+          <label className="text-[10px] text-muted-foreground block mb-1">Amount/Trade ($)</label>
+          <Input
+            type="number"
+            value={localAmountPerTrade}
+            onChange={(e) => {
+              const val = Math.max(20, Math.min(5000, Number(e.target.value)));
+              setLocalAmountPerTrade(val);
+              onConfigChange?.('amountPerTrade', val);
+            }}
+            disabled={isRunning}
+            className="h-8 text-xs font-mono"
+            min={20}
+            max={5000}
+            step={10}
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-muted-foreground block mb-1 flex items-center gap-1">
+            <Timer className="w-3 h-3" /> Speed (ms)
+          </label>
+          <Input
+            type="number"
+            value={localTradeIntervalMs}
+            onChange={(e) => {
+              // Demo: min 100ms, Live: min 5000ms
+              const minInterval = tradingMode === 'live' ? 5000 : 100;
+              const val = Math.max(minInterval, Math.min(60000, Number(e.target.value)));
+              setLocalTradeIntervalMs(val);
+              onConfigChange?.('tradeIntervalMs', val);
+            }}
+            disabled={isRunning}
+            className="h-8 text-xs font-mono"
+            min={tradingMode === 'live' ? 5000 : 100}
+            max={60000}
+            step={100}
+          />
+        </div>
+      </div>
+
+      {/* Configuration Row 3: Stop Losses */}
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div>
           <label className="text-[10px] text-muted-foreground block mb-1">Daily Stop Loss ($)</label>
@@ -650,16 +738,15 @@ export function BotCard({
           />
         </div>
         <div>
-          <label className="text-[10px] text-muted-foreground block mb-1">Stop Loss/Trade ($)</label>
+          <label className="text-[10px] text-muted-foreground block mb-1">Stop Loss/Trade ($) 🔒</label>
           <Input
             type="number"
-            value={perTradeStopLoss}
-            onChange={(e) => onConfigChange?.('perTradeStopLoss', Math.max(0.1, Number(e.target.value)))}
-            disabled={isAnyBotRunning}
-            className="h-8 text-xs font-mono"
-            min={0.1}
-            step={0.1}
+            value={calculatedStopLoss.toFixed(2)}
+            disabled
+            className="h-8 text-xs font-mono bg-muted"
+            title="Auto-calculated: 20% of Profit/Trade (80% lower)"
           />
+          <p className="text-[8px] text-muted-foreground mt-0.5">Auto: 20% of profit</p>
         </div>
       </div>
 
@@ -714,7 +801,6 @@ export function BotCard({
           {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
           {isRunning ? 'Stop' : 'Start'}
         </Button>
-        {/* Manual Execute Trade Now button for Live mode */}
         {isRunning && tradingMode === 'live' && (
           <Button
             variant="outline"
@@ -736,7 +822,7 @@ export function BotCard({
 
       <div className="flex items-center gap-2 mt-2 text-[8px] text-muted-foreground">
         <AlertTriangle className="w-2.5 h-2.5 text-warning" />
-        <span>Daily stop: -${dailyStopLoss} | SL: -${perTradeStopLoss.toFixed(2)}/trade</span>
+        <span>Daily stop: -${dailyStopLoss} | SL: -${calculatedStopLoss.toFixed(2)}/trade (20% of profit)</span>
       </div>
     </div>
   );

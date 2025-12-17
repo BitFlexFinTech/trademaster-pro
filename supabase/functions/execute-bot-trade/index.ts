@@ -203,7 +203,8 @@ interface BotTradeRequest {
   exchanges: string[];
   leverages?: Record<string, number>;
   isSandbox: boolean;
-  maxPositionSize?: number; // NEW: user-configurable position size
+  maxPositionSize?: number;
+  stopLossPercent?: number; // 0.2 = 20% of profit (80% lower)
 }
 
 // Generate unique clientOrderId for idempotency
