@@ -90,6 +90,15 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
     }
   };
 
+  // Generate SHA-256 hash for API key (secure alternative to btoa)
+  const hashApiKey = async (key: string): Promise<string> => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(key);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
+  };
+
   const handleConnect = async () => {
     if (!user || !exchange) return;
     if (!testResult?.success) {
@@ -111,13 +120,16 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
 
       if (encryptError) throw encryptError;
 
+      // Generate secure SHA-256 hash of API key for reference (not reversible)
+      const apiKeyHash = await hashApiKey(apiKey);
+
       // Store connection with encrypted credentials
       const { error } = await supabase
         .from('exchange_connections')
         .upsert({
           user_id: user.id,
           exchange_name: exchange.name,
-          api_key_hash: btoa(apiKey.slice(0, 4) + '****' + apiKey.slice(-4)),
+          api_key_hash: apiKeyHash,
           encrypted_api_key: encryptedData.encryptedApiKey,
           encrypted_api_secret: encryptedData.encryptedSecret,
           encrypted_passphrase: encryptedData.encryptedPassphrase,

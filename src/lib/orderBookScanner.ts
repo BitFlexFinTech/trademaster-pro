@@ -74,7 +74,81 @@ async function fetchBinanceOrderBook(symbol: string): Promise<OrderBook | null> 
       timestamp: Date.now(),
     };
   } catch (err) {
-    console.error(`Binance order book error for ${symbol}:`, err);
+    if (import.meta.env.DEV) console.error(`Binance order book error for ${symbol}:`, err);
+    return null;
+  }
+}
+
+/**
+ * Fetch ticker from Bybit (real cross-exchange data)
+ */
+async function fetchBybitTicker(symbol: string): Promise<{ bid: number; ask: number; volume: number } | null> {
+  try {
+    const response = await fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${symbol}`);
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    const ticker = data?.result?.list?.[0];
+    if (!ticker) return null;
+    
+    return {
+      bid: parseFloat(ticker.bid1Price) || 0,
+      ask: parseFloat(ticker.ask1Price) || 0,
+      volume: parseFloat(ticker.volume24h) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch ticker from OKX (real cross-exchange data)
+ */
+async function fetchOKXTicker(symbol: string): Promise<{ bid: number; ask: number; volume: number } | null> {
+  try {
+    // OKX uses dash format: BTC-USDT
+    const okxSymbol = symbol.replace('USDT', '-USDT');
+    const response = await fetch(`https://www.okx.com/api/v5/market/ticker?instId=${okxSymbol}`);
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    const ticker = data?.data?.[0];
+    if (!ticker) return null;
+    
+    return {
+      bid: parseFloat(ticker.bidPx) || 0,
+      ask: parseFloat(ticker.askPx) || 0,
+      volume: parseFloat(ticker.vol24h) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch ticker from Kraken (real cross-exchange data)
+ */
+async function fetchKrakenTicker(symbol: string): Promise<{ bid: number; ask: number; volume: number } | null> {
+  try {
+    // Kraken uses different symbol format: XBTUSDT for BTC
+    const krakenSymbol = symbol.replace('BTC', 'XBT');
+    const response = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenSymbol}`);
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    const result = data?.result;
+    if (!result || data.error?.length > 0) return null;
+    
+    const tickerKey = Object.keys(result)[0];
+    const ticker = result[tickerKey];
+    if (!ticker) return null;
+    
+    return {
+      bid: parseFloat(ticker.b?.[0]) || 0,
+      ask: parseFloat(ticker.a?.[0]) || 0,
+      volume: parseFloat(ticker.v?.[1]) || 0, // 24h volume
+    };
+  } catch {
     return null;
   }
 }
@@ -180,56 +254,79 @@ export async function scanForArbitrageOpportunities(
 ): Promise<ArbitrageOpportunity[]> {
   const opportunities: ArbitrageOpportunity[] = [];
   
-  // For simplicity, simulate opportunities based on market volatility
-  // Real implementation would compare order books across exchanges
+  // Map exchange names to fetcher functions
+  const exchangeFetchers: Record<string, (symbol: string) => Promise<{ bid: number; ask: number; volume: number } | null>> = {
+    'Binance': fetchBinanceTicker,
+    'Bybit': fetchBybitTicker,
+    'OKX': fetchOKXTicker,
+    'Kraken': fetchKrakenTicker,
+  };
+  
+  // Filter to exchanges we can actually fetch data from
+  const supportedExchanges = exchanges.filter(e => exchangeFetchers[e]);
+  if (supportedExchanges.length < 2) {
+    // Need at least 2 exchanges for arbitrage
+    return opportunities;
+  }
   
   for (const symbol of SCAN_PAIRS.slice(0, 10)) {
-    const ticker = await fetchBinanceTicker(symbol);
-    if (!ticker) continue;
+    // Fetch REAL prices from all exchanges in parallel
+    const pricePromises = supportedExchanges.map(async (exchange) => {
+      const fetcher = exchangeFetchers[exchange];
+      const ticker = await fetcher(symbol);
+      return { exchange, ticker };
+    });
     
-    const spreadPercent = ((ticker.ask - ticker.bid) / ticker.bid) * 100;
+    const results = await Promise.all(pricePromises);
+    const validResults = results.filter(r => r.ticker && r.ticker.bid > 0 && r.ticker.ask > 0);
     
-    // Simulate cross-exchange spread (would be real API calls in production)
-    for (let i = 0; i < exchanges.length - 1; i++) {
-      for (let j = i + 1; j < exchanges.length; j++) {
-        const buyExchange = exchanges[i];
-        const sellExchange = exchanges[j];
+    if (validResults.length < 2) continue;
+    
+    // Find REAL arbitrage opportunities by comparing actual prices
+    for (let i = 0; i < validResults.length - 1; i++) {
+      for (let j = i + 1; j < validResults.length; j++) {
+        const exchange1 = validResults[i];
+        const exchange2 = validResults[j];
         
-        // Simulate slight price difference between exchanges
-        const priceVariance = Math.random() * 0.002; // 0-0.2%
-        const buyPrice = ticker.bid * (1 - priceVariance / 2);
-        const sellPrice = ticker.ask * (1 + priceVariance / 2);
+        // Check both directions: buy on 1, sell on 2 AND buy on 2, sell on 1
+        const directions = [
+          { buyExchange: exchange1.exchange, buyPrice: exchange1.ticker!.ask, sellExchange: exchange2.exchange, sellPrice: exchange2.ticker!.bid },
+          { buyExchange: exchange2.exchange, buyPrice: exchange2.ticker!.ask, sellExchange: exchange1.exchange, sellPrice: exchange1.ticker!.bid },
+        ];
         
-        const spread = sellPrice - buyPrice;
-        const crossSpreadPercent = (spread / buyPrice) * 100;
-        
-        // Calculate net profit after fees
-        const buyFee = getFeeRate(buyExchange);
-        const sellFee = getFeeRate(sellExchange);
-        const totalFees = (buyFee + sellFee) * 100;
-        
-        const netSpreadPercent = crossSpreadPercent - totalFees;
-        const positionSize = 1000; // $1000 position
-        const projectedNet = positionSize * (netSpreadPercent / 100);
-        
-        if (projectedNet >= minProfit) {
-          // Fetch REAL volume for this opportunity
-          const realVolume = ticker.volume || await fetch24hVolume(symbol);
+        for (const { buyExchange, buyPrice, sellExchange, sellPrice } of directions) {
+          if (sellPrice <= buyPrice) continue; // No arbitrage opportunity
           
-          opportunities.push({
-            id: `${symbol}-${buyExchange}-${sellExchange}-${Date.now()}`,
-            symbol,
-            buyExchange,
-            sellExchange,
-            buyPrice,
-            sellPrice,
-            spread,
-            spreadPercent: crossSpreadPercent,
-            projectedNetProfit: projectedNet,
-            confidence: Math.min(90, 50 + projectedNet * 5),
-            volume24h: realVolume, // REAL volume from Binance API
-            expiresAt: Date.now() + 30000, // 30 seconds
-          });
+          const spread = sellPrice - buyPrice;
+          const crossSpreadPercent = (spread / buyPrice) * 100;
+          
+          // Calculate net profit after REAL fees
+          const buyFee = getFeeRate(buyExchange);
+          const sellFee = getFeeRate(sellExchange);
+          const totalFees = (buyFee + sellFee) * 100;
+          
+          const netSpreadPercent = crossSpreadPercent - totalFees;
+          const positionSize = 1000; // $1000 position
+          const projectedNet = positionSize * (netSpreadPercent / 100);
+          
+          if (projectedNet >= minProfit) {
+            const realVolume = exchange1.ticker!.volume || exchange2.ticker!.volume;
+            
+            opportunities.push({
+              id: `${symbol}-${buyExchange}-${sellExchange}-${Date.now()}`,
+              symbol,
+              buyExchange,
+              sellExchange,
+              buyPrice,
+              sellPrice,
+              spread,
+              spreadPercent: crossSpreadPercent,
+              projectedNetProfit: projectedNet,
+              confidence: Math.min(95, 60 + netSpreadPercent * 15), // Higher confidence for real data
+              volume24h: realVolume,
+              expiresAt: Date.now() + 30000, // 30 seconds
+            });
+          }
         }
       }
     }

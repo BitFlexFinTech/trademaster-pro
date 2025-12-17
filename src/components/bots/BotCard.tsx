@@ -353,13 +353,16 @@ export function BotCard({
               tradeId: data.tradeId,
             }]);
             
-            // Start polling for this order
+            // Start polling for this order with exponential backoff
             const pollOrder = async () => {
               let attempts = 0;
-              const maxAttempts = 15; // 30 seconds max
+              const maxAttempts = 15;
+              let retryCount = 0;
+              const maxRetries = 3;
+              let delay = 2000; // Start with 2 seconds
               
               while (attempts < maxAttempts) {
-                await new Promise(r => setTimeout(r, 2000));
+                await new Promise(r => setTimeout(r, delay));
                 attempts++;
                 
                 try {
@@ -373,12 +376,23 @@ export function BotCard({
                   });
                   
                   if (statusError) {
-                    console.warn('Order status check error:', statusError);
-                    continue;
+                    if (import.meta.env.DEV) console.warn('Order status check error:', statusError);
+                    retryCount++;
+                    if (retryCount <= maxRetries) {
+                      // Exponential backoff: 2s → 4s → 8s → 16s (max)
+                      delay = Math.min(delay * 2, 16000);
+                      if (import.meta.env.DEV) console.log(`Retrying in ${delay}ms (attempt ${retryCount}/${maxRetries})`);
+                      continue;
+                    }
+                    break; // Max retries exceeded
                   }
                   
+                  // Reset retry count and delay on success
+                  retryCount = 0;
+                  delay = 2000;
+                  
                   if (statusData?.status === 'FILLED') {
-                    console.log('✅ Pending order filled:', statusData);
+                    if (import.meta.env.DEV) console.log('✅ Pending order filled:', statusData);
                     setPendingTrades(prev => prev.filter(p => p.orderId !== data.exitOrderId));
                     
                     // Calculate and update P&L
@@ -398,17 +412,21 @@ export function BotCard({
                     notifyTrade(data.exchange, data.pair, data.direction, pnl);
                     return;
                   } else if (statusData?.status === 'CANCELLED' || statusData?.status === 'REJECTED') {
-                    console.log('❌ Pending order cancelled:', statusData);
+                    if (import.meta.env.DEV) console.log('❌ Pending order cancelled:', statusData);
                     setPendingTrades(prev => prev.filter(p => p.orderId !== data.exitOrderId));
                     return;
                   }
                 } catch (pollErr) {
-                  console.warn('Poll error:', pollErr);
+                  if (import.meta.env.DEV) console.warn('Poll error:', pollErr);
+                  retryCount++;
+                  if (retryCount <= maxRetries) {
+                    delay = Math.min(delay * 2, 16000);
+                  }
                 }
               }
               
               // Max attempts reached - remove from pending
-              console.log('⏰ Polling timeout for order:', data.exitOrderId);
+              if (import.meta.env.DEV) console.log('⏰ Polling timeout for order:', data.exitOrderId);
               setPendingTrades(prev => prev.filter(p => p.orderId !== data.exitOrderId));
             };
             
@@ -1052,6 +1070,22 @@ export function BotCard({
                   {connectionHealth === 'connected' && 'Connected to exchange APIs'}
                   {connectionHealth === 'disconnected' && 'Network connection lost - trades may be delayed'}
                   {connectionHealth === 'reconnecting' && 'Attempting to reconnect...'}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {/* Pending Trades Indicator */}
+          {pendingTrades.length > 0 && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger>
+                  <Badge variant="outline" className="text-[9px] flex items-center gap-1">
+                    <Clock className="w-3 h-3 animate-pulse" />
+                    {pendingTrades.length} pending
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {pendingTrades.length} order{pendingTrades.length > 1 ? 's' : ''} awaiting fill
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

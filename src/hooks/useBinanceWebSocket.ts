@@ -30,7 +30,7 @@ export function useBinanceWebSocket() {
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      console.log('[BinanceWS] Already connected');
+      if (import.meta.env.DEV) console.log('[BinanceWS] Already connected');
       return;
     }
 
@@ -39,13 +39,13 @@ export function useBinanceWebSocket() {
       const streams = STREAM_SYMBOLS.map(s => `${s}@ticker`).join('/');
       const wsUrl = `${BINANCE_WS_URL}/${streams}`;
       
-      console.log('[BinanceWS] Connecting to:', wsUrl.slice(0, 100) + '...');
+      if (import.meta.env.DEV) console.log('[BinanceWS] Connecting to:', wsUrl.slice(0, 100) + '...');
       
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('[BinanceWS] Connected successfully');
+        if (import.meta.env.DEV) console.log('[BinanceWS] Connected successfully');
         setIsConnected(true);
         setError(null);
         reconnectAttemptsRef.current = 0;
@@ -73,24 +73,24 @@ export function useBinanceWebSocket() {
             });
           }
         } catch (err) {
-          console.error('[BinanceWS] Error parsing message:', err);
+          if (import.meta.env.DEV) console.error('[BinanceWS] Error parsing message:', err);
         }
       };
 
       ws.onerror = (event) => {
-        console.error('[BinanceWS] WebSocket error:', event);
+        if (import.meta.env.DEV) console.error('[BinanceWS] WebSocket error:', event);
         setError('WebSocket connection error');
       };
 
       ws.onclose = (event) => {
-        console.log('[BinanceWS] Connection closed:', event.code, event.reason);
+        if (import.meta.env.DEV) console.log('[BinanceWS] Connection closed:', event.code, event.reason);
         setIsConnected(false);
         wsRef.current = null;
 
         // Attempt reconnection with exponential backoff
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
-          console.log(`[BinanceWS] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`);
+          if (import.meta.env.DEV) console.log(`[BinanceWS] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`);
           
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttemptsRef.current++;
@@ -101,7 +101,7 @@ export function useBinanceWebSocket() {
         }
       };
     } catch (err) {
-      console.error('[BinanceWS] Failed to create WebSocket:', err);
+      if (import.meta.env.DEV) console.error('[BinanceWS] Failed to create WebSocket:', err);
       setError('Failed to create WebSocket connection');
     }
   }, []);
@@ -150,7 +150,7 @@ export function useBinanceWebSocket() {
     const pingInterval = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         // Binance WebSocket auto-handles pings, but we log connection status
-        console.log('[BinanceWS] Connection alive, tickers:', tickers.size);
+        if (import.meta.env.DEV) console.log('[BinanceWS] Connection alive, tickers:', tickers.size);
       }
     }, 30000);
 

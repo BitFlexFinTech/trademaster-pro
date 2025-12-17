@@ -153,7 +153,7 @@ export function useTrades(filterByMode?: 'demo' | 'live') {
           filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
-          console.log('Trade update:', payload);
+          if (import.meta.env.DEV) console.log('Trade update:', payload);
           fetchTrades();
         }
       )

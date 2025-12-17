@@ -41,7 +41,7 @@ export function usePortfolio() {
   const fetchPortfolio = useCallback(async () => {
     // Prevent concurrent fetches (request deduplication)
     if (fetchingRef.current) {
-      console.log('Portfolio fetch already in progress, skipping...');
+      if (import.meta.env.DEV) console.log('Portfolio fetch already in progress, skipping...');
       return;
     }
     fetchingRef.current = true;

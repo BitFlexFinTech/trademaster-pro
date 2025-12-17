@@ -137,7 +137,7 @@ export function useRealtimePrices() {
           table: 'arbitrage_opportunities',
         },
         (payload) => {
-          console.log('Arbitrage update:', payload);
+          if (import.meta.env.DEV) console.log('Arbitrage update:', payload);
           fetchOpportunities(); // Refetch all opportunities on change
         }
       )
