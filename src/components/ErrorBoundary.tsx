@@ -1,5 +1,6 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
 import { errorLogger } from '@/lib/errorLogger';
+import { captureException } from '@/lib/sentry';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
@@ -24,7 +25,14 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    // Log to local error logger (includes database persistence)
     errorLogger.captureException(error, {
+      componentStack: errorInfo.componentStack,
+      errorBoundary: true,
+    });
+    
+    // Also capture via Sentry for production monitoring
+    captureException(error, {
       componentStack: errorInfo.componentStack,
       errorBoundary: true,
     });
