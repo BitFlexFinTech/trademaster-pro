@@ -355,6 +355,12 @@ export function BotCard({
         return;
       }
       
+      // TRADE SPEED AUTO-ADJUST: Check if we can trade based on rolling hit rate
+      if (!tradeSpeedController.canTrade()) {
+        console.log('⏳ Trade speed cooldown active, skipping trade');
+        return;
+      }
+      
       // Use ref for metrics to avoid stale state
       const currentMetrics = metricsRef.current;
       

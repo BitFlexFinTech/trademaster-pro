@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 
 export const DEFAULT_VIRTUAL_BALANCE = 1000;
 export const MAX_USDT_ALLOCATION = 5000;
-export const DEFAULT_BASE_BALANCE = 350;  // Locked balance per exchange
+export const DEFAULT_BASE_BALANCE = 0;  // CRITICAL: No hardcoded default - use real balances
 
 // Default demo allocation percentages
 export const DEFAULT_DEMO_ALLOCATION = {
@@ -14,15 +14,15 @@ export const DEFAULT_DEMO_ALLOCATION = {
   SOL: 10,
 };
 
-// Default base balance per exchange (locked - never traded)
+// Default base balance per exchange - ZERO by default, populated from real data
 export const DEFAULT_BASE_BALANCE_PER_EXCHANGE: Record<string, number> = {
-  Binance: 350,
-  OKX: 350,
-  Bybit: 350,
-  Kraken: 350,
-  Nexo: 350,
-  KuCoin: 350,
-  Hyperliquid: 350,
+  Binance: 0,
+  OKX: 0,
+  Bybit: 0,
+  Kraken: 0,
+  Nexo: 0,
+  KuCoin: 0,
+  Hyperliquid: 0,
 };
 
 interface DemoAllocation {
@@ -30,6 +30,15 @@ interface DemoAllocation {
   BTC: number;
   ETH: number;
   SOL: number;
+}
+
+// Single source of truth for exchange balances
+export interface ExchangeBalance {
+  exchange: string;
+  usdtBalance: number;
+  totalValue: number;
+  lastSyncAt: Date;
+  isStale: boolean;
 }
 
 interface TradingModeContextType {
@@ -59,6 +68,10 @@ interface TradingModeContextType {
   getTotalVaultedProfits: () => number;
   // Get tradeable amount (S only, excludes V)
   getTradeableAmount: (exchange: string) => number;
+  // SINGLE SOURCE OF TRUTH: Real exchange balances
+  exchangeBalances: ExchangeBalance[];
+  fetchExchangeBalances: () => Promise<void>;
+  getRealBalance: (exchange: string) => number;
 }
 
 const TradingModeContext = createContext<TradingModeContextType | null>(null);
@@ -79,6 +92,9 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
   
   // Profit Vault (V) - segregated profits, NEVER used for trading
   const [profitVault, setProfitVault] = useState<Record<string, number>>({});
+  
+  // SINGLE SOURCE OF TRUTH: Real exchange balances from database
+  const [exchangeBalances, setExchangeBalances] = useState<ExchangeBalance[]>([]);
 
   const setVirtualBalance = useCallback((balance: number | ((prev: number) => number)) => {
     if (typeof balance === 'function') {
@@ -173,6 +189,64 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
     return S;
   }, [sessionStartBalance, baseBalancePerExchange]);
 
+  // CRITICAL: Fetch real exchange balances from database - SINGLE SOURCE OF TRUTH
+  const fetchExchangeBalances = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      const { data: holdings, error } = await supabase
+        .from('portfolio_holdings')
+        .select('exchange_name, asset_symbol, quantity, updated_at')
+        .eq('user_id', user.id)
+        .in('asset_symbol', ['USDT', 'USDC', 'USD']);
+      
+      if (error) throw error;
+      
+      // Group by exchange and sum USDT-equivalent balances
+      const balanceMap = new Map<string, { usdtBalance: number; lastSync: Date }>();
+      
+      holdings?.forEach(h => {
+        if (!h.exchange_name) return;
+        const existing = balanceMap.get(h.exchange_name) || { usdtBalance: 0, lastSync: new Date(0) };
+        balanceMap.set(h.exchange_name, {
+          usdtBalance: existing.usdtBalance + h.quantity,
+          lastSync: new Date(h.updated_at) > existing.lastSync ? new Date(h.updated_at) : existing.lastSync,
+        });
+      });
+      
+      const now = new Date();
+      const newBalances: ExchangeBalance[] = Array.from(balanceMap.entries())
+        .filter(([_, data]) => data.usdtBalance > 0) // Only exchanges with balance
+        .map(([exchange, data]) => ({
+          exchange,
+          usdtBalance: data.usdtBalance,
+          totalValue: data.usdtBalance,
+          lastSyncAt: data.lastSync,
+          isStale: (now.getTime() - data.lastSync.getTime()) > 5 * 60 * 1000, // Stale if > 5 min
+        }));
+      
+      setExchangeBalances(newBalances);
+      
+      // Update base balance per exchange to reflect real balances
+      const newBaseBalances: Record<string, number> = { ...DEFAULT_BASE_BALANCE_PER_EXCHANGE };
+      newBalances.forEach(b => {
+        newBaseBalances[b.exchange] = b.usdtBalance;
+      });
+      setBaseBalancePerExchangeState(newBaseBalances);
+      
+      console.log('[BALANCE SYNC] Real exchange balances:', newBalances);
+    } catch (err) {
+      console.error('[BALANCE SYNC] Failed to fetch:', err);
+    }
+  }, []);
+
+  // Get real balance for a specific exchange
+  const getRealBalance = useCallback((exchange: string): number => {
+    const balance = exchangeBalances.find(b => b.exchange === exchange);
+    return balance?.usdtBalance || 0;
+  }, [exchangeBalances]);
+
   const triggerSync = useCallback(async () => {
     try {
       const { data, error } = await supabase.functions.invoke('sync-exchange-balances');
@@ -180,6 +254,9 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
       
       setLastSyncTime(new Date());
+      
+      // CRITICAL: Fetch updated balances after sync
+      await fetchExchangeBalances();
       
       if (data?.synced > 0) {
         toast.success(`Sync Complete`, {
@@ -200,7 +277,7 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
         description: 'Could not sync exchange balances. Try again.',
       });
     }
-  }, []);
+  }, [fetchExchangeBalances]);
 
   const setMode = useCallback((newMode: 'demo' | 'live') => {
     setModeState(newMode);
@@ -262,6 +339,31 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('virtualBalance', String(virtualBalance));
   }, [virtualBalance]);
 
+  // CRITICAL: Subscribe to portfolio_holdings changes for real-time balance updates
+  useEffect(() => {
+    fetchExchangeBalances();
+    
+    const channel = supabase
+      .channel('portfolio-balance-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'portfolio_holdings',
+        },
+        () => {
+          console.log('[REALTIME] portfolio_holdings changed, fetching balances...');
+          fetchExchangeBalances();
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchExchangeBalances]);
+
   // Auto-sync every 5 minutes in Live mode
   useEffect(() => {
     if (mode === 'live') {
@@ -308,6 +410,9 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
       vaultProfit,
       getTotalVaultedProfits,
       getTradeableAmount,
+      exchangeBalances,
+      fetchExchangeBalances,
+      getRealBalance,
     }}>
       {children}
     </TradingModeContext.Provider>
