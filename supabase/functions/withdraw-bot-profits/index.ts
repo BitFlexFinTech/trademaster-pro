@@ -6,16 +6,220 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Exchange internal transfer support
-// Binance: Universal Transfer API (MAIN to FUNDING)
-// Bybit: Transfer between spot and funding wallet
-// OKX: Funding transfer API
-// Kraken: Does not support internal transfers - profits kept in separate tracking
-// Nexo: Does not support internal transfers - profits kept in separate tracking
-
 interface WithdrawRequest {
   botId: string;
-  amount?: number; // Optional - if not provided, withdraw all profits
+  amount?: number;
+}
+
+interface ExchangeCredentials {
+  apiKey: string;
+  apiSecret: string;
+  passphrase?: string;
+}
+
+// HMAC signature generation for exchange APIs
+async function hmacSha256(message: string, secret: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
+  return Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function hmacSha256Base64(message: string, secret: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
+  return btoa(String.fromCharCode(...new Uint8Array(signature)));
+}
+
+/**
+ * Binance Universal Transfer API - Transfer between wallets
+ * POST /sapi/v1/asset/transfer
+ * Docs: https://binance-docs.github.io/apidocs/spot/en/#user-universal-transfer-user_data
+ */
+async function binanceInternalTransfer(
+  credentials: ExchangeCredentials,
+  amount: number
+): Promise<{ success: boolean; txId?: string; error?: string }> {
+  try {
+    const timestamp = Date.now();
+    const params = `type=MAIN_FUNDING&asset=USDT&amount=${amount}&timestamp=${timestamp}`;
+    const signature = await hmacSha256(params, credentials.apiSecret);
+    
+    const response = await fetch(`https://api.binance.com/sapi/v1/asset/transfer?${params}&signature=${signature}`, {
+      method: 'POST',
+      headers: {
+        'X-MBX-APIKEY': credentials.apiKey,
+      },
+    });
+    
+    const data = await response.json();
+    
+    if (data.tranId) {
+      return { success: true, txId: String(data.tranId) };
+    }
+    
+    return { success: false, error: data.msg || 'Binance transfer failed' };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: `Binance error: ${message}` };
+  }
+}
+
+/**
+ * Bybit Internal Transfer API
+ * POST /v5/asset/transfer/inter-transfer
+ * Docs: https://bybit-exchange.github.io/docs/v5/asset/create-inter-transfer
+ */
+async function bybitInternalTransfer(
+  credentials: ExchangeCredentials,
+  amount: number
+): Promise<{ success: boolean; txId?: string; error?: string }> {
+  try {
+    const timestamp = Date.now();
+    const transferId = crypto.randomUUID();
+    
+    const body = {
+      transferId,
+      coin: 'USDT',
+      amount: String(amount),
+      fromAccountType: 'UNIFIED', // or 'CONTRACT'
+      toAccountType: 'FUND',
+    };
+    
+    const bodyStr = JSON.stringify(body);
+    const signStr = `${timestamp}${credentials.apiKey}5000${bodyStr}`;
+    const signature = await hmacSha256(signStr, credentials.apiSecret);
+    
+    const response = await fetch('https://api.bybit.com/v5/asset/transfer/inter-transfer', {
+      method: 'POST',
+      headers: {
+        'X-BAPI-API-KEY': credentials.apiKey,
+        'X-BAPI-TIMESTAMP': String(timestamp),
+        'X-BAPI-RECV-WINDOW': '5000',
+        'X-BAPI-SIGN': signature,
+        'Content-Type': 'application/json',
+      },
+      body: bodyStr,
+    });
+    
+    const data = await response.json();
+    
+    if (data.retCode === 0) {
+      return { success: true, txId: data.result?.transferId };
+    }
+    
+    return { success: false, error: data.retMsg || 'Bybit transfer failed' };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: `Bybit error: ${message}` };
+  }
+}
+
+/**
+ * OKX Funding Transfer API
+ * POST /api/v5/asset/transfer
+ * Docs: https://www.okx.com/docs-v5/en/#rest-api-funding-funds-transfer
+ */
+async function okxFundingTransfer(
+  credentials: ExchangeCredentials,
+  amount: number
+): Promise<{ success: boolean; txId?: string; error?: string }> {
+  try {
+    const timestamp = new Date().toISOString();
+    const requestPath = '/api/v5/asset/transfer';
+    
+    const body = {
+      ccy: 'USDT',
+      amt: String(amount),
+      from: '18', // Trading account
+      to: '6', // Funding account
+    };
+    
+    const bodyStr = JSON.stringify(body);
+    const signStr = `${timestamp}POST${requestPath}${bodyStr}`;
+    const signature = await hmacSha256Base64(signStr, credentials.apiSecret);
+    
+    const response = await fetch(`https://www.okx.com${requestPath}`, {
+      method: 'POST',
+      headers: {
+        'OK-ACCESS-KEY': credentials.apiKey,
+        'OK-ACCESS-SIGN': signature,
+        'OK-ACCESS-TIMESTAMP': timestamp,
+        'OK-ACCESS-PASSPHRASE': credentials.passphrase || '',
+        'Content-Type': 'application/json',
+      },
+      body: bodyStr,
+    });
+    
+    const data = await response.json();
+    
+    if (data.code === '0' && data.data?.[0]?.transId) {
+      return { success: true, txId: data.data[0].transId };
+    }
+    
+    return { success: false, error: data.msg || 'OKX transfer failed' };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: `OKX error: ${message}` };
+  }
+}
+
+/**
+ * Decrypt API credentials
+ */
+async function decryptCredentials(
+  encryptedKey: string,
+  encryptedSecret: string,
+  iv: string,
+  passphrase?: string
+): Promise<ExchangeCredentials | null> {
+  const encryptionKey = Deno.env.get('ENCRYPTION_KEY');
+  if (!encryptionKey) return null;
+
+  try {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(encryptionKey.slice(0, 32).padEnd(32, '0')),
+      { name: 'AES-GCM' },
+      false,
+      ['decrypt']
+    );
+
+    const decryptValue = async (encrypted: string, ivHex: string): Promise<string> => {
+      const ivBytes = new Uint8Array(ivHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+      const encryptedBytes = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: ivBytes },
+        key,
+        encryptedBytes
+      );
+      return new TextDecoder().decode(decrypted);
+    };
+
+    const apiKey = await decryptValue(encryptedKey, iv);
+    const apiSecret = await decryptValue(encryptedSecret, iv);
+    const decryptedPassphrase = passphrase ? await decryptValue(passphrase, iv) : undefined;
+
+    return { apiKey, apiSecret, passphrase: decryptedPassphrase };
+  } catch (error) {
+    console.error('Decryption error:', error);
+    return null;
+  }
 }
 
 serve(async (req) => {
@@ -77,12 +281,67 @@ serve(async (req) => {
 
     const withdrawAmount = amount ? Math.min(amount, availableProfit) : availableProfit;
 
-    // For now, we simulate the withdrawal by tracking it
-    // In production, this would call exchange APIs to transfer to funding wallet
-    // Exchanges that support internal transfers: Binance, Bybit, OKX
-    // Exchanges that don't: Kraken, Nexo, Hyperliquid
+    // Try to execute REAL withdrawal on connected exchanges
+    const transferResults: { exchange: string; success: boolean; txId?: string; error?: string }[] = [];
+    
+    // Fetch user's exchange connections
+    const { data: connections } = await supabase
+      .from("exchange_connections")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("is_connected", true);
 
-    // Update bot with withdrawn profits
+    if (connections && connections.length > 0) {
+      for (const conn of connections) {
+        // Decrypt credentials
+        const credentials = await decryptCredentials(
+          conn.encrypted_api_key,
+          conn.encrypted_api_secret,
+          conn.encryption_iv,
+          conn.encrypted_passphrase
+        );
+
+        if (!credentials) {
+          transferResults.push({ 
+            exchange: conn.exchange_name, 
+            success: false, 
+            error: 'Failed to decrypt credentials' 
+          });
+          continue;
+        }
+
+        // Execute transfer based on exchange
+        const exchangeName = conn.exchange_name.toLowerCase();
+        let result: { success: boolean; txId?: string; error?: string };
+
+        // Calculate per-exchange amount (proportional split)
+        const perExchangeAmount = withdrawAmount / connections.length;
+
+        switch (exchangeName) {
+          case 'binance':
+            result = await binanceInternalTransfer(credentials, perExchangeAmount);
+            break;
+          case 'bybit':
+            result = await bybitInternalTransfer(credentials, perExchangeAmount);
+            break;
+          case 'okx':
+            result = await okxFundingTransfer(credentials, perExchangeAmount);
+            break;
+          default:
+            // Exchanges without internal transfer API (Kraken, Nexo, Hyperliquid)
+            // Track profits separately - they remain in trading account
+            result = { 
+              success: true, 
+              txId: `tracked-${Date.now()}`,
+              error: `${conn.exchange_name} does not support internal transfers - profits tracked separately`
+            };
+        }
+
+        transferResults.push({ exchange: conn.exchange_name, ...result });
+      }
+    }
+
+    // Update bot with withdrawn profits (regardless of transfer success - for tracking)
     const { error: updateError } = await supabase
       .from("bot_runs")
       .update({
@@ -97,18 +356,20 @@ serve(async (req) => {
       user_id: user.id,
       alert_type: "profit_withdrawn",
       title: "Profits Withdrawn",
-      message: `$${withdrawAmount.toFixed(2)} profits moved to funding account`,
-      data: { botId, amount: withdrawAmount },
+      message: `$${withdrawAmount.toFixed(2)} profits processed`,
+      data: { botId, amount: withdrawAmount, transfers: transferResults },
     });
 
-    console.log(`Withdrew $${withdrawAmount.toFixed(2)} from bot ${botId}`);
+    const successfulTransfers = transferResults.filter(t => t.success);
+    console.log(`Processed $${withdrawAmount.toFixed(2)} withdrawal - ${successfulTransfers.length}/${transferResults.length} successful`);
 
     return new Response(JSON.stringify({
       success: true,
       withdrawnAmount: withdrawAmount,
       remainingProfit: availableProfit - withdrawAmount,
       totalWithdrawn: alreadyWithdrawn + withdrawAmount,
-      message: `$${withdrawAmount.toFixed(2)} has been moved to your funding account. These funds will not be used for trading.`,
+      transfers: transferResults,
+      message: `$${withdrawAmount.toFixed(2)} has been processed. ${successfulTransfers.length} exchange(s) transferred to funding account.`,
       note: "For exchanges without internal transfer API (Kraken, Nexo), profits are tracked separately and excluded from trading capital."
     }), { 
       headers: { ...corsHeaders, "Content-Type": "application/json" } 

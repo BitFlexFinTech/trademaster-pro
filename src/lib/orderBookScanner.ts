@@ -80,18 +80,37 @@ async function fetchBinanceOrderBook(symbol: string): Promise<OrderBook | null> 
 }
 
 /**
- * Fetch ticker price for calculating spreads
+ * Fetch 24hr volume for a symbol from Binance
+ */
+async function fetch24hVolume(symbol: string): Promise<number> {
+  try {
+    const response = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`);
+    if (!response.ok) return 0;
+    const data = await response.json();
+    return parseFloat(data.quoteVolume) || 0; // USDT volume
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Fetch ticker price for calculating spreads with REAL volume
  */
 async function fetchBinanceTicker(symbol: string): Promise<{ bid: number; ask: number; volume: number } | null> {
   try {
-    const response = await fetch(`https://api.binance.com/api/v3/ticker/bookTicker?symbol=${symbol}`);
-    if (!response.ok) return null;
+    // Fetch book ticker and 24hr volume in parallel for real data
+    const [bookResponse, volume] = await Promise.all([
+      fetch(`https://api.binance.com/api/v3/ticker/bookTicker?symbol=${symbol}`),
+      fetch24hVolume(symbol),
+    ]);
     
-    const data = await response.json();
+    if (!bookResponse.ok) return null;
+    
+    const data = await bookResponse.json();
     return {
       bid: parseFloat(data.bidPrice),
       ask: parseFloat(data.askPrice),
-      volume: 0, // Would need 24hr ticker for volume
+      volume, // REAL 24h volume from API
     };
   } catch {
     return null;
@@ -194,6 +213,9 @@ export async function scanForArbitrageOpportunities(
         const projectedNet = positionSize * (netSpreadPercent / 100);
         
         if (projectedNet >= minProfit) {
+          // Fetch REAL volume for this opportunity
+          const realVolume = ticker.volume || await fetch24hVolume(symbol);
+          
           opportunities.push({
             id: `${symbol}-${buyExchange}-${sellExchange}-${Date.now()}`,
             symbol,
@@ -205,7 +227,7 @@ export async function scanForArbitrageOpportunities(
             spreadPercent: crossSpreadPercent,
             projectedNetProfit: projectedNet,
             confidence: Math.min(90, 50 + projectedNet * 5),
-            volume24h: 1000000, // Placeholder
+            volume24h: realVolume, // REAL volume from Binance API
             expiresAt: Date.now() + 30000, // 30 seconds
           });
         }

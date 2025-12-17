@@ -101,12 +101,11 @@ serve(async (req) => {
       fetchMessariResearch(),
     ]);
 
-    // Combine with sample data if API returns few results
+    // PRODUCTION: Only return real data, no mock fallback
     let allResearch = [...messariResearch];
     
-    if (allResearch.length < 10) {
-      const sampleResearch = generateSampleResearch();
-      allResearch = [...allResearch, ...sampleResearch];
+    if (allResearch.length === 0) {
+      console.log('No research articles from API - returning empty array (no mock data in production)');
     }
 
     // Sort by date
@@ -114,7 +113,7 @@ serve(async (req) => {
       new Date(b.published_at).getTime() - new Date(a.published_at).getTime()
     );
 
-    console.log(`Returning ${allResearch.length} research articles`);
+    console.log(`Returning ${allResearch.length} real research articles`);
 
     // Cache research to database using service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
