@@ -16,16 +16,37 @@ interface Airdrop {
   claimUrl: string | null;
 }
 
-// Known airdrop protocols and eligibility criteria
-const KNOWN_AIRDROPS = [
-  { id: 'layerzero', protocol: 'LayerZero', name: 'LayerZero Airdrop', chain: 'Multi-chain', claimUrl: 'https://layerzero.network' },
-  { id: 'zksync', protocol: 'zkSync', name: 'zkSync Era Airdrop', chain: 'zkSync Era', claimUrl: 'https://zksync.io' },
-  { id: 'starknet', protocol: 'Starknet', name: 'STRK Token Airdrop', chain: 'Starknet', claimUrl: 'https://starknet.io' },
-  { id: 'eigenlayer', protocol: 'EigenLayer', name: 'EIGEN Restaking Rewards', chain: 'Ethereum', claimUrl: 'https://eigenlayer.xyz' },
-  { id: 'blast', protocol: 'Blast', name: 'Blast Points Airdrop', chain: 'Blast L2', claimUrl: 'https://blast.io' },
-  { id: 'scroll', protocol: 'Scroll', name: 'Scroll Marks Airdrop', chain: 'Scroll', claimUrl: 'https://scroll.io' },
-  { id: 'linea', protocol: 'Linea', name: 'Linea Voyage NFT', chain: 'Linea', claimUrl: 'https://linea.build' },
-  { id: 'base', protocol: 'Base', name: 'Base Ecosystem Rewards', chain: 'Base', claimUrl: 'https://base.org' },
+interface DeBankProtocol {
+  id: string;
+  name: string;
+  chain: string;
+  site_url: string;
+  logo_url: string;
+  net_usd_value: number;
+}
+
+interface DeBankToken {
+  id: string;
+  chain: string;
+  name: string;
+  symbol: string;
+  amount: number;
+  price: number;
+  is_claimable?: boolean;
+}
+
+// Known airdrop protocols to check
+const AIRDROP_PROTOCOLS = [
+  { id: 'layerzero', name: 'LayerZero', chain: 'Multi-chain' },
+  { id: 'zksync', name: 'zkSync Era', chain: 'zkSync Era' },
+  { id: 'starknet', name: 'Starknet', chain: 'Starknet' },
+  { id: 'eigenlayer', name: 'EigenLayer', chain: 'Ethereum' },
+  { id: 'blast', name: 'Blast', chain: 'Blast L2' },
+  { id: 'scroll', name: 'Scroll', chain: 'Scroll' },
+  { id: 'linea', name: 'Linea', chain: 'Linea' },
+  { id: 'base', name: 'Base', chain: 'Base' },
+  { id: 'arbitrum', name: 'Arbitrum', chain: 'Arbitrum' },
+  { id: 'optimism', name: 'Optimism', chain: 'Optimism' },
 ];
 
 function isValidEthAddress(address: string): boolean {
@@ -36,12 +57,125 @@ function isValidSolAddress(address: string): boolean {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
 }
 
-function generateMockEligibility(walletAddress: string): Airdrop[] {
-  // Use wallet address hash to generate consistent but "random" eligibility
+/**
+ * Fetch wallet data from DeBank API (REAL DATA)
+ * DeBank Pro API: https://docs.cloud.debank.com/
+ */
+async function fetchDeBankData(walletAddress: string): Promise<{
+  protocols: DeBankProtocol[];
+  tokens: DeBankToken[];
+} | null> {
+  const apiKey = Deno.env.get('DEBANK_API_KEY');
+  
+  if (!apiKey) {
+    console.log('DEBANK_API_KEY not configured - using fallback');
+    return null;
+  }
+
+  try {
+    // Fetch user's protocol list (DeFi positions that may have airdrops)
+    const [protocolsRes, tokensRes] = await Promise.all([
+      fetch(`https://pro-openapi.debank.com/v1/user/simple_protocol_list?id=${walletAddress}`, {
+        headers: { 'AccessKey': apiKey },
+      }),
+      fetch(`https://pro-openapi.debank.com/v1/user/all_token_list?id=${walletAddress}&is_all=false`, {
+        headers: { 'AccessKey': apiKey },
+      }),
+    ]);
+
+    if (!protocolsRes.ok || !tokensRes.ok) {
+      console.error('DeBank API error:', protocolsRes.status, tokensRes.status);
+      return null;
+    }
+
+    const protocols = await protocolsRes.json();
+    const tokens = await tokensRes.json();
+
+    return { protocols, tokens };
+  } catch (error) {
+    console.error('DeBank fetch error:', error);
+    return null;
+  }
+}
+
+/**
+ * Analyze DeBank data to find potential airdrops
+ */
+function analyzeForAirdrops(
+  walletAddress: string,
+  debankData: { protocols: DeBankProtocol[]; tokens: DeBankToken[] } | null
+): Airdrop[] {
+  const airdrops: Airdrop[] = [];
+  
+  if (debankData) {
+    // Check protocols user has interacted with for potential airdrops
+    for (const protocol of debankData.protocols) {
+      const knownAirdrop = AIRDROP_PROTOCOLS.find(
+        p => protocol.name.toLowerCase().includes(p.name.toLowerCase()) ||
+             protocol.id.toLowerCase().includes(p.id.toLowerCase())
+      );
+      
+      if (knownAirdrop) {
+        // User has positions in this protocol - likely eligible
+        airdrops.push({
+          id: knownAirdrop.id,
+          protocol: knownAirdrop.name,
+          name: `${knownAirdrop.name} Airdrop`,
+          status: protocol.net_usd_value > 100 ? 'eligible' : 'pending',
+          estimatedValue: protocol.net_usd_value > 0 
+            ? `$${Math.round(protocol.net_usd_value * 0.1).toLocaleString()}` // Estimate 10% of TVL as airdrop
+            : 'TBD',
+          deadline: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+          chain: knownAirdrop.chain,
+          claimUrl: protocol.site_url || null,
+        });
+      }
+    }
+    
+    // Check for claimable tokens (unclaimed airdrops)
+    for (const token of debankData.tokens) {
+      if (token.is_claimable && token.amount > 0) {
+        airdrops.push({
+          id: `claimable-${token.id}`,
+          protocol: token.name,
+          name: `${token.symbol} Claimable`,
+          status: 'eligible',
+          estimatedValue: `$${(token.amount * token.price).toFixed(2)}`,
+          deadline: null,
+          chain: token.chain,
+          claimUrl: null,
+        });
+      }
+    }
+  }
+  
+  // Add protocols user hasn't interacted with as not_eligible
+  for (const known of AIRDROP_PROTOCOLS) {
+    if (!airdrops.find(a => a.id === known.id)) {
+      airdrops.push({
+        id: known.id,
+        protocol: known.name,
+        name: `${known.name} Airdrop`,
+        status: 'not_eligible',
+        estimatedValue: '-',
+        deadline: null,
+        chain: known.chain,
+        claimUrl: null,
+      });
+    }
+  }
+  
+  return airdrops;
+}
+
+/**
+ * Fallback: Generate mock eligibility when DeBank API unavailable
+ */
+function generateFallbackEligibility(walletAddress: string): Airdrop[] {
+  // Use wallet address hash for deterministic results
   const hash = walletAddress.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   
-  return KNOWN_AIRDROPS.map((airdrop, index) => {
-    // Deterministic eligibility based on wallet + airdrop index
+  return AIRDROP_PROTOCOLS.map((protocol, index) => {
     const seed = (hash + index) % 100;
     let status: Airdrop['status'];
     let estimatedValue: string;
@@ -61,14 +195,14 @@ function generateMockEligibility(walletAddress: string): Airdrop[] {
     }
 
     return {
-      id: airdrop.id,
-      protocol: airdrop.protocol,
-      name: airdrop.name,
+      id: protocol.id,
+      protocol: protocol.name,
+      name: `${protocol.name} Airdrop`,
       status,
       estimatedValue,
       deadline: status === 'eligible' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : null,
-      chain: airdrop.chain,
-      claimUrl: status === 'eligible' ? airdrop.claimUrl : null,
+      chain: protocol.chain,
+      claimUrl: status === 'eligible' ? `https://${protocol.id}.io` : null,
     };
   });
 }
@@ -101,11 +235,26 @@ serve(async (req) => {
       );
     }
 
-    // Generate eligibility results (simulated for now)
-    // In production, this would query real airdrop APIs like DeBank, Earni.fi, etc.
-    const airdrops = generateMockEligibility(walletAddress);
+    // Try to fetch REAL data from DeBank API
+    const debankData = isEth ? await fetchDeBankData(walletAddress) : null;
+    
+    let airdrops: Airdrop[];
+    let dataSource: string;
+    
+    if (debankData) {
+      // Use REAL DeBank data
+      airdrops = analyzeForAirdrops(walletAddress, debankData);
+      dataSource = 'debank';
+      console.log(`DeBank API: Found ${debankData.protocols.length} protocols, ${debankData.tokens.length} tokens`);
+    } else {
+      // Fallback to deterministic mock (when API key not configured)
+      airdrops = generateFallbackEligibility(walletAddress);
+      dataSource = 'fallback';
+      console.log('Using fallback eligibility (DEBANK_API_KEY not configured)');
+    }
 
-    console.log(`Found ${airdrops.filter(a => a.status === 'eligible').length} eligible airdrops`);
+    const eligibleCount = airdrops.filter(a => a.status === 'eligible').length;
+    console.log(`Found ${eligibleCount} eligible airdrops`);
 
     return new Response(
       JSON.stringify({ 
@@ -113,6 +262,7 @@ serve(async (req) => {
         walletAddress,
         checkedAt: new Date().toISOString(),
         chain: isEth ? 'ethereum' : 'solana',
+        dataSource,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

@@ -929,7 +929,18 @@ export default function Bots() {
           </div>
         )}
 
-        {/* AI Daily Target Recommendation */}
+        {/* Total Vaulted Profits Display */}
+        {Object.values(profitVault).reduce((sum, v) => sum + v, 0) > 0 && (
+          <div className="flex justify-between items-center text-[10px] border-t border-border/50 pt-2 mt-2">
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <Lock className="h-3 w-3 text-primary" />
+              Total Vaulted Profits:
+            </span>
+            <span className="font-mono text-primary font-bold">
+              ${Object.values(profitVault).reduce((sum, v) => sum + v, 0).toFixed(2)}
+            </span>
+          </div>
+        )}
         <div className="mt-3 pt-3 border-t border-border/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
