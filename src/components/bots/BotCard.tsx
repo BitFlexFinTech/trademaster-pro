@@ -245,20 +245,45 @@ export function BotCard({
           }
           
           console.log('📤 Calling execute-bot-trade edge function...');
-          const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
-            body: {
-              botId: existingBot.id,
-              mode: botType,
-              profitTarget: profitPerTrade,
-              exchanges: availableExchanges,
-              leverages,
-              isSandbox: false,
-              maxPositionSize: localAmountPerTrade,
-              stopLossPercent: 0.2, // 20% of profit = 80% lower
+          
+          let data, error;
+          try {
+            const result = await supabase.functions.invoke('execute-bot-trade', {
+              body: {
+                botId: existingBot.id,
+                mode: botType,
+                profitTarget: profitPerTrade,
+                exchanges: availableExchanges,
+                leverages,
+                isSandbox: false,
+                maxPositionSize: localAmountPerTrade,
+                stopLossPercent: 0.2,
+              }
+            });
+            data = result.data;
+            error = result.error;
+          } catch (fetchErr: any) {
+            // Handle network errors gracefully (timeout, connection lost, aborted)
+            const errMsg = fetchErr?.message || String(fetchErr);
+            if (errMsg.includes('Network') || errMsg.includes('network') || 
+                errMsg.includes('connection') || errMsg.includes('abort') ||
+                errMsg.includes('timeout') || errMsg.includes('500')) {
+              console.warn('⚠️ Network timeout - trade may still be processing, skipping cycle');
+              return; // Don't count as error, just skip this cycle
             }
-          });
+            throw fetchErr;
+          }
           
           if (error) {
+            // Check for network/timeout errors in the error object
+            const errorMsg = error?.message || String(error);
+            if (errorMsg.includes('Network') || errorMsg.includes('network') || 
+                errorMsg.includes('connection') || errorMsg.includes('timeout') ||
+                errorMsg.includes('500')) {
+              console.warn('⚠️ Network error in response - skipping cycle');
+              return;
+            }
+            
             console.error('❌ Live trade error:', error);
             consecutiveErrors++;
             
@@ -330,8 +355,15 @@ export function BotCard({
           if (data?.pair && data?.direction) {
             notifyTrade(data.exchange, data.pair, data.direction, data.pnl || 0);
           }
-        } catch (err) {
-          console.error('❌ Failed to execute live trade:', err);
+        } catch (err: any) {
+          // Final catch for any remaining errors
+          const errMsg = err?.message || String(err);
+          if (errMsg.includes('Network') || errMsg.includes('network') || 
+              errMsg.includes('connection') || errMsg.includes('500')) {
+            console.warn('⚠️ Network error caught - skipping cycle');
+          } else {
+            console.error('❌ Failed to execute live trade:', err);
+          }
         } finally {
           isExecutingRef.current = false;
         }
