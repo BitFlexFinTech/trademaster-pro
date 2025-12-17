@@ -59,3 +59,9 @@ verify_jwt = true
 
 [functions.log-error]
 verify_jwt = false
+
+[functions.check-trade-status]
+verify_jwt = true
+
+[functions.run-backtest]
+verify_jwt = true

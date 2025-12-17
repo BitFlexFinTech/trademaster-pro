@@ -921,52 +921,51 @@ serve(async (req) => {
                 apiKey, apiSecret, symbol, exitSide, actualExecutedQty, limitPrice, exitClientOrderId
               );
               
-              // Monitor limit order for fill or timeout
-              const startTime = Date.now();
-              let orderFilled = false;
+              // NON-BLOCKING: Return immediately with PENDING status
+              // Client will poll check-trade-status for completion
+              console.log(`✅ Entry order filled, limit exit placed at ${limitPrice}`);
+              console.log(`📋 Returning PENDING status - client will poll for completion`);
               
-              while (Date.now() - startTime < PROFIT_LOCK_TIMEOUT_MS) {
-                await new Promise(r => setTimeout(r, 1000)); // Check every 1 second
-                const orderStatus = await checkBinanceOrderStatus(apiKey, apiSecret, symbol, limitOrderResult.orderId);
-                
-                if (orderStatus.status === 'FILLED') {
-                  console.log(`✅ LIMIT order FILLED at profit target!`);
-                  exitOrder = { 
-                    orderId: limitOrderResult.orderId, 
-                    status: 'FILLED', 
-                    avgPrice: orderStatus.avgPrice || parseFloat(limitPrice),
-                    executedQty: actualExecutedQty
-                  };
-                  orderFilled = true;
-                  break;
-                } else if (orderStatus.status === 'CANCELED' || orderStatus.status === 'REJECTED' || orderStatus.status === 'EXPIRED') {
-                  console.warn(`Limit order ${orderStatus.status}, falling back to market order`);
-                  break;
-                }
-                
-                // Check if price moved against us significantly (stop-loss check)
-                const checkPrice = await fetchPrice(pair);
-                const lossPercent = direction === 'long'
-                  ? (tradeResult.entryPrice - checkPrice) / tradeResult.entryPrice
-                  : (checkPrice - tradeResult.entryPrice) / tradeResult.entryPrice;
-                
-                if (lossPercent > 0.005) { // 0.5% stop-loss
-                  console.warn(`⚠️ Price moved against position by ${(lossPercent * 100).toFixed(2)}%, cancelling limit and exiting at market`);
-                  await cancelBinanceOrder(apiKey, apiSecret, symbol, limitOrderResult.orderId);
-                  break;
-                }
-              }
+              // Record the trade as PENDING in database
+              const { data: tradeRecord } = await supabase.from("trades").insert({
+                user_id: user.id,
+                pair,
+                direction,
+                entry_price: tradeResult.entryPrice,
+                exit_price: parseFloat(limitPrice), // Target price
+                amount: positionSize,
+                leverage,
+                profit_loss: 0, // Will be updated when filled
+                profit_percentage: 0,
+                exchange_name: selectedExchange.exchange_name,
+                is_sandbox: isSandbox,
+                status: "pending",
+              }).select().single();
               
-              if (!orderFilled) {
-                // Timeout or stop-loss hit - cancel limit order and exit at market
-                console.log(`Limit order timeout/stop-loss - exiting at market price`);
-                await cancelBinanceOrder(apiKey, apiSecret, symbol, limitOrderResult.orderId);
-              }
+              return new Response(JSON.stringify({
+                status: 'PENDING',
+                success: true,
+                tradeId: tradeRecord?.id,
+                entryOrderId: tradeResult.orderId,
+                exitOrderId: limitOrderResult.orderId,
+                exchange: selectedExchange.exchange_name,
+                symbol,
+                pair,
+                direction,
+                entryPrice: tradeResult.entryPrice,
+                targetExitPrice: parseFloat(limitPrice),
+                positionSize,
+                quantity: actualExecutedQty,
+                placedAt: new Date().toISOString(),
+              }), { 
+                headers: { ...corsHeaders, "Content-Type": "application/json" } 
+              });
+              
             } catch (limitError) {
               console.warn(`Limit order failed: ${limitError instanceof Error ? limitError.message : limitError}, falling back to market`);
             }
             
-            // If limit order didn't fill, use market order with retry
+            // If limit order failed, use market order with retry
             if (!exitOrder) {
               exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, exitClientOrderId, 3);
             }

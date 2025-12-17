@@ -111,6 +111,8 @@ export function BotCard({
   const [tradingStrategy, setTradingStrategy] = useState<TradingStrategy>('profit');
   const [isExecutingTrade, setIsExecutingTrade] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+  const [connectionHealth, setConnectionHealth] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
+  const [pendingTrades, setPendingTrades] = useState<Array<{ orderId: string; exchange: string; symbol: string; tradeId?: string }>>([]);
   
   // Refs for trading loop - CRITICAL: Use refs to avoid dependency issues
   const lastPricesRef = useRef<Record<string, number>>({});
@@ -269,10 +271,17 @@ export function BotCard({
                 errMsg.includes('connection') || errMsg.includes('abort') ||
                 errMsg.includes('timeout') || errMsg.includes('500')) {
               console.warn('⚠️ Network timeout - trade may still be processing, skipping cycle');
+              setConnectionHealth('disconnected');
+              // Try to reconnect after a few seconds
+              setTimeout(() => setConnectionHealth('reconnecting'), 2000);
+              setTimeout(() => setConnectionHealth('connected'), 5000);
               return; // Don't count as error, just skip this cycle
             }
             throw fetchErr;
           }
+          
+          // Mark as connected on successful response
+          setConnectionHealth('connected');
           
           if (error) {
             // Check for network/timeout errors in the error object
@@ -281,6 +290,8 @@ export function BotCard({
                 errorMsg.includes('connection') || errorMsg.includes('timeout') ||
                 errorMsg.includes('500')) {
               console.warn('⚠️ Network error in response - skipping cycle');
+              setConnectionHealth('disconnected');
+              setTimeout(() => setConnectionHealth('reconnecting'), 2000);
               return;
             }
             
@@ -330,6 +341,80 @@ export function BotCard({
           
           if (data?.exchange) {
             setActiveExchange(data.exchange);
+          }
+          
+          // Handle PENDING status - start polling for completion
+          if (data?.status === 'PENDING' && data?.exitOrderId) {
+            console.log('📋 Trade pending, will poll for completion:', data.exitOrderId);
+            setPendingTrades(prev => [...prev, {
+              orderId: data.exitOrderId,
+              exchange: data.exchange,
+              symbol: data.symbol,
+              tradeId: data.tradeId,
+            }]);
+            
+            // Start polling for this order
+            const pollOrder = async () => {
+              let attempts = 0;
+              const maxAttempts = 15; // 30 seconds max
+              
+              while (attempts < maxAttempts) {
+                await new Promise(r => setTimeout(r, 2000));
+                attempts++;
+                
+                try {
+                  const { data: statusData, error: statusError } = await supabase.functions.invoke('check-trade-status', {
+                    body: {
+                      exchange: data.exchange,
+                      orderId: data.exitOrderId,
+                      symbol: data.symbol,
+                      tradeId: data.tradeId,
+                    }
+                  });
+                  
+                  if (statusError) {
+                    console.warn('Order status check error:', statusError);
+                    continue;
+                  }
+                  
+                  if (statusData?.status === 'FILLED') {
+                    console.log('✅ Pending order filled:', statusData);
+                    setPendingTrades(prev => prev.filter(p => p.orderId !== data.exitOrderId));
+                    
+                    // Calculate and update P&L
+                    const pnl = data.direction === 'long'
+                      ? (statusData.avgPrice - data.entryPrice) / data.entryPrice * data.positionSize
+                      : (data.entryPrice - statusData.avgPrice) / data.entryPrice * data.positionSize;
+                    
+                    setMetrics(prev => ({
+                      ...prev,
+                      currentPnL: prev.currentPnL + pnl,
+                      tradesExecuted: prev.tradesExecuted + 1,
+                      hitRate: prev.tradesExecuted > 0 
+                        ? ((prev.hitRate * prev.tradesExecuted / 100) + (pnl > 0 ? 1 : 0)) / (prev.tradesExecuted + 1) * 100
+                        : pnl > 0 ? 100 : 0,
+                    }));
+                    
+                    notifyTrade(data.exchange, data.pair, data.direction, pnl);
+                    return;
+                  } else if (statusData?.status === 'CANCELLED' || statusData?.status === 'REJECTED') {
+                    console.log('❌ Pending order cancelled:', statusData);
+                    setPendingTrades(prev => prev.filter(p => p.orderId !== data.exitOrderId));
+                    return;
+                  }
+                } catch (pollErr) {
+                  console.warn('Poll error:', pollErr);
+                }
+              }
+              
+              // Max attempts reached - remove from pending
+              console.log('⏰ Polling timeout for order:', data.exitOrderId);
+              setPendingTrades(prev => prev.filter(p => p.orderId !== data.exitOrderId));
+            };
+            
+            // Start polling in background
+            pollOrder();
+            return; // Don't process further for pending trades
           }
           
           if (data?.success && data?.pnl !== undefined) {
@@ -939,9 +1024,42 @@ export function BotCard({
             </p>
           </div>
         </div>
-        <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[10px]">
-          {isRunning ? 'Running' : 'Stopped'}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {/* Connection Health Indicator */}
+          {tradingMode === 'live' && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger>
+                  <Badge 
+                    variant={connectionHealth === 'connected' ? 'outline' : 'destructive'} 
+                    className={cn(
+                      "text-[9px] flex items-center gap-1",
+                      connectionHealth === 'reconnecting' && "animate-pulse"
+                    )}
+                  >
+                    <span className={cn(
+                      "w-1.5 h-1.5 rounded-full",
+                      connectionHealth === 'connected' && "bg-primary",
+                      connectionHealth === 'disconnected' && "bg-destructive",
+                      connectionHealth === 'reconnecting' && "bg-yellow-500"
+                    )} />
+                    {connectionHealth === 'connected' && 'Online'}
+                    {connectionHealth === 'disconnected' && 'Offline'}
+                    {connectionHealth === 'reconnecting' && 'Reconnecting'}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {connectionHealth === 'connected' && 'Connected to exchange APIs'}
+                  {connectionHealth === 'disconnected' && 'Network connection lost - trades may be delayed'}
+                  {connectionHealth === 'reconnecting' && 'Attempting to reconnect...'}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[10px]">
+            {isRunning ? 'Running' : 'Stopped'}
+          </Badge>
+        </div>
       </div>
 
       {/* Progress */}

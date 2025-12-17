@@ -93,7 +93,7 @@ export function useBacktest() {
     setRunning(true);
 
     try {
-      // Create backtest record
+      // Create pending backtest record
       const { data: backtest, error: insertError } = await supabase
         .from('backtest_runs')
         .insert({
@@ -109,45 +109,61 @@ export function useBacktest() {
 
       if (insertError) throw insertError;
 
-      // Simulate backtest (in production, call edge function)
-      // For now, generate simulated results
-      const trades = Math.floor(Math.random() * 50) + 20;
-      const winRate = Math.random() * 30 + 50; // 50-80%
-      const pnlPercent = (Math.random() * 40) - 10; // -10% to +30%
-      const totalPnl = initialBalance * (pnlPercent / 100);
-      const finalBalance = initialBalance + totalPnl;
+      // Call real backtesting edge function with historical data
+      const { data: results, error: backtestError } = await supabase.functions.invoke('run-backtest', {
+        body: {
+          asset,
+          startDate,
+          endDate,
+          initialBalance,
+          strategy: 'mean_reversion',
+          positionSizePercent: 5,
+          takeProfitPercent: 0.5,
+          stopLossPercent: 0.3,
+        }
+      });
 
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-      const monthlyResults = months.map(m => ({
-        period: m,
-        pnl: Math.round((Math.random() * 1000) - 200),
-        trades: Math.floor(Math.random() * 15) + 5,
-        winRate: Math.round(Math.random() * 30 + 50),
-      }));
+      if (backtestError) {
+        // Update status to failed
+        await supabase.from('backtest_runs').update({ status: 'failed' }).eq('id', backtest.id);
+        throw backtestError;
+      }
 
+      if (results?.error) {
+        await supabase.from('backtest_runs').update({ status: 'failed' }).eq('id', backtest.id);
+        throw new Error(results.error);
+      }
+
+      // Update backtest record with real results
       const { error: updateError } = await supabase
         .from('backtest_runs')
         .update({
           status: 'completed',
-          final_balance: finalBalance,
-          total_pnl: totalPnl,
-          total_trades: trades,
-          win_rate: winRate,
-          max_drawdown: Math.random() * 15,
-          sharpe_ratio: Math.random() * 2 + 0.5,
-          results: { monthlyBreakdown: monthlyResults },
+          final_balance: results.finalBalance,
+          total_pnl: results.totalPnl,
+          total_trades: results.totalTrades,
+          win_rate: results.winRate,
+          max_drawdown: results.maxDrawdown,
+          sharpe_ratio: results.sharpeRatio,
+          results: {
+            monthlyBreakdown: results.monthlyBreakdown,
+            trades: results.trades,
+            profitFactor: results.profitFactor,
+            avgWin: results.avgWin,
+            avgLoss: results.avgLoss,
+          },
           completed_at: new Date().toISOString(),
         })
         .eq('id', backtest.id);
 
       if (updateError) throw updateError;
 
-      toast.success('Backtest completed');
+      toast.success('Backtest completed with real historical data');
       fetchBacktests();
       return backtest;
     } catch (error) {
       console.error('Error running backtest:', error);
-      toast.error('Failed to run backtest');
+      toast.error(error instanceof Error ? error.message : 'Failed to run backtest');
       return null;
     } finally {
       setRunning(false);
