@@ -113,8 +113,20 @@ export function BotPerformanceDashboard() {
       </div>
 
       {analytics.totalTrades === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-          No trades found. Start trading to see performance insights.
+        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3 p-4">
+          <Award className="w-8 h-8 text-muted-foreground/50" />
+          <p className="text-sm text-center">No trades found for {mode === 'demo' ? 'Demo' : 'Live'} mode.</p>
+          <p className="text-xs text-center text-muted-foreground/70">
+            Start a bot to see performance insights.
+          </p>
+          <Button size="sm" variant="outline" onClick={handleRefreshAnalysis} disabled={refreshing || analysisLoading}>
+            {refreshing || analysisLoading ? (
+              <Loader2 className="w-3 h-3 animate-spin mr-1" />
+            ) : (
+              <RefreshCw className="w-3 h-3 mr-1" />
+            )}
+            Check Again
+          </Button>
         </div>
       ) : (
         <ScrollArea className="flex-1">

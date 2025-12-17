@@ -48,6 +48,8 @@ interface TradingModeContextType {
   setBaseBalancePerExchange: (balances: Record<string, number>) => void;
   getAvailableFloat: (exchange: string, totalBalance: number) => number;
   lockedProfits: Record<string, number>;
+  lockProfit: (exchange: string, amount: number) => void;
+  resetLockedProfits: () => void;
 }
 
 const TradingModeContext = createContext<TradingModeContextType | null>(null);
@@ -100,11 +102,26 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
     setResetTrigger(prev => prev + 1);
   }, []);
 
-  // Calculate available float for trading (total - base)
+  // Calculate available float for trading (total - base - locked profits)
   const getAvailableFloat = useCallback((exchange: string, totalBalance: number): number => {
     const baseBalance = baseBalancePerExchange[exchange] || DEFAULT_BASE_BALANCE;
-    return Math.max(0, totalBalance - baseBalance);
-  }, [baseBalancePerExchange]);
+    const locked = lockedProfits[exchange] || 0;
+    return Math.max(0, totalBalance - baseBalance - locked);
+  }, [baseBalancePerExchange, lockedProfits]);
+
+  // Lock profit - keeps profit in USDT, not traded
+  const lockProfit = useCallback((exchange: string, amount: number) => {
+    if (amount <= 0) return;
+    setLockedProfits(prev => ({
+      ...prev,
+      [exchange]: (prev[exchange] || 0) + amount
+    }));
+  }, []);
+
+  // Reset locked profits
+  const resetLockedProfits = useCallback(() => {
+    setLockedProfits({});
+  }, []);
 
   const triggerSync = useCallback(async () => {
     try {
@@ -244,6 +261,8 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
       setBaseBalancePerExchange,
       getAvailableFloat,
       lockedProfits,
+      lockProfit,
+      resetLockedProfits,
     }}>
       {children}
     </TradingModeContext.Provider>

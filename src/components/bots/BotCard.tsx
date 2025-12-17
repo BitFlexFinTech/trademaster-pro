@@ -59,7 +59,7 @@ export function BotCard({
   isAnyBotRunning = false,
 }: BotCardProps) {
   const { user } = useAuth();
-  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger } = useTradingMode();
+  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger, lockProfit } = useTradingMode();
   const { notifyTrade, notifyTakeProfit, notifyDailyProgress, resetProgressNotifications } = useNotifications();
 
   const isRunning = existingBot?.status === 'running';
@@ -89,12 +89,14 @@ export function BotCard({
   const [tradingStrategy, setTradingStrategy] = useState<TradingStrategy>('profit');
   const [isExecutingTrade, setIsExecutingTrade] = useState(false);
   
-  // Refs for trading loop
+  // Refs for trading loop - CRITICAL: Use refs to avoid dependency issues
   const lastPricesRef = useRef<Record<string, number>>({});
   const priceHistoryRef = useRef<Map<string, { prices: number[], volumes: number[] }>>(new Map());
   const tradeTimestampsRef = useRef<number[]>([]);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const isCancelledRef = useRef(false);
+  const isStoppingRef = useRef(false);  // CRITICAL: Immediate stop flag
+  const metricsRef = useRef({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 });  // Internal metrics tracking
 
   // Calculate stop loss automatically: 20% of profit (80% lower)
   const calculatedStopLoss = profitPerTrade * 0.2;
@@ -110,10 +112,12 @@ export function BotCard({
         maxDrawdown: 0,
         tradesPerMinute: 0,
       });
+      metricsRef.current = { currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 };
       setActiveExchange(null);
       lastPricesRef.current = {};
       priceHistoryRef.current.clear();
       tradeTimestampsRef.current = [];
+      isStoppingRef.current = false;
       resetProgressNotifications();
     }
   }, [resetTrigger, resetProgressNotifications]);
@@ -121,14 +125,21 @@ export function BotCard({
   // Sync with existing bot
   useEffect(() => {
     if (existingBot) {
-      setMetrics({
-        currentPnL: existingBot.currentPnl,
-        tradesExecuted: existingBot.tradesExecuted,
-        hitRate: existingBot.hitRate,
+      const newMetrics = {
+        currentPnL: existingBot.currentPnl || 0,
+        tradesExecuted: existingBot.tradesExecuted || 0,
+        hitRate: existingBot.hitRate || 0,
         avgTimeToTP: 12.3,
         maxDrawdown: existingBot.maxDrawdown || 0,
         tradesPerMinute: 0,
-      });
+      };
+      setMetrics(newMetrics);
+      metricsRef.current = {
+        currentPnL: newMetrics.currentPnL,
+        tradesExecuted: newMetrics.tradesExecuted,
+        hitRate: newMetrics.hitRate,
+        winsCount: Math.round((newMetrics.hitRate * newMetrics.tradesExecuted) / 100),
+      };
       setDailyTarget(existingBot.dailyTarget);
       setProfitPerTrade(existingBot.profitPerTrade);
     }
@@ -144,11 +155,18 @@ export function BotCard({
   }, [tradeIntervalMs]);
 
   // ===== TRADING LOGIC =====
+  // CRITICAL: NO metrics.* in dependency array - causes infinite re-renders and prevents stop
   useEffect(() => {
     // Clear any existing interval first
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
+    }
+
+    // CRITICAL: Check stop flag immediately
+    if (isStoppingRef.current) {
+      console.log('🛑 Bot is stopping, not starting new loop');
+      return;
     }
 
     if (!isRunning || !existingBot) {
@@ -158,6 +176,7 @@ export function BotCard({
     }
 
     isCancelledRef.current = false;
+    isStoppingRef.current = false;
 
     // ===== LIVE MODE: Execute real trades via edge function =====
     if (tradingMode === 'live') {
@@ -168,7 +187,15 @@ export function BotCard({
       const MAX_CONSECUTIVE_ERRORS = 3;
       
       const executeLiveTrade = async () => {
-        if (isCancelledRef.current) return;
+        // CRITICAL: Check stop flags FIRST
+        if (isCancelledRef.current || isStoppingRef.current) {
+          console.log('🛑 Stop flag detected in live trade, exiting');
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+          return;
+        }
         
         try {
           const now = Date.now();
@@ -297,13 +324,20 @@ export function BotCard({
     });
 
     let idx = 0;
-    let winsCount = Math.round(metrics.hitRate * metrics.tradesExecuted / 100);
     
     const executeDemoTrade = async () => {
-      if (isCancelledRef.current) return;
+      // CRITICAL: Check stop flags FIRST - before any other logic
+      if (isCancelledRef.current || isStoppingRef.current) {
+        console.log('🛑 Stop flag detected in demo trade, exiting immediately');
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+        return;
+      }
       
-      // Get current metrics from state
-      const currentMetrics = metrics;
+      // Use ref for metrics to avoid stale state
+      const currentMetrics = metricsRef.current;
       
       // CRITICAL: Enforce daily stop loss
       if (currentMetrics.currentPnL <= -dailyStopLoss) {
@@ -311,6 +345,7 @@ export function BotCard({
         toast.error('⚠️ Daily Stop Loss Hit', {
           description: `GreenBack stopped: -$${dailyStopLoss} daily limit reached.`,
         });
+        isStoppingRef.current = true;
         onStopBot(existingBot.id);
         return;
       }
@@ -373,18 +408,35 @@ export function BotCard({
       
       hitRateTracker.recordTrade(isWin);
 
+      // Update metricsRef FIRST (before state update)
+      metricsRef.current.tradesExecuted += 1;
+      if (isWin) {
+        metricsRef.current.winsCount += 1;
+        metricsRef.current.currentPnL += netProfit;
+        // LOCK PROFIT - keep in USDT, not traded
+        if (lockProfit) {
+          lockProfit(currentExchange, netProfit);
+        }
+      } else {
+        metricsRef.current.currentPnL -= stopLossAmount;
+      }
+      metricsRef.current.hitRate = metricsRef.current.tradesExecuted > 0 
+        ? (metricsRef.current.winsCount / metricsRef.current.tradesExecuted) * 100 
+        : 0;
+
       const now = Date.now();
       tradeTimestampsRef.current.push(now);
       tradeTimestampsRef.current = tradeTimestampsRef.current.filter(t => now - t < 60000);
       const tpm = tradeTimestampsRef.current.length;
 
-      if (isWin) winsCount++;
+      // Use values from metricsRef for consistency
+      const newPnl = metricsRef.current.currentPnL;
+      const newTrades = metricsRef.current.tradesExecuted;
+      const newHitRate = metricsRef.current.hitRate;
+      const winsCount = metricsRef.current.winsCount;
       
       setMetrics(prev => {
-        const newPnl = Math.min(Math.max(prev.currentPnL + tradePnl, -dailyStopLoss), dailyTarget * 1.5);
-        const newTrades = prev.tradesExecuted + 1;
-        const newHitRate = newTrades > 0 ? (winsCount / newTrades) * 100 : 0;
-        const newMaxDrawdown = Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown);
+        const maxDrawdown = Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown);
 
         // DEMO MODE: Route through demoDataStore
         demoDataStore.updateBalance(tradePnl, `trade-${Date.now()}-${Math.random()}`);
@@ -424,7 +476,7 @@ export function BotCard({
           currentPnL: newPnl,
           tradesExecuted: newTrades,
           hitRate: newHitRate,
-          maxDrawdown: newMaxDrawdown,
+          maxDrawdown,
           tradesPerMinute: tpm,
         };
       });
@@ -440,22 +492,31 @@ export function BotCard({
         intervalRef.current = null;
       }
     };
-  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy, localAmountPerTrade, localTradeIntervalMs, metrics.currentPnL, metrics.tradesExecuted, metrics.hitRate]);
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot?.id, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy, localAmountPerTrade, localTradeIntervalMs, lockProfit]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
-      // CRITICAL: Stop the trading loop FIRST
+      // CRITICAL: Set stopping flag FIRST - before anything else
+      isStoppingRef.current = true;
       isCancelledRef.current = true;
+      
+      // Clear interval IMMEDIATELY
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
       
+      console.log('🛑 STOP: Flags set, interval cleared, calling onStopBot');
+      
       await onStopBot(existingBot.id);
       setMetrics({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, avgTimeToTP: 12.3, maxDrawdown: 0, tradesPerMinute: 0 });
+      metricsRef.current = { currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 };
       setActiveExchange(null);
       resetProgressNotifications();
     } else {
+      // Starting bot - reset stop flags
+      isStoppingRef.current = false;
+      isCancelledRef.current = false;
       resetProgressNotifications();
       
       if (tradingMode === 'live') {
