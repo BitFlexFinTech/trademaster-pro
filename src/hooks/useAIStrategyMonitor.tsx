@@ -4,7 +4,7 @@ import { useAuth } from './useAuth';
 
 interface AIRecommendation {
   id: string;
-  type: 'hit_rate' | 'signal_threshold' | 'profit_per_trade' | 'trade_frequency' | 'stop_loss';
+  type: 'hit_rate' | 'signal_threshold' | 'profit_per_trade' | 'trade_frequency' | 'stop_loss' | 'position_size';
   title: string;
   description: string;
   currentValue: number | string;
@@ -36,6 +36,8 @@ interface UseAIStrategyMonitorProps {
   currentPnL: number;
   tradesExecuted: number;
   hitRate: number;
+  accountBalance?: number;
+  currentPositionSize?: number;
   onRecommendation?: (recommendation: AIRecommendation) => void;
 }
 
@@ -58,13 +60,53 @@ export function useAIStrategyMonitor({
   currentPnL,
   tradesExecuted,
   hitRate,
+  accountBalance = 1000,
+  currentPositionSize = 100,
   onRecommendation,
 }: UseAIStrategyMonitorProps) {
   const { user } = useAuth();
   const [recommendations, setRecommendations] = useState<AIRecommendation[]>([]);
   const [strategyMetrics, setStrategyMetrics] = useState<StrategyMetrics | null>(null);
   const [signalThreshold, setSignalThreshold] = useState(0.90);
+  const [suggestedPositionSize, setSuggestedPositionSize] = useState<number>(100);
   const lastAnalysisRef = useRef<number>(0);
+
+  /**
+   * Calculate suggested position size based on account balance and risk parameters
+   * Uses Kelly Criterion modified for conservative trading
+   */
+  const calculateSuggestedPositionSize = useCallback((
+    balance: number,
+    winRate: number,
+    avgWin: number,
+    avgLoss: number
+  ): number => {
+    // Conservative risk per trade: 1-2% of account
+    const riskPercent = 0.015; // 1.5% risk per trade
+    
+    // Kelly fraction: f = (p * b - q) / b
+    // where p = win probability, q = loss probability, b = win/loss ratio
+    const p = winRate / 100;
+    const q = 1 - p;
+    const b = avgWin / avgLoss;
+    
+    let kellyFraction = (p * b - q) / b;
+    
+    // Half-Kelly for safety
+    kellyFraction = Math.max(0, kellyFraction * 0.5);
+    
+    // Use the more conservative of Kelly or fixed percentage
+    const positionFraction = Math.min(kellyFraction, riskPercent);
+    
+    // Calculate position size
+    let suggested = balance * positionFraction * (1 / (avgLoss / 100));
+    
+    // Clamp between $50 and 5% of balance
+    suggested = Math.max(50, Math.min(suggested, balance * 0.05));
+    
+    // Round to nearest $10
+    return Math.round(suggested / 10) * 10;
+  }, []);
 
   /**
    * Calculate the required hit rate to achieve daily target
@@ -111,6 +153,7 @@ export function useAIStrategyMonitor({
       profit_per_trade: 'Optimize Profit Target',
       trade_frequency: 'Adjust Trade Frequency',
       stop_loss: 'Revise Stop Loss',
+      position_size: 'Optimize Position Size',
     };
 
     return {
@@ -158,6 +201,15 @@ export function useAIStrategyMonitor({
       const projectedDailyPnL = tradesExecuted > 0 
         ? (currentPnL / tradesExecuted) * expectedTradesPerDay 
         : 0;
+
+      // Calculate AI-suggested position size
+      const aiSuggestedSize = calculateSuggestedPositionSize(
+        accountBalance,
+        hitRate > 0 ? hitRate : 70,
+        profitPerTrade,
+        lossPerTrade
+      );
+      setSuggestedPositionSize(aiSuggestedSize);
 
       const metrics: StrategyMetrics = {
         currentHitRate: hitRate,
@@ -231,6 +283,19 @@ export function useAIStrategyMonitor({
         ));
       }
 
+      // Position size recommendation based on account balance
+      if (Math.abs(aiSuggestedSize - currentPositionSize) > currentPositionSize * 0.2) {
+        const priority = aiSuggestedSize > currentPositionSize * 1.5 ? 'high' : 
+                        aiSuggestedSize < currentPositionSize * 0.5 ? 'high' : 'medium';
+        newRecommendations.push(generateRecommendation(
+          'position_size',
+          `$${currentPositionSize}`,
+          `$${aiSuggestedSize}`,
+          `Based on your $${accountBalance.toLocaleString()} balance and ${hitRate.toFixed(1)}% hit rate, optimal position size is $${aiSuggestedSize}. This maintains 1.5% risk per trade using half-Kelly criterion.`,
+          priority
+        ));
+      }
+
       // Save recommendations
       if (newRecommendations.length > 0) {
         setRecommendations(prev => [...newRecommendations, ...prev].slice(0, 10));
@@ -274,8 +339,11 @@ export function useAIStrategyMonitor({
     tradesExecuted,
     hitRate,
     signalThreshold,
+    accountBalance,
+    currentPositionSize,
     calculateRequiredHitRate,
     calculateExpectedTrades,
+    calculateSuggestedPositionSize,
     generateRecommendation,
     onRecommendation,
   ]);
@@ -310,6 +378,7 @@ export function useAIStrategyMonitor({
     recommendations,
     strategyMetrics,
     signalThreshold,
+    suggestedPositionSize,
     applyRecommendation,
     dismissRecommendation,
     requiredHitRate: strategyMetrics?.requiredHitRate || 95,

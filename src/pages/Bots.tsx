@@ -10,8 +10,8 @@ import { useAIStrategyMonitor } from '@/hooks/useAIStrategyMonitor';
 import { useRecommendationHistory } from '@/hooks/useRecommendationHistory';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff, Download, Power } from 'lucide-react';
+import { cn, exportToCSV } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { BotHistory } from '@/components/bots/BotHistory';
 import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
@@ -63,6 +63,8 @@ export default function Bots() {
   const [loadingFloat, setLoadingFloat] = useState(true);
   const [showComparison, setShowComparison] = useState(false);
   const [closingPositions, setClosingPositions] = useState(false);
+  const [killingAll, setKillingAll] = useState(false);
+  const [exportingTrades, setExportingTrades] = useState(false);
 
   // Bot configuration state for applying recommendations
   const [botConfig, setBotConfig] = useState({
@@ -111,6 +113,7 @@ export default function Bots() {
   const {
     recommendations,
     strategyMetrics,
+    suggestedPositionSize,
     applyRecommendation: applyAIRecommendation,
     dismissRecommendation,
   } = useAIStrategyMonitor({
@@ -121,6 +124,8 @@ export default function Bots() {
     currentPnL,
     tradesExecuted,
     hitRate: combinedHitRate,
+    accountBalance: tradingMode === 'demo' ? virtualBalance : usdtFloat.reduce((sum, f) => sum + f.amount, 0),
+    currentPositionSize: botConfig.amountPerTrade,
   });
 
   // Recommendation history for undo functionality
@@ -279,6 +284,98 @@ export default function Bots() {
     await stopBotWithAnalysis(botId, botName);
   };
 
+  // KILL SWITCH - Emergency stop all bots and close positions
+  const handleKillSwitch = async () => {
+    if (!window.confirm('⚠️ KILL SWITCH: This will immediately stop ALL running bots and close ALL open positions. Continue?')) {
+      return;
+    }
+
+    setKillingAll(true);
+    const toastId = toast.loading('🔴 Kill switch activated...', { duration: Infinity });
+
+    try {
+      // Step 1: Stop all running bots
+      const runningBots = bots.filter(b => b.status === 'running');
+      for (const bot of runningBots) {
+        await stopBot(bot.id);
+        toast.loading(`Stopped ${bot.botName}...`, { id: toastId });
+      }
+
+      // Step 2: Close all positions (convert to USDT)
+      toast.loading('Closing all positions...', { id: toastId });
+      const { data, error } = await supabase.functions.invoke('convert-to-usdt', {
+        body: { botId: 'kill-switch' },
+      });
+
+      if (error) throw error;
+
+      const closedCount = data?.closedPositions?.filter((p: { success: boolean }) => p.success).length || 0;
+      const totalRecovered = data?.totalUsdtRecovered || 0;
+
+      toast.success('Kill switch complete', {
+        id: toastId,
+        description: `Stopped ${runningBots.length} bot(s), closed ${closedCount} position(s), recovered $${totalRecovered.toFixed(2)} USDT`,
+        duration: 5000,
+      });
+
+      // Refresh data
+      triggerSync();
+      refetch();
+    } catch (err) {
+      console.error('Kill switch error:', err);
+      toast.error('Kill switch failed', {
+        id: toastId,
+        description: err instanceof Error ? err.message : 'Unknown error',
+      });
+    } finally {
+      setKillingAll(false);
+    }
+  };
+
+  // Export trades to CSV
+  const handleExportTrades = async () => {
+    if (!user) return;
+
+    setExportingTrades(true);
+    try {
+      const { data: trades, error } = await supabase
+        .from('trades')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_sandbox', tradingMode === 'demo')
+        .order('created_at', { ascending: false })
+        .limit(1000);
+
+      if (error) throw error;
+
+      if (!trades || trades.length === 0) {
+        toast.info('No trades to export');
+        return;
+      }
+
+      exportToCSV(trades, `trades_${tradingMode}`, [
+        { key: 'created_at', header: 'Date' },
+        { key: 'pair', header: 'Pair' },
+        { key: 'direction', header: 'Direction' },
+        { key: 'entry_price', header: 'Entry Price' },
+        { key: 'exit_price', header: 'Exit Price' },
+        { key: 'amount', header: 'Amount ($)' },
+        { key: 'leverage', header: 'Leverage' },
+        { key: 'profit_loss', header: 'P&L ($)' },
+        { key: 'profit_percentage', header: 'P&L (%)' },
+        { key: 'exchange_name', header: 'Exchange' },
+        { key: 'status', header: 'Status' },
+      ]);
+
+      toast.success(`Exported ${trades.length} trades to CSV`);
+    } catch (err) {
+      console.error('Export error:', err);
+      toast.error('Failed to export trades');
+    } finally {
+      setExportingTrades(false);
+    }
+  };
+
   // Handle closing all positions on Binance
   const handleCloseAllPositions = async () => {
     if (spotBot || leverageBot) {
@@ -351,14 +448,46 @@ export default function Bots() {
             <BarChart3 className="w-3 h-3" />
             Compare Bots
           </Button>
+          {/* Export Trades CSV */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-xs gap-1 hidden md:flex"
+            onClick={handleExportTrades}
+            disabled={exportingTrades}
+          >
+            {exportingTrades ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Download className="w-3 h-3" />
+            )}
+            Export CSV
+          </Button>
+          {/* KILL SWITCH - Emergency Stop */}
+          {(spotBot || leverageBot) && (
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-6 text-xs gap-1 hidden md:flex bg-red-600 hover:bg-red-700 animate-pulse"
+              onClick={handleKillSwitch}
+              disabled={killingAll}
+            >
+              {killingAll ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Power className="w-3 h-3" />
+              )}
+              KILL SWITCH
+            </Button>
+          )}
           {/* Close All Positions - Live Mode Only */}
-          {tradingMode === 'live' && (
+          {tradingMode === 'live' && !spotBot && !leverageBot && (
             <Button
               size="sm"
               variant="destructive"
               className="h-6 text-xs gap-1 hidden md:flex"
               onClick={handleCloseAllPositions}
-              disabled={closingPositions || !!spotBot || !!leverageBot}
+              disabled={closingPositions}
             >
               {closingPositions ? (
                 <Loader2 className="w-3 h-3 animate-spin" />
