@@ -50,3 +50,12 @@ verify_jwt = true
 
 [functions.recommend-daily-target]
 verify_jwt = true
+
+[functions.check-airdrops]
+verify_jwt = true
+
+[functions.admin-analytics]
+verify_jwt = true
+
+[functions.log-error]
+verify_jwt = false

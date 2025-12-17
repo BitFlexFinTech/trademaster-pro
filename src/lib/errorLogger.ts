@@ -1,4 +1,6 @@
-// Mock Error Logger - Console-based with localStorage persistence
+// Production Error Logger with Sentry Integration
+import { captureException as sentryCaptureException, captureMessage as sentryCaptureMessage, addBreadcrumb } from './sentry';
+import { supabase } from '@/integrations/supabase/client';
 
 interface ErrorLog {
   id: string;
@@ -67,14 +69,60 @@ class ErrorLogger {
     const errors = this.getStoredErrors();
     errors.unshift(errorLog);
     this.storeErrors(errors);
+
+    // Add breadcrumb for debugging trail
+    addBreadcrumb({
+      message,
+      category: 'error-logger',
+      level: level === 'error' ? 'error' : level === 'warning' ? 'warning' : 'info',
+      data: context,
+    });
+
+    // Log to database in production
+    this.logToDatabase(level, message, error?.stack, context);
+  }
+
+  private async logToDatabase(
+    level: 'error' | 'warning' | 'info',
+    message: string,
+    stack?: string,
+    context?: Record<string, unknown>
+  ): Promise<void> {
+    // Only log in production to avoid noise
+    if (import.meta.env.DEV) return;
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      // Use type assertion since error_logs table was just created
+      await (supabase.from('error_logs') as any).insert({
+        user_id: user?.id || null,
+        level,
+        message: message.slice(0, 5000),
+        stack: stack?.slice(0, 10000) || null,
+        context: context || null,
+        page_url: typeof window !== 'undefined' ? window.location.href : null,
+        user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+      });
+    } catch {
+      // Silently fail - don't create infinite loop
+    }
   }
 
   error(message: string, error?: Error, context?: Record<string, unknown>): void {
     this.log('error', message, error, context);
+    
+    // Also send to Sentry for production monitoring
+    if (error) {
+      sentryCaptureException(error, context);
+    } else {
+      sentryCaptureMessage(message, 'error');
+    }
   }
 
   warning(message: string, context?: Record<string, unknown>): void {
     this.log('warning', message, undefined, context);
+    sentryCaptureMessage(message, 'warning');
   }
 
   info(message: string, context?: Record<string, unknown>): void {
