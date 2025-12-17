@@ -8,10 +8,11 @@ import { useConnectedExchanges } from '@/hooks/useConnectedExchanges';
 import { useNavigate } from 'react-router-dom';
 import { useAIStrategyMonitor } from '@/hooks/useAIStrategyMonitor';
 import { useRecommendationHistory } from '@/hooks/useRecommendationHistory';
+import { useDailyTargetRecommendation } from '@/hooks/useDailyTargetRecommendation';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff, Download, Power, Lock, Unlock, Edit2 } from 'lucide-react';
+import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff, Download, Power, Lock, Unlock, Edit2, Brain, Sparkles, Target, TrendingUp } from 'lucide-react';
 import { cn, exportToCSV } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { BotHistory } from '@/components/bots/BotHistory';
@@ -25,6 +26,9 @@ import { BotComparisonView } from '@/components/bots/BotComparisonView';
 import { BotsMobileDrawer } from '@/components/bots/BotsMobileDrawer';
 import { BotSettingsDrawer } from '@/components/bots/BotSettingsDrawer';
 import { AIStrategyPanel } from '@/components/bots/AIStrategyPanel';
+import { AuditDashboardPanel } from '@/components/bots/AuditDashboardPanel';
+import { AuditReport } from '@/lib/selfAuditReporter';
+import { DashboardCharts } from '@/lib/dashboardGenerator';
 import { toast } from 'sonner';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -58,7 +62,20 @@ export default function Bots() {
     analyzedBotName,
   } = useBotRuns();
   const { prices, wsConnected, getPrice } = useRealtimePrices();
-  const { mode: tradingMode, setMode: setTradingMode, virtualBalance, triggerSync, lastSyncTime, baseBalancePerExchange, setBaseBalancePerExchange, getAvailableFloat } = useTradingMode();
+  const { 
+    mode: tradingMode, 
+    setMode: setTradingMode, 
+    virtualBalance, 
+    triggerSync, 
+    lastSyncTime, 
+    baseBalancePerExchange, 
+    setBaseBalancePerExchange, 
+    getAvailableFloat,
+    exchangeBalances,
+    fetchExchangeBalances,
+    getRealBalance,
+    profitVault,
+  } = useTradingMode();
   const { connectedExchangeNames, hasConnections, needsReconnection, hasValidCredentials } = useConnectedExchanges();
   const navigate = useNavigate();
   
@@ -70,6 +87,18 @@ export default function Bots() {
   const [exportingTrades, setExportingTrades] = useState(false);
   const [editingBaseBalance, setEditingBaseBalance] = useState<string | null>(null);
   const [tempBaseBalance, setTempBaseBalance] = useState<number>(DEFAULT_BASE_BALANCE);
+  
+  // Audit Dashboard state
+  const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
+  const [dashboards, setDashboards] = useState<DashboardCharts | null>(null);
+  
+  // AI Daily Target Recommendation
+  const { 
+    recommendation: aiTargetRecommendation, 
+    loading: aiTargetLoading, 
+    fetchRecommendation: fetchAITargetRecommendation,
+    applyRecommendation: applyAITargetRecommendation,
+  } = useDailyTargetRecommendation();
 
   // Base balance edit handlers
   const handleEditBaseBalance = useCallback((exchange: string) => {
@@ -231,7 +260,7 @@ export default function Bots() {
     return Math.min(rawValue, MAX_USDT_ALLOCATION);
   }, [debouncedPrices, tradingMode]);
 
-  // Fetch USDT float
+  // CRITICAL: Fetch USDT float using SINGLE SOURCE OF TRUTH (exchangeBalances)
   useEffect(() => {
     async function fetchUsdtFloat() {
       if (!user) {
@@ -239,6 +268,42 @@ export default function Bots() {
         return;
       }
 
+      // In Live mode, use REAL exchange balances from context (single source of truth)
+      if (tradingMode === 'live' && exchangeBalances.length > 0) {
+        const floatData: UsdtFloat[] = exchangeBalances
+          .filter(b => b.usdtBalance > 0) // Only exchanges with balance
+          .map(b => ({
+            exchange: b.exchange,
+            amount: b.usdtBalance, // REAL balance from database
+            baseBalance: 0, // No locked base in live mode - all available
+            availableFloat: b.usdtBalance,
+            warning: b.isStale,
+          }));
+        
+        setUsdtFloat(floatData);
+        setLoadingFloat(false);
+        return;
+      }
+
+      // Demo mode: Use virtual allocation
+      if (tradingMode === 'demo') {
+        const exchangeNames = activeExchanges.map(ex => ex.name);
+        setUsdtFloat(exchangeNames.map(ex => {
+          const allocation = EXCHANGE_ALLOCATION_PERCENTAGES[EXCHANGE_CONFIGS.find(c => c.name === ex)?.confidence || 'tier1'];
+          const amount = Math.round(suggestedUSDT * allocation);
+          return {
+            exchange: ex,
+            amount,
+            baseBalance: 0,
+            availableFloat: amount,
+            warning: false,
+          };
+        }));
+        setLoadingFloat(false);
+        return;
+      }
+
+      // Fallback: Fetch from database directly
       try {
         const { data } = await supabase
           .from('portfolio_holdings')
@@ -253,20 +318,18 @@ export default function Bots() {
           }
         });
 
-        // Use active exchanges (connected for Live, all for Demo)
-        const exchangeNames = activeExchanges.map(ex => ex.name);
-        setUsdtFloat(exchangeNames.map(ex => {
-          const amount = floatByExchange[ex] || 0;
-          const baseBalance = baseBalancePerExchange[ex] || DEFAULT_BASE_BALANCE;
-          const availableFloat = Math.max(0, amount - baseBalance);
-          return {
-            exchange: ex,
+        // Only show exchanges WITH balance
+        const exchangesWithBalance = Object.entries(floatByExchange)
+          .filter(([_, amount]) => amount > 0)
+          .map(([exchange, amount]) => ({
+            exchange,
             amount,
-            baseBalance,
-            availableFloat,
-            warning: availableFloat < 50, // Warning if available float is low
-          };
-        }));
+            baseBalance: 0,
+            availableFloat: amount,
+            warning: false,
+          }));
+
+        setUsdtFloat(exchangesWithBalance);
       } catch (err) {
         console.error('Error fetching USDT float:', err);
       } finally {
@@ -275,7 +338,7 @@ export default function Bots() {
     }
 
     fetchUsdtFloat();
-  }, [user, suggestedUSDT, activeExchanges]);
+  }, [user, suggestedUSDT, activeExchanges, tradingMode, exchangeBalances]);
 
   const activeBotCount = bots.filter(b => b.status === 'running').length;
 
@@ -817,60 +880,136 @@ export default function Bots() {
                 );
               })
             ) : (
-              usdtFloat.map((item) => (
-                <TooltipProvider key={item.exchange}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="flex flex-col p-2 rounded bg-secondary/50 transition-all duration-500">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] text-foreground font-medium">{item.exchange}</span>
-                          {item.availableFloat > 0 ? (
-                            <Unlock className="w-3 h-3 text-primary" />
-                          ) : (
-                            <Lock className="w-3 h-3 text-destructive" />
-                          )}
-                        </div>
-                        <div className="flex justify-between text-[9px] text-muted-foreground">
-                          <span>Base:</span>
-                          {editingBaseBalance === item.exchange ? (
-                            <div className="flex items-center gap-1">
-                              <Input
-                                type="number"
-                                value={tempBaseBalance}
-                                onChange={(e) => setTempBaseBalance(Number(e.target.value))}
-                                className="h-4 w-12 text-[8px] px-1"
-                              />
-                              <Button size="sm" className="h-4 w-4 p-0 text-[8px]" onClick={() => handleSaveBaseBalance(item.exchange)}>✓</Button>
-                              <Button size="sm" variant="ghost" className="h-4 w-4 p-0 text-[8px]" onClick={handleCancelEditBaseBalance}>✕</Button>
+              usdtFloat.length === 0 ? (
+                <div className="col-span-5 text-center py-4 text-muted-foreground text-xs">
+                  No exchanges with balance. Connect exchanges in Settings to sync real balances.
+                </div>
+              ) : (
+                usdtFloat.map((item) => (
+                  <TooltipProvider key={item.exchange}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className={cn(
+                          "flex flex-col p-2 rounded bg-secondary/50 transition-all duration-500",
+                          item.warning && "border border-warning/50"
+                        )}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] text-foreground font-medium">{item.exchange}</span>
+                            {item.warning ? (
+                              <AlertTriangle className="w-3 h-3 text-warning" />
+                            ) : (
+                              <Unlock className="w-3 h-3 text-primary" />
+                            )}
+                          </div>
+                          <div className="flex justify-between text-[9px]">
+                            <span className="text-muted-foreground">Balance:</span>
+                            <span className="font-mono font-bold text-primary">
+                              ${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          {profitVault[item.exchange] > 0 && (
+                            <div className="flex justify-between text-[9px]">
+                              <span className="text-muted-foreground">Vaulted:</span>
+                              <span className="font-mono text-primary">
+                                ${profitVault[item.exchange].toFixed(2)}
+                              </span>
                             </div>
-                          ) : (
-                            <button 
-                              className="flex items-center gap-1 hover:text-primary transition-colors"
-                              onClick={() => handleEditBaseBalance(item.exchange)}
-                            >
-                              <span className="font-mono text-destructive">${item.baseBalance}</span>
-                              <Edit2 className="w-2 h-2" />
-                            </button>
                           )}
                         </div>
-                        <div className="flex justify-between text-[9px]">
-                          <span className="text-muted-foreground">Available:</span>
-                          <span className={cn("font-mono font-bold transition-all duration-500", item.availableFloat > 0 ? "text-primary" : "text-muted-foreground")}>
-                            ${item.availableFloat.toLocaleString()}
-                          </span>
-                        </div>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">Total: ${item.amount} | Base locked: ${item.baseBalance}</p>
-                      <p className="text-xs text-primary">Available for trading: ${item.availableFloat}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ))
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Real balance: ${item.amount.toFixed(2)}</p>
+                        {item.warning && <p className="text-xs text-warning">Data may be stale - sync needed</p>}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ))
+              )
             )}
           </div>
         )}
+
+        {/* AI Daily Target Recommendation */}
+        <div className="mt-3 pt-3 border-t border-border/50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Brain className="w-4 h-4 text-primary" />
+              <span className="text-xs font-medium text-foreground">AI Daily Target Recommendation</span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-xs gap-1"
+              onClick={() => {
+                const floatData = usdtFloat.map(f => ({
+                  exchange: f.exchange,
+                  amount: f.amount,
+                  baseBalance: 0,
+                  availableFloat: f.amount,
+                }));
+                fetchAITargetRecommendation({
+                  usdtFloat: floatData,
+                  historicalHitRate: combinedHitRate,
+                  averageProfitPerTrade: botConfig.profitPerTrade,
+                  tradingHoursPerDay: 8,
+                  riskTolerance: 'moderate',
+                });
+              }}
+              disabled={aiTargetLoading || usdtFloat.length === 0}
+            >
+              {aiTargetLoading ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Sparkles className="w-3 h-3" />
+              )}
+              Get AI Recommendation
+            </Button>
+          </div>
+
+          {aiTargetRecommendation && (
+            <div className="mt-2 p-2 rounded bg-primary/10 border border-primary/20">
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                <div className="text-center">
+                  <div className="text-[10px] text-muted-foreground">Daily Target</div>
+                  <div className="text-sm font-bold text-primary">${aiTargetRecommendation.dailyTarget}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] text-muted-foreground">Profit/Trade</div>
+                  <div className="text-sm font-bold text-primary">${aiTargetRecommendation.profitPerTrade.toFixed(2)}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] text-muted-foreground">Confidence</div>
+                  <div className={cn(
+                    "text-sm font-bold",
+                    aiTargetRecommendation.confidence >= 80 ? "text-primary" :
+                    aiTargetRecommendation.confidence >= 60 ? "text-warning" : "text-destructive"
+                  )}>
+                    {aiTargetRecommendation.confidence}%
+                  </div>
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground mb-2 line-clamp-2">
+                {aiTargetRecommendation.reasoning}
+              </p>
+              <Button
+                size="sm"
+                className="w-full h-6 text-xs gap-1"
+                onClick={() => {
+                  applyAITargetRecommendation((target, profit) => {
+                    setBotConfig(prev => ({
+                      ...prev,
+                      dailyTarget: target,
+                      profitPerTrade: profit,
+                    }));
+                  });
+                }}
+              >
+                <Target className="w-3 h-3" />
+                Apply Recommendation
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Main Content Grid - Hidden on mobile, use drawer instead */}
@@ -895,6 +1034,10 @@ export default function Bots() {
             tradeIntervalMs={botConfig.tradeIntervalMs}
             onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
             isAnyBotRunning={!!spotBot || !!leverageBot}
+            onAuditGenerated={(report, charts) => {
+              setAuditReport(report);
+              setDashboards(charts);
+            }}
           />
           <BotCard
             botType="leverage"
@@ -911,13 +1054,17 @@ export default function Bots() {
             tradeIntervalMs={botConfig.tradeIntervalMs}
             onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
             isAnyBotRunning={!!spotBot || !!leverageBot}
+            onAuditGenerated={(report, charts) => {
+              setAuditReport(report);
+              setDashboards(charts);
+            }}
           />
         </div>
 
-        {/* Middle Column - AI Strategy Panel + Analytics Dashboard + Performance Dashboard */}
+        {/* Middle Column - AI Strategy Panel + Audit Dashboard + Analytics Dashboard */}
         <div className="lg:col-span-4 flex flex-col gap-3 overflow-hidden">
-          {/* AI Strategy Panel - Increased height */}
-          <div className="min-h-[380px] flex-shrink-0">
+          {/* AI Strategy Panel */}
+          <div className="min-h-[280px] flex-shrink-0">
             <AIStrategyPanel
               metrics={strategyMetrics}
               recommendations={recommendations}
@@ -929,6 +1076,19 @@ export default function Bots() {
               className="h-full"
             />
           </div>
+          
+          {/* Audit Dashboard Panel */}
+          {(auditReport || dashboards) && (
+            <div className="flex-shrink-0">
+              <AuditDashboardPanel
+                auditReport={auditReport}
+                dashboards={dashboards}
+                totalVaultedProfits={Object.values(profitVault).reduce((a, b) => a + b, 0)}
+                sessionStartBalance={{}}
+              />
+            </div>
+          )}
+          
           <div className="flex-1 min-h-0">
             <BotAnalyticsDashboard />
           </div>
