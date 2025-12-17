@@ -16,6 +16,10 @@ import { calculateNetProfit, MIN_NET_PROFIT } from '@/lib/exchangeFees';
 import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
 import { demoDataStore } from '@/lib/demoDataStore';
 import { hitRateTracker } from '@/lib/sandbox/hitRateTracker';
+import { tradeSpeedController } from '@/lib/tradeSpeedController';
+import { tradingStateMachine } from '@/lib/tradingStateMachine';
+import { recordTradeForAudit, shouldGenerateAudit, generateAuditReport } from '@/lib/selfAuditReporter';
+import { generateDashboards, recordProfitForDashboard } from '@/lib/dashboardGenerator';
 import {
   Tooltip,
   TooltipContent,
@@ -59,7 +63,7 @@ export function BotCard({
   isAnyBotRunning = false,
 }: BotCardProps) {
   const { user } = useAuth();
-  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger, lockProfit } = useTradingMode();
+  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger, lockProfit, vaultProfit, initializeSessionBalance, sessionStartBalance } = useTradingMode();
   const { notifyTrade, notifyTakeProfit, notifyDailyProgress, resetProgressNotifications } = useNotifications();
 
   const isRunning = existingBot?.status === 'running';
@@ -407,16 +411,21 @@ export function BotCard({
       const tradePnl = isWin ? netProfit : -stopLossAmount;
       
       hitRateTracker.recordTrade(isWin);
+      
+      // Record for trade speed controller (120s/60s/15s cooldowns)
+      tradeSpeedController.recordSimpleTrade(isWin, tradePnl, currentExchange, pair);
 
       // Update metricsRef FIRST (before state update)
       metricsRef.current.tradesExecuted += 1;
       if (isWin) {
         metricsRef.current.winsCount += 1;
         metricsRef.current.currentPnL += netProfit;
-        // LOCK PROFIT - keep in USDT, not traded
-        if (lockProfit) {
-          lockProfit(currentExchange, netProfit);
+        // VAULT PROFIT - segregated, NEVER traded
+        if (vaultProfit) {
+          vaultProfit(currentExchange, netProfit);
         }
+        // Record for dashboard
+        recordProfitForDashboard(netProfit, metricsRef.current.tradesExecuted);
       } else {
         metricsRef.current.currentPnL -= stopLossAmount;
       }
