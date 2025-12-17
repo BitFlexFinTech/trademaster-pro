@@ -50,6 +50,15 @@ interface TradingModeContextType {
   lockedProfits: Record<string, number>;
   lockProfit: (exchange: string, amount: number) => void;
   resetLockedProfits: () => void;
+  // Balance Floor (S) - immutable session start balance
+  sessionStartBalance: Record<string, number>;
+  initializeSessionBalance: (exchange: string, balance: number) => void;
+  // Profit Vault (V) - segregated profits, NEVER traded
+  profitVault: Record<string, number>;
+  vaultProfit: (exchange: string, amount: number) => void;
+  getTotalVaultedProfits: () => number;
+  // Get tradeable amount (S only, excludes V)
+  getTradeableAmount: (exchange: string) => number;
 }
 
 const TradingModeContext = createContext<TradingModeContextType | null>(null);
@@ -63,6 +72,13 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
   const [baseBalancePerExchange, setBaseBalancePerExchangeState] = useState<Record<string, number>>(DEFAULT_BASE_BALANCE_PER_EXCHANGE);
   const [lockedProfits, setLockedProfits] = useState<Record<string, number>>({});
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Session Start Balance (S) - immutable balance floor
+  const [sessionStartBalance, setSessionStartBalance] = useState<Record<string, number>>({});
+  const sessionStartBalanceRef = useRef<Record<string, number>>({});
+  
+  // Profit Vault (V) - segregated profits, NEVER used for trading
+  const [profitVault, setProfitVault] = useState<Record<string, number>>({});
 
   const setVirtualBalance = useCallback((balance: number | ((prev: number) => number)) => {
     if (typeof balance === 'function') {
@@ -76,16 +92,13 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
   const updateVirtualBalance = useCallback((newBalance: number) => {
     setVirtualBalanceState(newBalance);
     localStorage.setItem('virtualBalance', String(newBalance));
-    // Trigger sync for all components
     setResetTrigger(prev => prev + 1);
-    // Notify user
     toast.success('Virtual Balance Updated', {
       description: `Balance set to $${newBalance.toLocaleString()}. All components synced.`,
     });
   }, []);
 
   const setDemoAllocation = useCallback((allocation: DemoAllocation) => {
-    // Validate that allocations sum to 100
     const total = allocation.USDT + allocation.BTC + allocation.ETH + allocation.SOL;
     if (Math.abs(total - 100) > 0.01) {
       console.warn('Demo allocation must sum to 100%');
@@ -123,6 +136,43 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
     setLockedProfits({});
   }, []);
 
+  // Initialize session start balance (S) - IMMUTABLE once set
+  const initializeSessionBalance = useCallback((exchange: string, balance: number) => {
+    // Only set if not already initialized - S is immutable
+    if (sessionStartBalanceRef.current[exchange] !== undefined) {
+      console.log(`[BALANCE FLOOR] ${exchange} already initialized: $${sessionStartBalanceRef.current[exchange]}`);
+      return;
+    }
+    sessionStartBalanceRef.current[exchange] = balance;
+    setSessionStartBalance(prev => ({ ...prev, [exchange]: balance }));
+    console.log(`[BALANCE FLOOR] Initialized ${exchange}: $${balance} (immutable)`);
+  }, []);
+
+  // Vault profit (V) - segregated, NEVER debited for trading
+  const vaultProfit = useCallback((exchange: string, amount: number) => {
+    if (amount <= 0) return;
+    setProfitVault(prev => {
+      const newVault = {
+        ...prev,
+        [exchange]: (prev[exchange] || 0) + amount
+      };
+      console.log(`[PROFIT VAULT] Added $${amount.toFixed(2)} to ${exchange}. Total vaulted: $${Object.values(newVault).reduce((a, b) => a + b, 0).toFixed(2)}`);
+      return newVault;
+    });
+  }, []);
+
+  // Get total vaulted profits
+  const getTotalVaultedProfits = useCallback((): number => {
+    return Object.values(profitVault).reduce((sum, v) => sum + v, 0);
+  }, [profitVault]);
+
+  // Get tradeable amount (S only, excludes V)
+  const getTradeableAmount = useCallback((exchange: string): number => {
+    const S = sessionStartBalance[exchange] || baseBalancePerExchange[exchange] || DEFAULT_BASE_BALANCE;
+    // V is EXCLUDED - only S is tradeable
+    return S;
+  }, [sessionStartBalance, baseBalancePerExchange]);
+
   const triggerSync = useCallback(async () => {
     try {
       const { data, error } = await supabase.functions.invoke('sync-exchange-balances');
@@ -131,7 +181,6 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
       
       setLastSyncTime(new Date());
       
-      // Show notification with count of holdings updated
       if (data?.synced > 0) {
         toast.success(`Sync Complete`, {
           description: `Updated ${data.synced} holdings from ${data.exchanges?.length || 0} exchanges`,
@@ -155,32 +204,26 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
 
   const setMode = useCallback((newMode: 'demo' | 'live') => {
     setModeState(newMode);
-    
-    // If switching to live mode, trigger sync
     if (newMode === 'live') {
       triggerSync();
     }
   }, [triggerSync]);
 
   const resetDemo = useCallback(async (userId: string) => {
-    // Reset virtual balance to $1,000
     setVirtualBalanceState(DEFAULT_VIRTUAL_BALANCE);
     localStorage.setItem('virtualBalance', String(DEFAULT_VIRTUAL_BALANCE));
-
-    // Reset demo allocation to defaults
     setDemoAllocationState(DEFAULT_DEMO_ALLOCATION);
     localStorage.setItem('demoAllocation', JSON.stringify(DEFAULT_DEMO_ALLOCATION));
+    
+    // Reset profit vault and session balance
+    setProfitVault({});
+    setSessionStartBalance({});
+    sessionStartBalanceRef.current = {};
 
-    // Clear demo trades from database
     await supabase.from('trades').delete().eq('user_id', userId).eq('is_sandbox', true);
-
-    // Reset all bot runs for user
     await supabase.from('bot_runs').delete().eq('user_id', userId);
-
-    // Reset backtest runs
     await supabase.from('backtest_runs').delete().eq('user_id', userId);
 
-    // Trigger reset event for all components
     setResetTrigger(prev => prev + 1);
   }, []);
 
@@ -222,13 +265,10 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
   // Auto-sync every 5 minutes in Live mode
   useEffect(() => {
     if (mode === 'live') {
-      // Initial sync when switching to live mode
       triggerSync();
-
-      // Set up 5-minute interval
       syncIntervalRef.current = setInterval(() => {
         triggerSync();
-      }, 5 * 60 * 1000); // 5 minutes
+      }, 5 * 60 * 1000);
 
       return () => {
         if (syncIntervalRef.current) {
@@ -236,7 +276,6 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
         }
       };
     } else {
-      // Clear interval when in demo mode
       if (syncIntervalRef.current) {
         clearInterval(syncIntervalRef.current);
         syncIntervalRef.current = null;
@@ -263,6 +302,12 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
       lockedProfits,
       lockProfit,
       resetLockedProfits,
+      sessionStartBalance,
+      initializeSessionBalance,
+      profitVault,
+      vaultProfit,
+      getTotalVaultedProfits,
+      getTradeableAmount,
     }}>
       {children}
     </TradingModeContext.Provider>
