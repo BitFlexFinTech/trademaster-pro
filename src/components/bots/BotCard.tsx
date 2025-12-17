@@ -119,6 +119,7 @@ export function BotCard({
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const isCancelledRef = useRef(false);
   const isStoppingRef = useRef(false);  // CRITICAL: Immediate stop flag
+  const isExecutingRef = useRef(false); // CRITICAL: Prevent concurrent executions
   const metricsRef = useRef({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 });  // Internal metrics tracking
 
   // Calculate stop loss automatically: 20% of profit (80% lower)
@@ -141,6 +142,7 @@ export function BotCard({
       priceHistoryRef.current.clear();
       tradeTimestampsRef.current = [];
       isStoppingRef.current = false;
+      isExecutingRef.current = false;
       resetProgressNotifications();
     }
   }, [resetTrigger, resetProgressNotifications]);
@@ -220,6 +222,14 @@ export function BotCard({
           return;
         }
         
+        // CRITICAL: Prevent concurrent executions - wait if already executing
+        if (isExecutingRef.current) {
+          console.log('⏳ Previous trade still executing, skipping this cycle');
+          return;
+        }
+        
+        isExecutingRef.current = true;
+        
         try {
           const now = Date.now();
           const availableExchanges = EXCHANGE_CONFIGS
@@ -253,7 +263,6 @@ export function BotCard({
             consecutiveErrors++;
             
             if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-              const { toast } = await import('sonner');
               toast.error('Bot Auto-Paused', {
                 description: `${MAX_CONSECUTIVE_ERRORS} consecutive errors. Check exchange connections.`,
               });
@@ -266,13 +275,20 @@ export function BotCard({
           
           if (data?.success === false) {
             console.warn('⚠️ Trade not executed:', data.reason || data.error);
-            const { toast } = await import('sonner');
             
-            if (data.error?.includes('rate') || data.error?.includes('Rate') || data.error?.includes('-1015')) {
+            // Rate limit detection - expanded patterns
+            const isRateLimited = data.error?.includes('rate') || 
+                                   data.error?.includes('Rate') || 
+                                   data.error?.includes('-1015') ||
+                                   data.error?.includes('Too many') ||
+                                   data.error?.includes('orders per');
+            
+            if (isRateLimited) {
               const exchange = data.exchange || availableExchanges[0];
-              exchangeCooldowns.set(exchange, Date.now() + 60000);
+              // 2-minute cooldown for rate limits
+              exchangeCooldowns.set(exchange, Date.now() + 120000);
               toast.warning(`${exchange} rate limited`, {
-                description: 'Temporarily pausing trades on this exchange.',
+                description: 'Pausing trades for 2 minutes on this exchange.',
                 id: `rate-limit-${exchange}`,
               });
               return;
@@ -316,11 +332,13 @@ export function BotCard({
           }
         } catch (err) {
           console.error('❌ Failed to execute live trade:', err);
+        } finally {
+          isExecutingRef.current = false;
         }
       };
       
-      // Use configurable interval for live mode (minimum 5000ms for rate limit protection)
-      const liveInterval = Math.max(localTradeIntervalMs, 5000);
+      // Use configurable interval for live mode (minimum 10000ms for rate limit protection)
+      const liveInterval = Math.max(localTradeIntervalMs, 10000);
       executeLiveTrade();
       intervalRef.current = setInterval(executeLiveTrade, liveInterval);
       
@@ -702,6 +720,7 @@ export function BotCard({
       
       // Reset profit lock strategy to cancel any active monitoring
       profitLockStrategy.reset();
+      isExecutingRef.current = false; // Reset execution lock
       
       console.log('🛑 STOP: Flags set, interval cleared, calling onStopBot');
       
@@ -724,6 +743,7 @@ export function BotCard({
       // Starting bot - reset stop flags
       isStoppingRef.current = false;
       isCancelledRef.current = false;
+      isExecutingRef.current = false; // Reset execution lock
       setIsStopping(false);
       resetProgressNotifications();
       
@@ -757,6 +777,7 @@ export function BotCard({
     setIsStopping(true);
     isStoppingRef.current = true;
     isCancelledRef.current = true;
+    isExecutingRef.current = false; // Reset execution lock
     
     // Force clear ALL possible intervals (brute force)
     if (intervalRef.current) {
