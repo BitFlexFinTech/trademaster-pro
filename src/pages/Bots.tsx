@@ -154,19 +154,31 @@ export default function Bots() {
   }, [prices]);
 
   // Bot configuration state for applying recommendations
+  // CRITICAL: Minimum $0.01 profit per trade, $10 position size
   const [botConfig, setBotConfig] = useState({
-    profitPerTrade: 0.50,           // Minimum $0.50 profit per trade
-    amountPerTrade: 100,            // $100 per trade default
-    tradeIntervalMs: 200,           // 200ms for demo, enforced 5000ms+ for live
-    maxPositionSize: 100,
+    profitPerTrade: 0.01,           // Minimum $0.01 profit per trade - STRICT RULE
+    amountPerTrade: 10,             // Minimum $10 per trade - exchange minimum
+    tradeIntervalMs: 3000,          // 3s default, enforced minimum
+    maxPositionSize: 5000,          // Max $5000 per trade
     dailyStopLoss: 5,
-    perTradeStopLoss: 0.10,         // Auto-calculated: profitPerTrade * 0.2
+    perTradeStopLoss: 0.002,        // Auto-calculated: profitPerTrade * 0.2 (80/20 rule)
     focusPairs: [...TOP_PAIRS],
     leverageDefaults: EXCHANGE_CONFIGS.reduce((acc, config) => ({
       ...acc,
       [config.name]: Math.min(3, config.maxLeverage),
     }), {} as Record<string, number>),
   });
+  
+  // Exchange minimum trade amounts
+  const EXCHANGE_MINIMUMS: Record<string, number> = {
+    Binance: 10,
+    Bybit: 10,
+    OKX: 10,
+    Kraken: 10,
+    Nexo: 10,
+    KuCoin: 10,
+    Hyperliquid: 10,
+  };
 
   // Auto-calculate stop loss when profit per trade changes (80% lower = 20% of profit)
   useEffect(() => {

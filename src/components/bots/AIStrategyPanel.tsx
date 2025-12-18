@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Brain, Lightbulb, Check, X, Zap, TrendingUp, AlertTriangle, Loader2, Undo2, Clock } from 'lucide-react';
+import { Brain, Lightbulb, Check, X, Zap, TrendingUp, AlertTriangle, Loader2, Undo2, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { HitRateGauge } from './HitRateGauge';
 import { cn } from '@/lib/utils';
 
@@ -131,19 +132,19 @@ export function AIStrategyPanel({
   };
 
   return (
-    <div className={cn('card-terminal p-3 flex flex-col overflow-hidden', className)}>
+    <div className={cn('card-terminal p-3 flex flex-col h-full min-h-0 overflow-hidden', className)}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-3 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="relative">
+      <div className="flex items-center justify-between mb-2 flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="relative flex-shrink-0">
             <Brain className="w-4 h-4 text-primary" />
             {isRunning && (
               <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
             )}
           </div>
-          <h3 className="font-semibold text-foreground text-sm">AI Strategy Monitor</h3>
+          <h3 className="font-semibold text-foreground text-sm truncate">AI Strategy Monitor</h3>
         </div>
-        <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[8px] h-4">
+        <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[8px] h-4 flex-shrink-0">
           {isRunning ? 'ACTIVE' : 'IDLE'}
         </Badge>
       </div>
@@ -154,34 +155,34 @@ export function AIStrategyPanel({
         targetHitRate={metrics?.targetHitRate || 95}
         requiredHitRate={metrics?.requiredHitRate || 95}
         tradesCount={metrics?.tradesExecuted || 0}
-        className="mb-3 flex-shrink-0"
+        className="mb-2 flex-shrink-0"
       />
 
       {/* Strategy Metrics Grid - Compact */}
-      <div className="grid grid-cols-2 gap-1.5 mb-3 flex-shrink-0">
-        <div className="bg-secondary/50 p-1.5 rounded text-center">
-          <p className="text-[8px] text-muted-foreground">Signal Threshold</p>
-          <p className="text-xs font-bold font-mono text-primary">
+      <div className="grid grid-cols-2 gap-1 mb-2 flex-shrink-0">
+        <div className="bg-secondary/50 p-1.5 rounded text-center overflow-hidden">
+          <p className="text-[8px] text-muted-foreground truncate">Signal Threshold</p>
+          <p className="text-xs font-bold font-mono text-primary truncate">
             {metrics ? `${(metrics.signalThreshold * 100).toFixed(0)}%` : '90%'}
           </p>
         </div>
-        <div className="bg-secondary/50 p-1.5 rounded text-center">
-          <p className="text-[8px] text-muted-foreground">Projected Daily</p>
+        <div className="bg-secondary/50 p-1.5 rounded text-center overflow-hidden">
+          <p className="text-[8px] text-muted-foreground truncate">Projected Daily</p>
           <p className={cn(
-            'text-xs font-bold font-mono',
+            'text-xs font-bold font-mono truncate',
             metrics && metrics.projectedDailyPnL >= metrics.dailyTarget ? 'text-primary' : 'text-warning'
           )}>
             ${metrics?.projectedDailyPnL?.toFixed(2) || '0.00'}
           </p>
         </div>
-        <div className="bg-secondary/50 p-1.5 rounded text-center">
-          <p className="text-[8px] text-muted-foreground">Progress</p>
-          <p className="text-xs font-bold font-mono text-foreground">
+        <div className="bg-secondary/50 p-1.5 rounded text-center overflow-hidden">
+          <p className="text-[8px] text-muted-foreground truncate">Progress</p>
+          <p className="text-xs font-bold font-mono text-foreground truncate">
             ${metrics?.currentPnL?.toFixed(2) || '0.00'} / ${metrics?.dailyTarget || 40}
           </p>
         </div>
-        <div className="bg-secondary/50 p-1.5 rounded text-center">
-          <p className="text-[8px] text-muted-foreground">Status</p>
+        <div className="bg-secondary/50 p-1.5 rounded text-center overflow-hidden">
+          <p className="text-[8px] text-muted-foreground truncate">Status</p>
           <Badge
             variant="outline"
             className={cn(
@@ -199,23 +200,23 @@ export function AIStrategyPanel({
       {recentlyApplied.length > 0 && onUndoRecommendation && (
         <div className="mb-2 flex-shrink-0">
           <div className="flex items-center gap-1 mb-1">
-            <Clock className="w-2.5 h-2.5 text-muted-foreground" />
-            <span className="text-[9px] text-muted-foreground">Recently Applied</span>
+            <Clock className="w-2.5 h-2.5 text-muted-foreground flex-shrink-0" />
+            <span className="text-[9px] text-muted-foreground truncate">Recently Applied</span>
           </div>
           <div className="space-y-1">
             {recentlyApplied.slice(0, 2).map((rec) => (
               <div
                 key={rec.id}
-                className="flex items-center justify-between bg-primary/10 border border-primary/20 rounded px-2 py-1"
+                className="flex items-center justify-between bg-primary/10 border border-primary/20 rounded px-2 py-1 gap-1"
               >
-                <div className="flex items-center gap-2">
-                  <Check className="w-3 h-3 text-primary" />
-                  <span className="text-[10px] text-foreground">{rec.title}</span>
-                  <span className="text-[9px] text-muted-foreground">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <Check className="w-3 h-3 text-primary flex-shrink-0" />
+                  <span className="text-[10px] text-foreground truncate">{rec.title}</span>
+                  <span className="text-[9px] text-muted-foreground truncate hidden sm:inline">
                     {String(rec.previousValue)} → {String(rec.newValue)}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1 flex-shrink-0">
                   <span className="text-[9px] font-mono text-muted-foreground">
                     {countdowns[rec.id] || 0}s
                   </span>
@@ -236,13 +237,13 @@ export function AIStrategyPanel({
 
       {/* AI Recommendations */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between mb-1.5 flex-shrink-0">
+        <div className="flex items-center justify-between mb-1 flex-shrink-0">
           <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
-            <Lightbulb className="w-2.5 h-2.5" />
-            AI Recommendations
+            <Lightbulb className="w-2.5 h-2.5 flex-shrink-0" />
+            <span className="truncate">AI Recommendations</span>
           </span>
           {recommendations.length > 0 && (
-            <Badge variant="outline" className="text-[8px] h-4">
+            <Badge variant="outline" className="text-[8px] h-4 flex-shrink-0">
               {recommendations.length}
             </Badge>
           )}
@@ -256,7 +257,7 @@ export function AIStrategyPanel({
             </p>
           </div>
         ) : (
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 min-h-0">
             <div className="space-y-1.5 pr-2">
               {dedupedRecommendations.map((rec, index) => {
                 const PriorityIcon = getPriorityIcon(rec.priority);
@@ -267,72 +268,92 @@ export function AIStrategyPanel({
                 const stableKey = `rec-${rec.id}-${index}`;
 
                 return (
-                  <div
+                  <Collapsible
                     key={stableKey}
-                    className={cn(
-                      'border rounded-lg p-2 transition-all cursor-pointer hover:bg-muted/30',
-                      getPriorityColor(rec.priority),
-                      isApplied && 'animate-slide-out-right'
-                    )}
-                    onClick={() => setExpandedRec(isExpanded ? null : rec.id)}
+                    open={isExpanded}
+                    onOpenChange={(open) => setExpandedRec(open ? rec.id : null)}
                   >
-                    <div className="flex items-start gap-1.5">
-                      <PriorityIcon className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-semibold text-foreground">{rec.title}</p>
-                        <p className="text-[9px] text-muted-foreground line-clamp-2">
-                          {rec.description}
-                        </p>
-
-                        {isExpanded && (
-                          <div className="mt-1.5 space-y-1.5">
-                            <div className="flex items-center gap-3 text-[9px]">
-                              <span>
-                                Current: <strong className="text-foreground">{rec.currentValue}</strong>
-                              </span>
-                              <span>→</span>
-                              <span>
-                                Suggested: <strong className="text-primary">{rec.suggestedValue}</strong>
-                              </span>
-                            </div>
-                            <p className="text-[9px] text-muted-foreground italic">{rec.impact}</p>
-                            <div className="flex gap-1.5 pt-0.5">
-                              <Button
-                                size="sm"
-                                variant="default"
-                                className="h-5 text-[9px] gap-1 flex-1"
-                                disabled={isApplying}
-                                onClick={(e) => handleApply(rec, e)}
-                              >
-                                {isApplying ? (
-                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                ) : isApplied ? (
-                                  <Check className="w-2.5 h-2.5 animate-checkmark-scale" />
-                                ) : (
-                                  <Check className="w-2.5 h-2.5" />
-                                )}
-                                Apply
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-5 text-[9px] gap-1"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onDismissRecommendation(rec.id);
-                                }}
-                              >
-                                <X className="w-2.5 h-2.5" />
-                              </Button>
-                            </div>
+                    <div
+                      className={cn(
+                        'border rounded-lg p-2 transition-all',
+                        getPriorityColor(rec.priority),
+                        isApplied && 'animate-slide-out-right'
+                      )}
+                    >
+                      <CollapsibleTrigger className="w-full">
+                        <div className="flex items-start gap-1.5">
+                          <PriorityIcon className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0 text-left">
+                            <p className="text-[11px] font-semibold text-foreground truncate">{rec.title}</p>
+                            <p className="text-[9px] text-muted-foreground line-clamp-1">
+                              {rec.description}
+                            </p>
                           </div>
-                        )}
-                      </div>
-                      <Badge variant="outline" className="text-[7px] capitalize flex-shrink-0 h-4">
-                        {rec.priority}
-                      </Badge>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <Badge variant="outline" className="text-[7px] capitalize h-4">
+                              {rec.priority}
+                            </Badge>
+                            {isExpanded ? (
+                              <ChevronUp className="w-3 h-3" />
+                            ) : (
+                              <ChevronDown className="w-3 h-3" />
+                            )}
+                          </div>
+                        </div>
+                      </CollapsibleTrigger>
+
+                      <CollapsibleContent>
+                        <div className="mt-2 pt-2 border-t border-border/50 space-y-2">
+                          {/* Full description when expanded */}
+                          <p className="text-[9px] text-muted-foreground whitespace-normal">
+                            {rec.description}
+                          </p>
+                          
+                          <div className="flex items-center gap-2 text-[9px] flex-wrap">
+                            <span className="whitespace-nowrap">
+                              Current: <strong className="text-foreground">{rec.currentValue}</strong>
+                            </span>
+                            <span>→</span>
+                            <span className="whitespace-nowrap">
+                              Suggested: <strong className="text-primary">{rec.suggestedValue}</strong>
+                            </span>
+                          </div>
+                          
+                          <p className="text-[9px] text-muted-foreground italic whitespace-normal">{rec.impact}</p>
+                          
+                          <div className="flex gap-1.5 pt-0.5">
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="h-5 text-[9px] gap-1 flex-1"
+                              disabled={isApplying}
+                              onClick={(e) => handleApply(rec, e)}
+                            >
+                              {isApplying ? (
+                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                              ) : isApplied ? (
+                                <Check className="w-2.5 h-2.5 animate-checkmark-scale" />
+                              ) : (
+                                <Check className="w-2.5 h-2.5" />
+                              )}
+                              Apply
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-5 text-[9px] gap-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDismissRecommendation(rec.id);
+                              }}
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CollapsibleContent>
                     </div>
-                  </div>
+                  </Collapsible>
                 );
               })}
             </div>

@@ -139,12 +139,25 @@ export function useNotifications() {
     });
   }, [user]);
 
+  // Filter to only notify for exchanges with USDT balance
   const notifyTrade = useCallback((
     exchange: string,
     pair: string,
     direction: 'long' | 'short',
-    profit: number
+    profit: number,
+    exchangeBalances?: { exchange: string; usdtBalance: number }[]
   ) => {
+    // CRITICAL: Only notify if exchange has balance (or no balance info provided)
+    if (exchangeBalances && exchangeBalances.length > 0) {
+      const hasBalance = exchangeBalances.some(
+        b => b.exchange === exchange && b.usdtBalance > 0
+      );
+      if (!hasBalance) {
+        console.log(`[NOTIFICATION] Skipping notification for ${exchange} - no USDT balance`);
+        return;
+      }
+    }
+    
     playSound();
     
     const isProfit = profit >= 0;

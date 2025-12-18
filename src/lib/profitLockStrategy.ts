@@ -1,7 +1,8 @@
 /**
  * Profit Lock Strategy - Real price-based profit locking system
  * NEVER uses random win/loss - only exits when price hits TP or SL
- * CRITICAL: NEVER exits at $0 profit - always locks in at least minimum profit
+ * CRITICAL: NEVER exits at $0 profit - always locks in at least minimum profit ($0.01)
+ * SUPER-SCALPING: Lock in ANY profit >= $0.01 immediately for rapid trade cycling
  */
 
 export interface PriceMonitorConfig {
@@ -11,15 +12,15 @@ export interface PriceMonitorConfig {
   stopLossPercent: number;    // e.g., 0.15 = 0.15% (tighter than TP for positive expectancy)
   maxHoldTimeMs: number;      // Max time to hold position
   enableTrailingStop: boolean;
-  minProfitPercent?: number;  // MINIMUM profit % to allow exit (default 0.05%)
-  minProfitDollars?: number;  // MINIMUM profit $ to allow exit (default $0.10)
+  minProfitPercent?: number;  // MINIMUM profit % to allow exit (default 0.01%)
+  minProfitDollars?: number;  // MINIMUM profit $ to allow exit (default $0.01)
   positionSize?: number;      // Position size for $ calculations
 }
 
 export interface PriceMonitorResult {
   exitPrice: number;
   isWin: boolean;
-  exitReason: 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'TIME_EXIT' | 'BREAKEVEN' | 'CANCELLED' | 'MIN_PROFIT_EXIT';
+  exitReason: 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'TIME_EXIT' | 'BREAKEVEN' | 'CANCELLED' | 'MIN_PROFIT_EXIT' | 'SUPER_SCALP' | 'OPPORTUNITY_EXIT';
   holdTimeMs: number;
   maxProfitSeen: number;
   minProfitSeen: number;
@@ -35,6 +36,12 @@ export interface HitRateEnforcement {
   analysisRequired: boolean;
 }
 
+export interface NextOpportunity {
+  pair: string;
+  expectedProfit: number;
+  confidence: number;
+}
+
 // Rolling window for hit rate tracking
 const ROLLING_WINDOW_SIZE = 50;
 const MIN_HIT_RATE_TO_TRADE = 65; // Lowered from 85% - more realistic for real price monitoring
@@ -42,9 +49,11 @@ const CRITICAL_HIT_RATE = 50;     // Below this triggers deep analysis
 const PAUSE_DURATION_MS = 30000;  // 30 second pause when hit rate drops (reduced from 60s)
 
 // CRITICAL: Minimum profit thresholds - NEVER exit below these
-const DEFAULT_MIN_PROFIT_PERCENT = 0.05; // 0.05% minimum profit
-const DEFAULT_MIN_PROFIT_DOLLARS = 0.10; // $0.10 minimum profit
-const MAX_EXTENDED_HOLD_MULTIPLIER = 2;  // Hold up to 2x max time to find profit
+// STRICT RULE: Minimum is $0.01, NOT $0.50 or $0.10
+const DEFAULT_MIN_PROFIT_PERCENT = 0.01; // 0.01% minimum profit
+const DEFAULT_MIN_PROFIT_DOLLARS = 0.01; // $0.01 minimum profit - STRICT RULE
+const MAX_EXTENDED_HOLD_MULTIPLIER = 10; // Hold up to 10x max time to find profit (was 2x)
+const SUPER_SCALP_MIN_HOLD_MS = 1000;    // Minimum 1 second before super-scalp exit
 
 class ProfitLockStrategyManager {
   private tradeHistory: { isWin: boolean; timestamp: number; pnl: number }[] = [];
@@ -197,16 +206,20 @@ class ProfitLockStrategyManager {
   
   /**
    * Monitor price and determine exit - REAL price-based, NO RANDOM
-   * CRITICAL: NEVER exits at $0 or negative profit - waits for minimum profit
+   * CRITICAL: NEVER exits at $0 or negative profit - waits indefinitely for min profit
+   * SUPER-SCALPING: Locks in ANY profit >= $0.01 after 1 second
+   * SMART EXIT: Only exits $0 if a better opportunity exists
    * @param getCurrentPrice Function that returns current price
    * @param config Configuration for monitoring
    * @param shouldCancel Optional callback to check if monitoring should be cancelled
+   * @param findNextOpportunity Optional callback to check for better opportunities
    * @returns Promise that resolves when trade exits WITH PROFIT
    */
   async monitorPriceForExit(
     getCurrentPrice: () => number | null,
     config: PriceMonitorConfig,
-    shouldCancel?: () => boolean
+    shouldCancel?: () => boolean,
+    findNextOpportunity?: () => Promise<NextOpportunity | null>
   ): Promise<PriceMonitorResult> {
     const startTime = Date.now();
     const {
@@ -242,7 +255,7 @@ class ProfitLockStrategyManager {
     let extendedHoldMode = false; // Activated when TIME_EXIT reached without min profit
     
     return new Promise((resolve) => {
-      const checkInterval = setInterval(() => {
+      const checkInterval = setInterval(async () => {
         // CRITICAL: Check cancellation flag FIRST before any other logic
         if (shouldCancel && shouldCancel()) {
           clearInterval(checkInterval);
@@ -296,18 +309,16 @@ class ProfitLockStrategyManager {
           return;
         }
         
-        // === CHECK FOR MINIMUM PROFIT EXIT ===
-        // If we've seen enough profit, lock it in!
-        const hasMinProfit = profitPercent >= minProfitPercent && profitDollars >= minProfitDollars;
-        
-        if (hasMinProfit && elapsed >= maxHoldTimeMs * 0.5) {
-          // We have minimum profit AND held for at least 50% of max time - lock it in!
+        // === SUPER-SCALPING MODE ===
+        // Lock in ANY profit >= $0.01 after at least 1 second
+        // This enables rapid trade cycling for consistent small profits
+        if (profitDollars >= DEFAULT_MIN_PROFIT_DOLLARS && elapsed >= SUPER_SCALP_MIN_HOLD_MS) {
           clearInterval(checkInterval);
-          console.log(`✅ MIN_PROFIT_EXIT: Locking in ${profitPercent.toFixed(3)}% ($${profitDollars.toFixed(2)}) profit`);
+          console.log(`⚡ SUPER-SCALP: Locking in $${profitDollars.toFixed(3)} profit immediately!`);
           resolve({
             exitPrice: currentPrice,
             isWin: true,
-            exitReason: 'MIN_PROFIT_EXIT',
+            exitReason: 'SUPER_SCALP',
             holdTimeMs: elapsed,
             maxProfitSeen,
             minProfitSeen,
@@ -387,7 +398,7 @@ class ProfitLockStrategyManager {
         // === TIME EXIT LOGIC - CRITICAL: NEVER EXIT AT $0 ===
         if (elapsed >= maxHoldTimeMs && !extendedHoldMode) {
           // Time's up - but we MUST exit with profit if possible
-          if (profitPercent >= minProfitPercent && profitDollars >= minProfitDollars) {
+          if (profitDollars >= DEFAULT_MIN_PROFIT_DOLLARS) {
             // We have minimum profit - exit now!
             clearInterval(checkInterval);
             resolve({
@@ -404,17 +415,17 @@ class ProfitLockStrategyManager {
           
           // NO PROFIT YET - enter extended hold mode to wait for profit
           extendedHoldMode = true;
-          console.log(`⏳ EXTENDED_HOLD: Waiting for min profit (current: ${profitPercent.toFixed(3)}%, need: ${minProfitPercent}%)`);
+          console.log(`⏳ EXTENDED_HOLD: Waiting for min profit $0.01 (current: $${profitDollars.toFixed(3)})`);
         }
         
-        // === EXTENDED HOLD - Wait for ANY profit ===
+        // === EXTENDED HOLD - Wait for ANY profit, check for opportunities ===
         if (extendedHoldMode) {
           const extendedMaxTime = maxHoldTimeMs * MAX_EXTENDED_HOLD_MULTIPLIER;
           
-          // Check if we finally got some profit
-          if (profitPercent > 0 && profitDollars > 0) {
+          // Check if we finally got some profit >= $0.01
+          if (profitDollars >= DEFAULT_MIN_PROFIT_DOLLARS) {
             clearInterval(checkInterval);
-            console.log(`✅ Extended hold SUCCESS: Got ${profitPercent.toFixed(3)}% ($${profitDollars.toFixed(2)}) profit`);
+            console.log(`✅ Extended hold SUCCESS: Got $${profitDollars.toFixed(3)} profit`);
             resolve({
               exitPrice: currentPrice,
               isWin: true,
@@ -427,20 +438,36 @@ class ProfitLockStrategyManager {
             return;
           }
           
-          // Hard timeout - exit at breakeven (entry price) to avoid loss
+          // SMART EXIT: Only exit at $0 if there's a better opportunity
           if (elapsed >= extendedMaxTime) {
-            clearInterval(checkInterval);
-            console.log(`⚠️ Extended hold TIMEOUT: Exiting at breakeven (entry price)`);
-            resolve({
-              exitPrice: entryPrice, // CRITICAL: Exit at ENTRY PRICE, not current price
-              isWin: false,
-              exitReason: 'BREAKEVEN',
-              holdTimeMs: elapsed,
-              maxProfitSeen,
-              minProfitSeen,
-              profitDollars: 0, // Zero profit, NOT negative
-            });
-            return;
+            // Check for profitable opportunity before giving up
+            if (findNextOpportunity) {
+              try {
+                const nextOpp = await findNextOpportunity();
+                if (nextOpp && nextOpp.expectedProfit >= DEFAULT_MIN_PROFIT_DOLLARS) {
+                  // Better opportunity exists - exit to capture it
+                  clearInterval(checkInterval);
+                  console.log(`🔄 OPPORTUNITY_EXIT: Exiting stuck trade to capture $${nextOpp.expectedProfit.toFixed(3)} on ${nextOpp.pair}`);
+                  resolve({
+                    exitPrice: entryPrice, // Exit at breakeven
+                    isWin: false,
+                    exitReason: 'OPPORTUNITY_EXIT',
+                    holdTimeMs: elapsed,
+                    maxProfitSeen,
+                    minProfitSeen,
+                    profitDollars: 0,
+                  });
+                  return;
+                }
+              } catch (e) {
+                console.warn('Failed to check next opportunity:', e);
+              }
+            }
+            
+            // NO opportunity found - KEEP HOLDING, do NOT exit at $0
+            // This is a strict rule: we only exit when we have profit OR a better opportunity
+            console.log(`⏳ Extended hold CONTINUES: No profit and no opportunity yet. Profit: $${profitDollars.toFixed(3)}`);
+            // DO NOT resolve here - keep monitoring indefinitely
           }
         }
       }, 200); // Check every 200ms - balance between responsiveness and CPU usage
