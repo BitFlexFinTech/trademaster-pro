@@ -77,3 +77,6 @@ verify_jwt = true
 
 [functions.cancel-stale-orders]
 verify_jwt = true
+
+[functions.daily-analysis]
+verify_jwt = true

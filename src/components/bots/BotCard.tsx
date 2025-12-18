@@ -70,7 +70,8 @@ export function BotCard({
   onAuditGenerated,
 }: BotCardProps) {
   const { user } = useAuth();
-  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger, vaultProfit, initializeSessionBalance, sessionStartBalance, profitVault, getTotalVaultedProfits } = useTradingMode();
+  // Use separate triggers: resetTrigger for full reset, dailyResetTrigger for 24h P&L reset, syncTrigger for data sync
+  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger, dailyResetTrigger, syncTrigger, vaultProfit, initializeSessionBalance, sessionStartBalance, profitVault, getTotalVaultedProfits } = useTradingMode();
   const { notifyTrade, notifyTakeProfit, notifyDailyProgress, resetProgressNotifications } = useNotifications();
 
   // Order book scanning for guaranteed profit opportunities
@@ -124,13 +125,15 @@ export function BotCard({
   const isExecutingRef = useRef(false); // CRITICAL: Prevent concurrent executions
   const metricsRef = useRef({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 });  // Internal metrics tracking
   const abortControllerRef = useRef<AbortController | null>(null); // CRITICAL: For cancelling pending requests
+  const tradingLoopIdRef = useRef<string | null>(null); // UUID-based loop invalidation
   
   // Calculate stop loss automatically: 20% of profit (80% lower)
   const calculatedStopLoss = profitPerTrade * 0.2;
 
-  // Listen to reset trigger - reset local state
+  // Listen to FULL RESET trigger - reset ALL state (manual demo reset only)
   useEffect(() => {
     if (resetTrigger > 0) {
+      console.log('[BotCard] Full reset triggered - clearing all state');
       setMetrics({
         currentPnL: 0,
         tradesExecuted: 0,
@@ -146,9 +149,37 @@ export function BotCard({
       tradeTimestampsRef.current = [];
       isStoppingRef.current = false;
       isExecutingRef.current = false;
+      tradingLoopIdRef.current = null;
       resetProgressNotifications();
     }
   }, [resetTrigger, resetProgressNotifications]);
+
+  // Listen to DAILY RESET trigger - 24-hour P&L reset ONLY
+  useEffect(() => {
+    if (dailyResetTrigger > 0) {
+      console.log('[BotCard] 24-hour daily reset triggered - resetting P&L');
+      setMetrics({
+        currentPnL: 0,
+        tradesExecuted: 0,
+        hitRate: 0,
+        avgTimeToTP: 12.3,
+        maxDrawdown: 0,
+        tradesPerMinute: 0,
+      });
+      metricsRef.current = { currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 };
+      resetProgressNotifications();
+    }
+  }, [dailyResetTrigger, resetProgressNotifications]);
+
+  // Listen to SYNC trigger - refresh data WITHOUT P&L reset
+  useEffect(() => {
+    if (syncTrigger > 0) {
+      console.log('[BotCard] Sync triggered - refreshing data (P&L preserved)');
+      // Just clear stale price data, do NOT reset P&L or metrics
+      lastPricesRef.current = {};
+      priceHistoryRef.current.clear();
+    }
+  }, [syncTrigger]);
 
   // Sync with existing bot
   useEffect(() => {
@@ -913,13 +944,17 @@ export function BotCard({
       // Reset profit lock strategy to cancel any active monitoring
       profitLockStrategy.reset();
       
-      console.log('🛑 STOP: Flags set, interval cleared, calling onStopBot');
+      // Invalidate trading loop UUID
+      tradingLoopIdRef.current = null;
       
-      // Force clear ALL intervals as safeguard (brute force approach)
-      for (let i = 1; i < 10000; i++) {
-        clearInterval(i);
-        clearTimeout(i);
-      }
+      await onStopBot(existingBot.id);
+      // CRITICAL: Do NOT reset P&L on stop - preserve for 24-hour cycle
+      // P&L only resets via dailyResetTrigger (24h cycle) or resetTrigger (manual demo reset)
+      setActiveExchange(null);
+      resetProgressNotifications();
+      setIsStopping(false);
+      
+      console.log('✅ Bot stopped successfully (P&L preserved)');
       
       await onStopBot(existingBot.id);
       setMetrics({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, avgTimeToTP: 12.3, maxDrawdown: 0, tradesPerMinute: 0 });

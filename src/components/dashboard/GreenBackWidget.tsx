@@ -29,7 +29,8 @@ export function GreenBackWidget() {
   const { bots, stats, startBot, stopBot, updateBotPnl, refetch, getSpotBot, getLeverageBot } = useBotRuns();
   const { prices } = useRealtimePrices();
   const { notifyTrade, notifyTakeProfit } = useNotifications();
-  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger } = useTradingMode();
+  // Use dailyResetTrigger for P&L reset (24h cycle), resetTrigger for full manual reset
+  const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger, dailyResetTrigger } = useTradingMode();
   const { user } = useAuth();
   const { connectedExchangeNames, hasConnections } = useConnectedExchanges();
   
@@ -81,7 +82,7 @@ export function GreenBackWidget() {
   const [tradePulse, setTradePulse] = useState(false);
   const lastPricesRef = useRef<Record<string, number>>({});
 
-  // Listen to reset trigger - reset local state
+  // Listen to FULL RESET trigger - reset ALL state (manual demo reset)
   useEffect(() => {
     if (resetTrigger > 0) {
       setMetrics({
@@ -96,6 +97,21 @@ export function GreenBackWidget() {
       refetch();
     }
   }, [resetTrigger, refetch]);
+
+  // Listen to DAILY RESET trigger - 24-hour P&L reset ONLY
+  useEffect(() => {
+    if (dailyResetTrigger > 0) {
+      console.log('[GreenBackWidget] 24-hour daily reset - resetting P&L');
+      setMetrics({
+        currentPnL: 0,
+        tradesExecuted: 0,
+        hitRate: 0,
+        avgTimeToTP: 12.3,
+      });
+      setLastTrade(null);
+      refetch();
+    }
+  }, [dailyResetTrigger, refetch]);
 
   // Sync metrics from database
   useEffect(() => {
