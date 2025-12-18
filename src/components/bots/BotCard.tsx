@@ -742,6 +742,7 @@ export function BotCard({
       let isWin: boolean;
       let exitReason: string;
       let holdTimeMs: number;
+      let strategyProfitDollars: number | undefined;
 
       try {
         // Set active trade for real-time UI display
@@ -786,6 +787,7 @@ export function BotCard({
         isWin = result.isWin;
         exitReason = result.exitReason;
         holdTimeMs = result.holdTimeMs;
+        strategyProfitDollars = result.profitDollars; // Save fee-adjusted profit from strategy
         
         profitLockStrategy.recordSuccess();
       } catch (error) {
@@ -812,7 +814,19 @@ export function BotCard({
         ? ((exitPrice - currentPrice) / currentPrice) * 100
         : ((currentPrice - exitPrice) / currentPrice) * 100;
       
-      const netProfit = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange);
+      // USE PROFIT FROM STRATEGY RESULT - DO NOT RECALCULATE FEES!
+      // profitLockStrategy already accounts for fees with feeRate and minNetProfit
+      const netProfit = strategyProfitDollars ?? calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange, direction);
+      
+      console.log(`📊 Trade P&L Debug:
+  - Entry: $${currentPrice.toFixed(4)}
+  - Exit: $${exitPrice.toFixed(4)}
+  - Direction: ${direction}
+  - Position Size: $${positionSize.toFixed(2)}
+  - Strategy Net Profit: $${(strategyProfitDollars ?? 0).toFixed(4)}
+  - Calculated Net Profit: $${netProfit.toFixed(4)}
+  - Exit Reason: ${exitReason}
+  - Is Win: ${isWin}`);
       
       // STRICT RULE: Only allow profitable trades
       // If netProfit is negative or zero, this trade should not have exited
@@ -821,7 +835,7 @@ export function BotCard({
         return; // Skip this trade entirely
       }
       
-      const tradePnl = Math.max(netProfit, MIN_NET_PROFIT); // Always positive
+      const tradePnl = netProfit; // Use actual net profit, don't force to MIN_NET_PROFIT
       
       // Record trade for profit lock strategy
       profitLockStrategy.recordTrade(isWin, tradePnl);

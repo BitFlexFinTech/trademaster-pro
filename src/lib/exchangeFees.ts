@@ -21,9 +21,10 @@ export const isProfitableAfterFees = (
   entryPrice: number,
   exitPrice: number,
   positionSize: number,
-  exchange: string
+  exchange: string,
+  direction: 'long' | 'short' = 'long'
 ): boolean => {
-  const netProfit = calculateNetProfit(entryPrice, exitPrice, positionSize, exchange);
+  const netProfit = calculateNetProfit(entryPrice, exitPrice, positionSize, exchange, direction);
   return netProfit > 0;
 };
 
@@ -31,13 +32,27 @@ export const calculateNetProfit = (
   entryPrice: number,
   exitPrice: number,
   positionSize: number,
-  exchange: string
+  exchange: string,
+  direction: 'long' | 'short' = 'long'
 ): number => {
   const feeRate = getFeeRate(exchange);
-  const grossProfit = (exitPrice - entryPrice) * (positionSize / entryPrice);
+  
+  // Calculate gross profit based on direction
+  // LONG: profit when price goes UP (exit > entry)
+  // SHORT: profit when price goes DOWN (entry > exit)
+  const priceChange = direction === 'long' 
+    ? exitPrice - entryPrice
+    : entryPrice - exitPrice;
+  
+  const grossProfit = priceChange * (positionSize / entryPrice);
   const entryFee = positionSize * feeRate;
-  const exitFee = (positionSize + grossProfit) * feeRate;
-  return grossProfit - entryFee - exitFee;
+  const exitFee = (positionSize + Math.max(0, grossProfit)) * feeRate;
+  
+  const netProfit = grossProfit - entryFee - exitFee;
+  
+  console.log(`📊 Fee Calc [${direction}]: Entry=$${entryPrice.toFixed(4)}, Exit=$${exitPrice.toFixed(4)}, Gross=$${grossProfit.toFixed(4)}, Fees=$${(entryFee + exitFee).toFixed(4)}, Net=$${netProfit.toFixed(4)}`);
+  
+  return netProfit;
 };
 
 /**
@@ -48,9 +63,10 @@ export const meetsMinProfitThreshold = (
   exitPrice: number,
   positionSize: number,
   exchange: string,
-  minProfit: number = MIN_NET_PROFIT
+  minProfit: number = MIN_NET_PROFIT,
+  direction: 'long' | 'short' = 'long'
 ): boolean => {
-  const netProfit = calculateNetProfit(entryPrice, exitPrice, positionSize, exchange);
+  const netProfit = calculateNetProfit(entryPrice, exitPrice, positionSize, exchange, direction);
   return netProfit >= minProfit;
 };
 
