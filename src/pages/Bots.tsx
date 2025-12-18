@@ -292,6 +292,60 @@ export default function Bots() {
     }
   }, [tradeSpeedRecommendation]);
 
+  // AUTO-APPLY AI Daily Target Recommendations (CRITICAL FIX)
+  // This ensures daily target, profit per trade, position amount, and speed are auto-updated
+  useEffect(() => {
+    if (aiTargetRecommendation && !spotBot && !leverageBot) {
+      // Only auto-apply when bot is NOT running
+      const hasChanges = aiTargetRecommendation.profitPerTrade !== botConfig.profitPerTrade;
+      
+      if (hasChanges) {
+        // Calculate position size from metrics
+        const suggestedPosition = aiTargetRecommendation.metrics?.totalAvailable 
+          ? Math.min(aiTargetRecommendation.metrics.totalAvailable * 0.1, MAX_USDT_ALLOCATION) // 10% of available
+          : botConfig.amountPerTrade;
+        
+        // Calculate trade interval based on estimated trades per day
+        const tradesPerDay = aiTargetRecommendation.estimatedTrades || 50;
+        const tradingHoursPerDay = 8;
+        const tradesPerHour = tradesPerDay / tradingHoursPerDay;
+        const intervalMs = Math.max(3000, Math.floor((3600 * 1000) / tradesPerHour)); // At least 3s between trades
+        
+        setBotConfig(prev => ({
+          ...prev,
+          profitPerTrade: aiTargetRecommendation.profitPerTrade,
+          amountPerTrade: Math.min(suggestedPosition, MAX_USDT_ALLOCATION),
+          tradeIntervalMs: intervalMs,
+        }));
+        
+        toast.success('🎯 AI Settings Auto-Applied', {
+          description: `Daily Target: $${aiTargetRecommendation.dailyTarget}, Profit/Trade: $${aiTargetRecommendation.profitPerTrade.toFixed(2)}, Position: $${suggestedPosition.toFixed(0)}`,
+          duration: 5000,
+        });
+      }
+    }
+  }, [aiTargetRecommendation, spotBot, leverageBot]);
+
+  // Fetch AI recommendations on page load and when balance changes
+  useEffect(() => {
+    if (user && usdtFloat.length > 0 && !aiTargetLoading && !spotBot && !leverageBot) {
+      const totalBalance = usdtFloat.reduce((sum, f) => sum + f.amount, 0);
+      if (totalBalance > 0) {
+        fetchAITargetRecommendation({
+          usdtFloat: usdtFloat.map(f => ({
+            exchange: f.exchange,
+            amount: f.amount,
+            baseBalance: f.baseBalance,
+            availableFloat: f.availableFloat,
+          })),
+          historicalHitRate: combinedHitRate || 70,
+          averageProfitPerTrade: botConfig.profitPerTrade,
+          riskTolerance: 'moderate',
+        });
+      }
+    }
+  }, [user, usdtFloat.length, spotBot, leverageBot]);
+
   // Debounced USDT calculation to prevent flashing
   const suggestedUSDT = useMemo(() => {
     const dailyTarget = 40;

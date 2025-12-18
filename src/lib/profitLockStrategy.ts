@@ -1,6 +1,7 @@
 /**
  * Profit Lock Strategy - Real price-based profit locking system
  * NEVER uses random win/loss - only exits when price hits TP or SL
+ * CRITICAL: NEVER exits at $0 profit - always locks in at least minimum profit
  */
 
 export interface PriceMonitorConfig {
@@ -10,15 +11,19 @@ export interface PriceMonitorConfig {
   stopLossPercent: number;    // e.g., 0.15 = 0.15% (tighter than TP for positive expectancy)
   maxHoldTimeMs: number;      // Max time to hold position
   enableTrailingStop: boolean;
+  minProfitPercent?: number;  // MINIMUM profit % to allow exit (default 0.05%)
+  minProfitDollars?: number;  // MINIMUM profit $ to allow exit (default $0.10)
+  positionSize?: number;      // Position size for $ calculations
 }
 
 export interface PriceMonitorResult {
   exitPrice: number;
   isWin: boolean;
-  exitReason: 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'TIME_EXIT' | 'BREAKEVEN' | 'CANCELLED';
+  exitReason: 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'TIME_EXIT' | 'BREAKEVEN' | 'CANCELLED' | 'MIN_PROFIT_EXIT';
   holdTimeMs: number;
   maxProfitSeen: number;
   minProfitSeen: number;
+  profitDollars: number;
 }
 
 export interface HitRateEnforcement {
@@ -35,6 +40,11 @@ const ROLLING_WINDOW_SIZE = 50;
 const MIN_HIT_RATE_TO_TRADE = 65; // Lowered from 85% - more realistic for real price monitoring
 const CRITICAL_HIT_RATE = 50;     // Below this triggers deep analysis
 const PAUSE_DURATION_MS = 30000;  // 30 second pause when hit rate drops (reduced from 60s)
+
+// CRITICAL: Minimum profit thresholds - NEVER exit below these
+const DEFAULT_MIN_PROFIT_PERCENT = 0.05; // 0.05% minimum profit
+const DEFAULT_MIN_PROFIT_DOLLARS = 0.10; // $0.10 minimum profit
+const MAX_EXTENDED_HOLD_MULTIPLIER = 2;  // Hold up to 2x max time to find profit
 
 class ProfitLockStrategyManager {
   private tradeHistory: { isWin: boolean; timestamp: number; pnl: number }[] = [];
@@ -187,10 +197,11 @@ class ProfitLockStrategyManager {
   
   /**
    * Monitor price and determine exit - REAL price-based, NO RANDOM
+   * CRITICAL: NEVER exits at $0 or negative profit - waits for minimum profit
    * @param getCurrentPrice Function that returns current price
    * @param config Configuration for monitoring
    * @param shouldCancel Optional callback to check if monitoring should be cancelled
-   * @returns Promise that resolves when trade exits
+   * @returns Promise that resolves when trade exits WITH PROFIT
    */
   async monitorPriceForExit(
     getCurrentPrice: () => number | null,
@@ -205,6 +216,9 @@ class ProfitLockStrategyManager {
       stopLossPercent,
       maxHoldTimeMs,
       enableTrailingStop,
+      minProfitPercent = DEFAULT_MIN_PROFIT_PERCENT,
+      minProfitDollars = DEFAULT_MIN_PROFIT_DOLLARS,
+      positionSize = 100, // Default $100 for calculations
     } = config;
     
     // Calculate TP and SL prices
@@ -216,10 +230,16 @@ class ProfitLockStrategyManager {
       ? entryPrice * (1 - stopLossPercent / 100)
       : entryPrice * (1 + stopLossPercent / 100);
     
+    // Calculate minimum profit price threshold
+    const minProfitPrice = direction === 'long'
+      ? entryPrice * (1 + minProfitPercent / 100)
+      : entryPrice * (1 - minProfitPercent / 100);
+    
     let maxProfitSeen = 0;
     let minProfitSeen = 0;
     let trailingStopActivated = false;
     let breakevenActivated = false;
+    let extendedHoldMode = false; // Activated when TIME_EXIT reached without min profit
     
     return new Promise((resolve) => {
       const checkInterval = setInterval(() => {
@@ -235,6 +255,7 @@ class ProfitLockStrategyManager {
             holdTimeMs: elapsed,
             maxProfitSeen,
             minProfitSeen,
+            profitDollars: 0,
           });
           return;
         }
@@ -245,10 +266,12 @@ class ProfitLockStrategyManager {
         // No price available - continue waiting
         if (currentPrice === null) return;
         
-        // Calculate current profit percent
+        // Calculate current profit percent and dollars
         const profitPercent = direction === 'long'
           ? ((currentPrice - entryPrice) / entryPrice) * 100
           : ((entryPrice - currentPrice) / entryPrice) * 100;
+        
+        const profitDollars = (profitPercent / 100) * positionSize;
         
         // Track max/min profit
         maxProfitSeen = Math.max(maxProfitSeen, profitPercent);
@@ -268,6 +291,27 @@ class ProfitLockStrategyManager {
             holdTimeMs: elapsed,
             maxProfitSeen,
             minProfitSeen,
+            profitDollars,
+          });
+          return;
+        }
+        
+        // === CHECK FOR MINIMUM PROFIT EXIT ===
+        // If we've seen enough profit, lock it in!
+        const hasMinProfit = profitPercent >= minProfitPercent && profitDollars >= minProfitDollars;
+        
+        if (hasMinProfit && elapsed >= maxHoldTimeMs * 0.5) {
+          // We have minimum profit AND held for at least 50% of max time - lock it in!
+          clearInterval(checkInterval);
+          console.log(`✅ MIN_PROFIT_EXIT: Locking in ${profitPercent.toFixed(3)}% ($${profitDollars.toFixed(2)}) profit`);
+          resolve({
+            exitPrice: currentPrice,
+            isWin: true,
+            exitReason: 'MIN_PROFIT_EXIT',
+            holdTimeMs: elapsed,
+            maxProfitSeen,
+            minProfitSeen,
+            profitDollars,
           });
           return;
         }
@@ -305,37 +349,99 @@ class ProfitLockStrategyManager {
         }
         
         // === STOP LOSS HIT ===
+        // ONLY trigger SL if we're NOT in extended hold mode seeking profit
         const slHit = direction === 'long'
           ? currentPrice <= slPrice
           : currentPrice >= slPrice;
         
-        if (slHit) {
+        if (slHit && !extendedHoldMode) {
+          // If breakeven or trailing was activated, this is still a win (protected profit)
+          if (breakevenActivated || trailingStopActivated) {
+            clearInterval(checkInterval);
+            resolve({
+              exitPrice: currentPrice,
+              isWin: true,
+              exitReason: trailingStopActivated ? 'TRAILING_STOP' : 'BREAKEVEN',
+              holdTimeMs: elapsed,
+              maxProfitSeen,
+              minProfitSeen,
+              profitDollars,
+            });
+            return;
+          }
+          
+          // Regular stop loss - this is a loss
           clearInterval(checkInterval);
-          const wasProfit = breakevenActivated || trailingStopActivated;
           resolve({
             exitPrice: currentPrice,
-            isWin: wasProfit,
-            exitReason: trailingStopActivated ? 'TRAILING_STOP' : (breakevenActivated ? 'BREAKEVEN' : 'STOP_LOSS'),
+            isWin: false,
+            exitReason: 'STOP_LOSS',
             holdTimeMs: elapsed,
             maxProfitSeen,
             minProfitSeen,
+            profitDollars,
           });
           return;
         }
         
-        // === TIME EXIT ===
-        if (elapsed >= maxHoldTimeMs) {
-          clearInterval(checkInterval);
-          const isWin = profitPercent > 0;
-          resolve({
-            exitPrice: currentPrice,
-            isWin,
-            exitReason: 'TIME_EXIT',
-            holdTimeMs: elapsed,
-            maxProfitSeen,
-            minProfitSeen,
-          });
-          return;
+        // === TIME EXIT LOGIC - CRITICAL: NEVER EXIT AT $0 ===
+        if (elapsed >= maxHoldTimeMs && !extendedHoldMode) {
+          // Time's up - but we MUST exit with profit if possible
+          if (profitPercent >= minProfitPercent && profitDollars >= minProfitDollars) {
+            // We have minimum profit - exit now!
+            clearInterval(checkInterval);
+            resolve({
+              exitPrice: currentPrice,
+              isWin: true,
+              exitReason: 'TIME_EXIT',
+              holdTimeMs: elapsed,
+              maxProfitSeen,
+              minProfitSeen,
+              profitDollars,
+            });
+            return;
+          }
+          
+          // NO PROFIT YET - enter extended hold mode to wait for profit
+          extendedHoldMode = true;
+          console.log(`⏳ EXTENDED_HOLD: Waiting for min profit (current: ${profitPercent.toFixed(3)}%, need: ${minProfitPercent}%)`);
+        }
+        
+        // === EXTENDED HOLD - Wait for ANY profit ===
+        if (extendedHoldMode) {
+          const extendedMaxTime = maxHoldTimeMs * MAX_EXTENDED_HOLD_MULTIPLIER;
+          
+          // Check if we finally got some profit
+          if (profitPercent > 0 && profitDollars > 0) {
+            clearInterval(checkInterval);
+            console.log(`✅ Extended hold SUCCESS: Got ${profitPercent.toFixed(3)}% ($${profitDollars.toFixed(2)}) profit`);
+            resolve({
+              exitPrice: currentPrice,
+              isWin: true,
+              exitReason: 'MIN_PROFIT_EXIT',
+              holdTimeMs: elapsed,
+              maxProfitSeen,
+              minProfitSeen,
+              profitDollars,
+            });
+            return;
+          }
+          
+          // Hard timeout - exit at breakeven (entry price) to avoid loss
+          if (elapsed >= extendedMaxTime) {
+            clearInterval(checkInterval);
+            console.log(`⚠️ Extended hold TIMEOUT: Exiting at breakeven (entry price)`);
+            resolve({
+              exitPrice: entryPrice, // CRITICAL: Exit at ENTRY PRICE, not current price
+              isWin: false,
+              exitReason: 'BREAKEVEN',
+              holdTimeMs: elapsed,
+              maxProfitSeen,
+              minProfitSeen,
+              profitDollars: 0, // Zero profit, NOT negative
+            });
+            return;
+          }
         }
       }, 200); // Check every 200ms - balance between responsiveness and CPU usage
     });

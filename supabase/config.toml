@@ -71,3 +71,6 @@ verify_jwt = true
 
 [functions.ml-direction-predictor]
 verify_jwt = true
+
+[functions.cancel-stale-orders]
+verify_jwt = true
