@@ -491,6 +491,172 @@ async function cancelBinanceOrder(
   return response.ok;
 }
 
+/**
+ * Place Binance OCO Order (One-Cancels-Other)
+ * Combines Take Profit + Stop Loss in single order
+ * When one leg fills, the other is automatically cancelled
+ */
+async function placeBinanceOCOOrder(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  side: 'SELL' | 'BUY', // SELL for exiting LONG, BUY for exiting SHORT
+  quantity: string,
+  takeProfitPrice: number,
+  stopLossPrice: number,
+  stopLossLimitPrice: number,
+  trailingDelta?: number // In BIPS (e.g., 8 = 0.08%)
+): Promise<{
+  orderListId: string;
+  tpOrderId: string;
+  slOrderId: string;
+  status: string;
+}> {
+  const timestamp = Date.now();
+  const pricePrecision = await getBinancePricePrecision(symbol);
+  
+  // Format prices with correct precision
+  const formattedTpPrice = takeProfitPrice.toFixed(pricePrecision);
+  const formattedSlPrice = stopLossPrice.toFixed(pricePrecision);
+  const formattedSlLimitPrice = stopLossLimitPrice.toFixed(pricePrecision);
+  
+  // Build OCO params
+  // For SELL OCO: price = TP (limit sell), stopPrice = SL trigger, stopLimitPrice = SL limit
+  // For BUY OCO: price = TP (limit buy), stopPrice = SL trigger, stopLimitPrice = SL limit
+  let params = `symbol=${symbol}&side=${side}&quantity=${quantity}`;
+  params += `&price=${formattedTpPrice}`; // Take profit price
+  params += `&stopPrice=${formattedSlPrice}`; // Stop loss trigger price
+  params += `&stopLimitPrice=${formattedSlLimitPrice}`; // Stop loss limit price
+  params += `&stopLimitTimeInForce=GTC`;
+  params += `&timestamp=${timestamp}`;
+  
+  // Add trailing delta if provided (for trailing stop)
+  if (trailingDelta && trailingDelta > 0) {
+    // Binance requires trailingDelta in BIPS (1 BIP = 0.01%)
+    // 8 BIPS = 0.08% = 80 in Binance terms (they use 10 = 0.1%)
+    params += `&trailingDelta=${Math.round(trailingDelta * 10)}`;
+  }
+  
+  const signature = await hmacSha256(apiSecret, params);
+  
+  console.log(`[OCO] Placing ${side} OCO order: TP=${formattedTpPrice}, SL=${formattedSlPrice}, Qty=${quantity}`);
+  
+  const response = await fetch(
+    `https://api.binance.com/api/v3/order/oco?${params}&signature=${signature}`,
+    {
+      method: "POST",
+      headers: { "X-MBX-APIKEY": apiKey },
+    }
+  );
+  
+  if (!response.ok) {
+    const error = await response.json();
+    console.error('[OCO] Order failed:', error);
+    throw new Error(error.msg || "Binance OCO order failed");
+  }
+  
+  const data = await response.json();
+  
+  // Extract order IDs from response
+  const orders = data.orderReports || data.orders || [];
+  const tpOrder = orders.find((o: { type: string }) => o.type === 'LIMIT_MAKER' || o.type === 'LIMIT');
+  const slOrder = orders.find((o: { type: string }) => o.type === 'STOP_LOSS_LIMIT');
+  
+  console.log(`[OCO] Order placed successfully: OrderListId=${data.orderListId}`);
+  
+  return {
+    orderListId: data.orderListId?.toString() || '',
+    tpOrderId: tpOrder?.orderId?.toString() || '',
+    slOrderId: slOrder?.orderId?.toString() || '',
+    status: data.listOrderStatus || 'EXECUTING',
+  };
+}
+
+/**
+ * Check OCO order status and determine which leg was filled
+ */
+async function checkBinanceOCOStatus(
+  apiKey: string,
+  apiSecret: string,
+  orderListId: string
+): Promise<{
+  status: string;
+  filledLeg: 'TP' | 'SL' | 'NONE';
+  executedQty: string;
+  avgPrice: number;
+}> {
+  const timestamp = Date.now();
+  const params = `orderListId=${orderListId}&timestamp=${timestamp}`;
+  const signature = await hmacSha256(apiSecret, params);
+  
+  const response = await fetch(
+    `https://api.binance.com/api/v3/orderList?${params}&signature=${signature}`,
+    {
+      method: "GET",
+      headers: { "X-MBX-APIKEY": apiKey },
+    }
+  );
+  
+  if (!response.ok) {
+    throw new Error("Failed to check OCO status");
+  }
+  
+  const data = await response.json();
+  const orders = data.orders || [];
+  
+  // Find which order was filled
+  let filledLeg: 'TP' | 'SL' | 'NONE' = 'NONE';
+  let executedQty = '0';
+  let avgPrice = 0;
+  
+  for (const order of orders) {
+    if (order.status === 'FILLED') {
+      // LIMIT_MAKER or LIMIT = Take Profit
+      if (order.type === 'LIMIT_MAKER' || order.type === 'LIMIT') {
+        filledLeg = 'TP';
+      }
+      // STOP_LOSS_LIMIT = Stop Loss
+      else if (order.type === 'STOP_LOSS_LIMIT') {
+        filledLeg = 'SL';
+      }
+      executedQty = order.executedQty || '0';
+      avgPrice = parseFloat(order.price) || 0;
+      break;
+    }
+  }
+  
+  return {
+    status: data.listOrderStatus || 'UNKNOWN',
+    filledLeg,
+    executedQty,
+    avgPrice,
+  };
+}
+
+/**
+ * Cancel OCO order
+ */
+async function cancelBinanceOCOOrder(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  orderListId: string
+): Promise<boolean> {
+  const timestamp = Date.now();
+  const params = `symbol=${symbol}&orderListId=${orderListId}&timestamp=${timestamp}`;
+  const signature = await hmacSha256(apiSecret, params);
+  
+  const response = await fetch(
+    `https://api.binance.com/api/v3/orderList?${params}&signature=${signature}`,
+    {
+      method: "DELETE",
+      headers: { "X-MBX-APIKEY": apiKey },
+    }
+  );
+  
+  return response.ok;
+}
+
 // Check Binance order status
 async function checkBinanceOrderStatus(
   apiKey: string, 

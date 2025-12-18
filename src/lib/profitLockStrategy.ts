@@ -86,6 +86,37 @@ class ProfitLockStrategyManager {
   private sessionHaltReason: string = '';
   
   /**
+   * Get session metrics for UI display
+   * Implements GREENBACK session monitoring
+   */
+  getStats(): {
+    consecutiveWins: number;
+    consecutiveLosses: number;
+    winRate: number;
+    totalTrades: number;
+    isSessionHalted: boolean;
+    haltReason: string;
+    pauseUntil: number;
+    isPaused: boolean;
+  } {
+    // Calculate win rate over last 20 trades
+    const recentTrades = this.tradeHistory.slice(-WIN_RATE_CHECK_WINDOW);
+    const wins = recentTrades.filter(t => t.isWin).length;
+    const winRate = recentTrades.length > 0 ? (wins / recentTrades.length) * 100 : 70;
+    
+    return {
+      consecutiveWins: this.consecutiveWins,
+      consecutiveLosses: this.consecutiveLosses,
+      winRate,
+      totalTrades: recentTrades.length,
+      isSessionHalted: this.sessionHaltActive,
+      haltReason: this.sessionHaltReason,
+      pauseUntil: this.pauseUntil,
+      isPaused: this.isPaused,
+    };
+  }
+  
+  /**
    * Record a trade result and update rolling hit rate
    * Implements GREENBACK session halt controls
    */
@@ -655,27 +686,6 @@ class ProfitLockStrategyManager {
     this.pauseUntil = 0;
     this.consecutiveLosses = 0;
     this.consecutiveErrors = 0;
-  }
-  
-  /**
-   * Get strategy statistics
-   */
-  getStats() {
-    const wins = this.tradeHistory.filter(t => t.isWin);
-    const losses = this.tradeHistory.filter(t => !t.isWin);
-    const totalPnL = this.tradeHistory.reduce((sum, t) => sum + t.pnl, 0);
-    
-    return {
-      totalTrades: this.tradeHistory.length,
-      wins: wins.length,
-      losses: losses.length,
-      hitRate: this.getRollingHitRate(),
-      totalPnL,
-      avgWinPnL: wins.length > 0 ? wins.reduce((sum, t) => sum + t.pnl, 0) / wins.length : 0,
-      avgLossPnL: losses.length > 0 ? losses.reduce((sum, t) => sum + t.pnl, 0) / losses.length : 0,
-      consecutiveLosses: this.consecutiveLosses,
-      isPaused: this.isPaused,
-    };
   }
 }
 
