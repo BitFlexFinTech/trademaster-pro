@@ -354,10 +354,15 @@ class ProfitLockStrategyManager {
         const minGrossForNetProfit = calculateMinGrossProfit(positionSize, minNetProfit, feeRate);
         const netProfitDollars = profitDollars - totalFees;
         
-        // Only exit when NET profit after fees meets minimum threshold
-        if (netProfitDollars >= minNetProfit && elapsed >= SUPER_SCALP_MIN_HOLD_MS) {
+        // Calculate target profit and ratio to prevent premature exits
+        const targetProfit = (takeProfitPercent / 100) * positionSize - totalFees;
+        const profitRatio = netProfitDollars / Math.max(targetProfit, minNetProfit);
+        
+        // Only SUPER_SCALP exit when we've captured at least 75% of target profit
+        // This prevents premature $0.03 exits when target is $0.50
+        if (profitRatio >= 0.75 && netProfitDollars >= minNetProfit && elapsed >= SUPER_SCALP_MIN_HOLD_MS) {
           clearInterval(checkInterval);
-          console.log(`⚡ SUPER-SCALP: Gross $${profitDollars.toFixed(3)} - Fees $${totalFees.toFixed(3)} = NET $${netProfitDollars.toFixed(3)} (min: $${minNetProfit.toFixed(2)})`);
+          console.log(`⚡ SUPER-SCALP: ${(profitRatio * 100).toFixed(0)}% of target captured. Gross $${profitDollars.toFixed(3)} - Fees $${totalFees.toFixed(3)} = NET $${netProfitDollars.toFixed(3)} (target: $${targetProfit.toFixed(2)})`);
           resolve({
             exitPrice: currentPrice,
             isWin: true,

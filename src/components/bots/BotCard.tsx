@@ -14,7 +14,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useOrderBookScanning } from '@/hooks/useOrderBookScanning';
 import { supabase } from '@/integrations/supabase/client';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
-import { calculateNetProfit, MIN_NET_PROFIT, getFeeRate } from '@/lib/exchangeFees';
+import { calculateNetProfit, MIN_NET_PROFIT, getFeeRate, hasMinimumEdge } from '@/lib/exchangeFees';
 import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
 import { demoDataStore } from '@/lib/demoDataStore';
 import { hitRateTracker } from '@/lib/sandbox/hitRateTracker';
@@ -95,6 +95,7 @@ export function BotCard({
   const [profitPerTrade, setProfitPerTrade] = useState(Math.max(existingBot?.profitPerTrade || 0.50, MIN_NET_PROFIT));
   const [localAmountPerTrade, setLocalAmountPerTrade] = useState(amountPerTrade);
   const [localTradeIntervalMs, setLocalTradeIntervalMs] = useState(tradeIntervalMs);
+  const [minEdgeRequired, setMinEdgeRequired] = useState(0.3); // 0.3% minimum edge above fees
   
   const [leverages, setLeverages] = useState<Record<string, number>>({
     Binance: 5, OKX: 5, Bybit: 5, Kraken: 2, Nexo: 2,
@@ -743,6 +744,21 @@ export function BotCard({
       // TP/SL must cover round-trip fees + ensure positive expectancy
       const takeProfitPercent = 0.50; // 0.50% target
       const stopLossPercent = 0.30;   // 0.30% max loss
+      
+      // ===== EDGE CHECK: Block trades without sufficient edge =====
+      const edgeCheck = hasMinimumEdge(
+        takeProfitPercent / 100, // Expected move as decimal
+        positionSize,
+        currentExchange,
+        minEdgeRequired / 100, // Convert % to decimal
+        MIN_NET_PROFIT
+      );
+      
+      if (!edgeCheck.hasEdge) {
+        console.log(`⚠️ EDGE BLOCKED: Need ${edgeCheck.required.toFixed(2)}%, have ${takeProfitPercent.toFixed(2)}% (shortfall: ${edgeCheck.shortfall.toFixed(2)}%)`);
+        return; // Skip this trade cycle
+      }
+      console.log(`✅ EDGE CHECK PASSED: ${edgeCheck.edge.toFixed(2)}% edge above minimum`);
       // ===== REAL PRICE-BASED PROFIT LOCKING =====
       // Monitor price and wait for TP or SL to be hit
       const tradeStartTime = Date.now();
@@ -1630,8 +1646,8 @@ export function BotCard({
           </div>
         </div>
 
-        {/* Configuration Row 3: Stop Losses */}
-        <div className="grid grid-cols-2 gap-2 mb-2">
+        {/* Configuration Row 3: Stop Losses & Min Edge */}
+        <div className="grid grid-cols-3 gap-2 mb-2">
           <div>
             <label className="text-[10px] text-muted-foreground block mb-1">Daily Stop ($)</label>
             <Input
@@ -1651,6 +1667,19 @@ export function BotCard({
               value={calculatedStopLoss.toFixed(2)}
               disabled
               className="h-7 text-xs font-mono bg-muted"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">Min Edge (%)</label>
+            <Input
+              type="number"
+              value={minEdgeRequired}
+              onChange={(e) => setMinEdgeRequired(Math.max(0.1, Math.min(2.0, Number(e.target.value))))}
+              disabled={isRunning}
+              className="h-7 text-xs font-mono"
+              min={0.1}
+              max={2.0}
+              step={0.1}
             />
           </div>
         </div>

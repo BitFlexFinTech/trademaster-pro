@@ -9,8 +9,11 @@ export const EXCHANGE_FEES: Record<string, number> = {
   hyperliquid: 0.0002, // 0.02%
 };
 
-// Minimum net profit after fees - accept ANY positive profit!
-export const MIN_NET_PROFIT = 0.01;
+// Minimum net profit after fees - require meaningful profit
+export const MIN_NET_PROFIT = 0.50;
+
+// Minimum edge required above fees (as decimal, e.g., 0.003 = 0.3%)
+export const DEFAULT_MIN_EDGE_PERCENT = 0.003;
 
 export const getFeeRate = (exchange: string): number => {
   const normalizedExchange = exchange.toLowerCase();
@@ -90,4 +93,40 @@ export const calculateMinExitPrice = (
   const requiredGrossProfit = targetNetProfit + entryFee + approxExitFee;
   const priceChangeRatio = requiredGrossProfit / positionSize;
   return entryPrice * (1 + priceChangeRatio);
+};
+
+/**
+ * Calculate minimum edge required for a trade to be profitable
+ * Edge = expected profit % - fee cost %
+ */
+export const calculateMinEdgeRequired = (
+  positionSize: number,
+  exchange: string,
+  targetNetProfit: number = MIN_NET_PROFIT
+): number => {
+  const feeRate = getFeeRate(exchange);
+  const totalFeePercent = feeRate * 2; // Round-trip fees
+  const targetProfitPercent = targetNetProfit / positionSize;
+  return totalFeePercent + targetProfitPercent; // Minimum % move needed
+};
+
+/**
+ * Check if expected price move provides sufficient edge
+ */
+export const hasMinimumEdge = (
+  expectedMovePercent: number,
+  positionSize: number,
+  exchange: string,
+  minEdgeMargin: number = DEFAULT_MIN_EDGE_PERCENT,
+  targetNetProfit: number = MIN_NET_PROFIT
+): { hasEdge: boolean; edge: number; required: number; shortfall: number } => {
+  const minRequired = calculateMinEdgeRequired(positionSize, exchange, targetNetProfit);
+  const totalRequired = minRequired + minEdgeMargin;
+  const edge = expectedMovePercent - totalRequired;
+  return {
+    hasEdge: expectedMovePercent >= totalRequired,
+    edge: edge * 100, // As percentage
+    required: totalRequired * 100,
+    shortfall: edge < 0 ? Math.abs(edge * 100) : 0,
+  };
 };
