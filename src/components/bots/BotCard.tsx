@@ -529,7 +529,9 @@ export function BotCard({
                         : pnl > 0 ? 100 : 0,
                     }));
                     
-                    notifyTrade(data.exchange, data.pair, data.direction, pnl);
+          if (data?.exchange && data?.pair && data?.direction && Number.isFinite(pnl)) {
+            notifyTrade(data.exchange, data.pair, data.direction, pnl);
+          }
                     return;
                   } else if (statusData?.status === 'CANCELLED' || statusData?.status === 'REJECTED') {
                     if (import.meta.env.DEV) console.log('❌ Pending order cancelled:', statusData);
@@ -1256,7 +1258,9 @@ export function BotCard({
         setActiveExchange(data.exchange);
       }
       
-      notifyTrade(data.exchange, data.pair, data.direction, data.pnl || 0);
+      if (data?.exchange && data?.pair && data?.direction && Number.isFinite(data?.pnl)) {
+        notifyTrade(data.exchange, data.pair, data.direction, data.pnl);
+      }
       
       toast.success(`Trade Executed: ${data.pair} ${data.direction}`, {
         description: `P&L: $${(data.pnl || 0).toFixed(2)} on ${data.exchange}`,

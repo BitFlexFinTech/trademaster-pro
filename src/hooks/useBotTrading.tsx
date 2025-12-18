@@ -270,7 +270,7 @@ export function useBotTrading({
             ? (direction === 'long' ? currentPrice * (1 + priceChangePercent) : currentPrice * (1 - priceChangePercent))
             : (direction === 'long' ? currentPrice * (1 - stopLossPercent / 100) : currentPrice * (1 + stopLossPercent / 100));
           
-          tradePnl = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange) * leverage;
+          tradePnl = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange, direction) * leverage;
           exitReason = isWin ? 'TAKE_PROFIT' : 'STOP_LOSS';
           
         } else {

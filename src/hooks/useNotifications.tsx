@@ -204,6 +204,18 @@ export function useNotifications() {
     profit: number,
     exchangeBalances?: { exchange: string; usdtBalance: number }[]
   ) => {
+    // CRITICAL: Validate required fields - skip invalid notifications
+    if (!exchange || !pair || !direction) {
+      console.warn('[NOTIFICATION] Skipping trade notification - missing required fields:', { exchange, pair, direction });
+      return;
+    }
+    
+    // Ensure profit is a valid number
+    if (!Number.isFinite(profit)) {
+      console.warn('[NOTIFICATION] Skipping trade notification - invalid profit value:', profit);
+      return;
+    }
+    
     // CRITICAL: Only notify if exchange has balance (or no balance info provided)
     if (exchangeBalances && exchangeBalances.length > 0) {
       const hasBalance = exchangeBalances.some(
