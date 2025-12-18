@@ -15,6 +15,8 @@ export interface PriceMonitorConfig {
   minProfitPercent?: number;  // MINIMUM profit % to allow exit (default 0.01%)
   minProfitDollars?: number;  // MINIMUM profit $ to allow exit (default $0.01)
   positionSize?: number;      // Position size for $ calculations
+  feeRate?: number;           // Exchange fee rate (e.g., 0.001 for 0.1%)
+  minNetProfit?: number;      // Minimum NET profit after fees (default $0.50)
 }
 
 export interface PriceMonitorResult {
@@ -49,11 +51,26 @@ const CRITICAL_HIT_RATE = 50;     // Below this triggers deep analysis
 const PAUSE_DURATION_MS = 30000;  // 30 second pause when hit rate drops (reduced from 60s)
 
 // CRITICAL: Minimum profit thresholds - NEVER exit below these
-// STRICT RULE: Minimum is $0.01, NOT $0.50 or $0.10
-const DEFAULT_MIN_PROFIT_PERCENT = 0.01; // 0.01% minimum profit
-const DEFAULT_MIN_PROFIT_DOLLARS = 0.01; // $0.01 minimum profit - STRICT RULE
+// FEE-AWARE: Must account for exchange fees (~0.1-0.2% round trip)
+const DEFAULT_MIN_PROFIT_PERCENT = 0.01; // 0.01% minimum profit (before fees)
+const DEFAULT_MIN_PROFIT_DOLLARS = 0.01; // $0.01 minimum profit - base value (fees added dynamically)
+const DEFAULT_FEE_RATE = 0.001;          // Default 0.1% fee rate per side
+const DEFAULT_MIN_NET_PROFIT = 0.50;     // Default $0.50 minimum NET profit after fees
 const MAX_EXTENDED_HOLD_MULTIPLIER = 10; // Hold up to 10x max time to find profit (was 2x)
 const SUPER_SCALP_MIN_HOLD_MS = 200;    // Minimum 200ms before super-scalp exit - FAST SCALPING
+
+/**
+ * Calculate minimum GROSS profit needed to achieve target NET profit after fees
+ */
+const calculateMinGrossProfit = (
+  positionSize: number,
+  targetNetProfit: number,
+  feeRate: number = DEFAULT_FEE_RATE
+): number => {
+  // Entry fee + Exit fee + target net profit
+  const totalFees = positionSize * feeRate * 2; // Round trip fees
+  return targetNetProfit + totalFees;
+};
 
 class ProfitLockStrategyManager {
   private tradeHistory: { isWin: boolean; timestamp: number; pnl: number }[] = [];
@@ -240,6 +257,8 @@ class ProfitLockStrategyManager {
       minProfitPercent = DEFAULT_MIN_PROFIT_PERCENT,
       minProfitDollars = DEFAULT_MIN_PROFIT_DOLLARS,
       positionSize = 100, // Default $100 for calculations
+      feeRate = DEFAULT_FEE_RATE,
+      minNetProfit = DEFAULT_MIN_NET_PROFIT,
     } = config;
     
     // Calculate TP and SL prices
@@ -329,12 +348,16 @@ class ProfitLockStrategyManager {
           return;
         }
         
-        // === SUPER-SCALPING MODE ===
-        // Lock in ANY profit >= $0.01 after at least 1 second
-        // This enables rapid trade cycling for consistent small profits
-        if (profitDollars >= DEFAULT_MIN_PROFIT_DOLLARS && elapsed >= SUPER_SCALP_MIN_HOLD_MS) {
+        // === FEE-AWARE SUPER-SCALPING MODE ===
+        // Calculate minimum GROSS profit needed to NET positive after fees
+        const totalFees = positionSize * feeRate * 2; // Entry + exit fees
+        const minGrossForNetProfit = calculateMinGrossProfit(positionSize, minNetProfit, feeRate);
+        const netProfitDollars = profitDollars - totalFees;
+        
+        // Only exit when NET profit after fees meets minimum threshold
+        if (netProfitDollars >= minNetProfit && elapsed >= SUPER_SCALP_MIN_HOLD_MS) {
           clearInterval(checkInterval);
-          console.log(`⚡ SUPER-SCALP: Locking in $${profitDollars.toFixed(3)} profit immediately!`);
+          console.log(`⚡ SUPER-SCALP: Gross $${profitDollars.toFixed(3)} - Fees $${totalFees.toFixed(3)} = NET $${netProfitDollars.toFixed(3)} (min: $${minNetProfit.toFixed(2)})`);
           resolve({
             exitPrice: currentPrice,
             isWin: true,
@@ -342,7 +365,7 @@ class ProfitLockStrategyManager {
             holdTimeMs: elapsed,
             maxProfitSeen,
             minProfitSeen,
-            profitDollars,
+            profitDollars: netProfitDollars, // Return NET profit after fees
           });
           return;
         }
@@ -386,8 +409,8 @@ class ProfitLockStrategyManager {
           : currentPrice >= slPrice;
         
         if (slHit) {
-          // If breakeven or trailing was activated AND we have profit, exit
-          if ((breakevenActivated || trailingStopActivated) && profitDollars >= DEFAULT_MIN_PROFIT_DOLLARS) {
+          // If breakeven or trailing was activated AND we have NET profit after fees, exit
+          if ((breakevenActivated || trailingStopActivated) && netProfitDollars >= minNetProfit) {
             clearInterval(checkInterval);
             resolve({
               exitPrice: currentPrice,
@@ -396,7 +419,7 @@ class ProfitLockStrategyManager {
               holdTimeMs: elapsed,
               maxProfitSeen,
               minProfitSeen,
-              profitDollars,
+              profitDollars: netProfitDollars,
             });
             return;
           }
@@ -410,11 +433,11 @@ class ProfitLockStrategyManager {
           // DO NOT EXIT - continue monitoring until profitable
         }
         
-        // === TIME EXIT LOGIC - CRITICAL: NEVER EXIT AT $0 ===
+        // === TIME EXIT LOGIC - CRITICAL: NEVER EXIT WITHOUT NET PROFIT ===
         if (elapsed >= maxHoldTimeMs && !extendedHoldMode) {
-          // Time's up - but we MUST exit with profit if possible
-          if (profitDollars >= DEFAULT_MIN_PROFIT_DOLLARS) {
-            // We have minimum profit - exit now!
+          // Time's up - but we MUST exit with NET profit after fees
+          if (netProfitDollars >= minNetProfit) {
+            // We have minimum NET profit - exit now!
             clearInterval(checkInterval);
             resolve({
               exitPrice: currentPrice,
@@ -423,24 +446,24 @@ class ProfitLockStrategyManager {
               holdTimeMs: elapsed,
               maxProfitSeen,
               minProfitSeen,
-              profitDollars,
+              profitDollars: netProfitDollars,
             });
             return;
           }
           
-          // NO PROFIT YET - enter extended hold mode to wait for profit
+          // NO NET PROFIT YET - enter extended hold mode to wait for profit
           extendedHoldMode = true;
-          console.log(`⏳ EXTENDED_HOLD: Waiting for min profit $0.01 (current: $${profitDollars.toFixed(3)})`);
+          console.log(`⏳ EXTENDED_HOLD: Waiting for min NET profit $${minNetProfit.toFixed(2)} (current gross: $${profitDollars.toFixed(3)}, fees: $${totalFees.toFixed(3)}, net: $${netProfitDollars.toFixed(3)})`);
         }
         
-        // === EXTENDED HOLD - Wait for ANY profit, check for opportunities ===
+        // === EXTENDED HOLD - Wait for NET profit after fees ===
         if (extendedHoldMode) {
           const extendedMaxTime = maxHoldTimeMs * MAX_EXTENDED_HOLD_MULTIPLIER;
           
-          // Check if we finally got some profit >= $0.01
-          if (profitDollars >= DEFAULT_MIN_PROFIT_DOLLARS) {
+          // Check if we finally got enough profit to NET positive after fees
+          if (netProfitDollars >= minNetProfit) {
             clearInterval(checkInterval);
-            console.log(`✅ Extended hold SUCCESS: Got $${profitDollars.toFixed(3)} profit`);
+            console.log(`✅ Extended hold SUCCESS: NET $${netProfitDollars.toFixed(3)} profit (gross: $${profitDollars.toFixed(3)}, fees: $${totalFees.toFixed(3)})`);
             resolve({
               exitPrice: currentPrice,
               isWin: true,
@@ -448,7 +471,7 @@ class ProfitLockStrategyManager {
               holdTimeMs: elapsed,
               maxProfitSeen,
               minProfitSeen,
-              profitDollars,
+              profitDollars: netProfitDollars,
             });
             return;
           }

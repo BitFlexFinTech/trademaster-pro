@@ -14,7 +14,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useOrderBookScanning } from '@/hooks/useOrderBookScanning';
 import { supabase } from '@/integrations/supabase/client';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
-import { calculateNetProfit, MIN_NET_PROFIT } from '@/lib/exchangeFees';
+import { calculateNetProfit, MIN_NET_PROFIT, getFeeRate } from '@/lib/exchangeFees';
 import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
 import { demoDataStore } from '@/lib/demoDataStore';
 import { hitRateTracker } from '@/lib/sandbox/hitRateTracker';
@@ -771,6 +771,8 @@ export function BotCard({
             maxHoldTimeMs: 30000, // 30 second max hold for demo
             enableTrailingStop: true,
             positionSize, // Pass position size for proper $ calculations
+            feeRate: getFeeRate(currentExchange), // Exchange-specific fee rate
+            minNetProfit: MIN_NET_PROFIT, // $0.50 minimum NET profit after fees
           },
           // CRITICAL: Pass shouldCancel to exit immediately when bot is stopped
           () => isCancelledRef.current || isStoppingRef.current,
