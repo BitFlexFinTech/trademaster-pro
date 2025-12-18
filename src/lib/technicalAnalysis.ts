@@ -178,7 +178,11 @@ export function generateSignalScore(
     else if (shortSignals > longSignals) shortSignals++;
   }
   
-  const direction: 'long' | 'short' = longSignals >= shortSignals ? 'long' : 'short';
+  const direction: 'long' | 'short' = longSignals > shortSignals 
+    ? 'long' 
+    : shortSignals > longSignals 
+      ? 'short' 
+      : (Math.random() > 0.5 ? 'long' : 'short');
   const confluence = direction === 'long' ? longSignals : shortSignals;
   
   // Calculate score based on confluence
