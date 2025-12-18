@@ -207,6 +207,18 @@ const MAX_SLIPPAGE_PERCENT = 0.3; // 0.3% max slippage tolerance
 const PROFIT_LOCK_TIMEOUT_MS = 30000; // 30 second timeout for limit order profit lock
 const LIMIT_ORDER_PROFIT_TARGET = 0.003; // 0.3% profit target for limit exits
 
+// ============ FEE CONSTANTS FOR ACCURATE P&L ============
+const EXCHANGE_FEES: Record<string, number> = {
+  binance: 0.001,    // 0.1%
+  bybit: 0.001,      // 0.1%
+  okx: 0.0008,       // 0.08%
+  kraken: 0.0016,    // 0.16%
+  nexo: 0.002,       // 0.2%
+  kucoin: 0.001,     // 0.1%
+  hyperliquid: 0.0002, // 0.02%
+};
+const MIN_NET_PROFIT = 0.10; // Minimum $0.10 net profit after fees required
+
 interface BotTradeRequest {
   botId: string;
   mode: 'spot' | 'leverage';
@@ -957,6 +969,33 @@ serve(async (req) => {
       );
     }
 
+    // ============ PRE-TRADE PROFITABILITY CHECK ============
+    // Don't enter trade unless expected profit > fees + $0.10 minimum
+    const feeRate = EXCHANGE_FEES[exchangeName] || 0.001;
+    const roundTripFees = positionSize * feeRate * 2; // Entry + Exit fees
+    const minPriceMove = (roundTripFees + MIN_NET_PROFIT) / positionSize;
+    const minPriceMovePercent = minPriceMove * 100;
+    const expectedPriceMove = LIMIT_ORDER_PROFIT_TARGET;
+
+    if (expectedPriceMove < minPriceMove) {
+      console.log(`⏭️ SKIP TRADE: Expected move ${(expectedPriceMove * 100).toFixed(3)}% < required ${minPriceMovePercent.toFixed(3)}%`);
+      console.log(`   Position: $${positionSize}, Fees: $${roundTripFees.toFixed(4)}, Min profit: $${MIN_NET_PROFIT}`);
+      console.log(`   Would need ${minPriceMovePercent.toFixed(3)}% move to be profitable`);
+      
+      return new Response(JSON.stringify({
+        skipped: true,
+        reason: `Trade skipped: fees ($${roundTripFees.toFixed(2)}) + min profit ($${MIN_NET_PROFIT}) exceed expected return`,
+        requiredMove: `${minPriceMovePercent.toFixed(3)}%`,
+        expectedMove: `${(expectedPriceMove * 100).toFixed(3)}%`,
+        suggestion: `Increase position size to $${Math.ceil((roundTripFees + MIN_NET_PROFIT) / LIMIT_ORDER_PROFIT_TARGET)} or reduce fees`
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    console.log(`✅ PROFITABILITY CHECK PASSED: Expected ${(expectedPriceMove * 100).toFixed(3)}% > required ${minPriceMovePercent.toFixed(3)}%`);
+
     if (canExecuteRealTrade) {
       console.log(`✅ REAL TRADE MODE ACTIVATED for ${exchangeName.toUpperCase()}`);
       
@@ -1130,17 +1169,23 @@ serve(async (req) => {
               console.warn(`⚠️ EXIT SLIPPAGE: ${exitSlippage.toFixed(3)}% from target`);
             }
             
-            // Calculate real P&L - ensure we never record $0
+            // Calculate real P&L WITH FEE DEDUCTION
             const priceDiff = direction === 'long'
               ? tradeResult.exitPrice - tradeResult.entryPrice
               : tradeResult.entryPrice - tradeResult.exitPrice;
-            tradeResult.pnl = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
             
-            // CRITICAL: If P&L is essentially zero due to fees, record small positive
-            if (Math.abs(tradeResult.pnl) < 0.01) {
-              tradeResult.pnl = 0.01; // Minimum $0.01 profit recorded
-            }
+            // Gross P&L before fees
+            const grossPnL = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
             
+            // Deduct exchange fees (entry + exit)
+            const tradeFeeRate = EXCHANGE_FEES[exchangeName] || 0.001;
+            const entryFee = positionSize * tradeFeeRate;
+            const exitFee = (positionSize + Math.max(0, grossPnL)) * tradeFeeRate;
+            const netPnL = grossPnL - entryFee - exitFee;
+            
+            tradeResult.pnl = netPnL;
+            
+            console.log(`📊 P&L Breakdown: Gross=$${grossPnL.toFixed(4)}, Fees=$${(entryFee + exitFee).toFixed(4)}, Net=$${netPnL.toFixed(4)}`);
             console.log(`📊 TRADE RESULT: Entry: ${tradeResult.entryPrice}, Exit: ${tradeResult.exitPrice}, P&L: $${tradeResult.pnl.toFixed(2)}`);
           } else {
             // Exit failed after retries - try one more time with fresh market order
@@ -1277,10 +1322,32 @@ serve(async (req) => {
       const priceDiff = direction === 'long'
         ? tradeResult.exitPrice - currentPrice
         : currentPrice - tradeResult.exitPrice;
-      tradeResult.pnl = (priceDiff / currentPrice) * positionSize * leverage;
+      
+      // Gross P&L
+      const grossPnL = (priceDiff / currentPrice) * positionSize * leverage;
+      
+      // Deduct fees for demo too (realistic simulation)
+      const simFeeRate = EXCHANGE_FEES[exchangeName] || 0.001;
+      const simFees = positionSize * simFeeRate * 2;
+      tradeResult.pnl = grossPnL - simFees;
       tradeResult.simulated = true;
       
-      console.log(`📊 Simulated Result: ${isWin ? 'WIN' : 'LOSS'}, P&L: $${tradeResult.pnl.toFixed(2)}`);
+      console.log(`📊 Simulated Result: ${isWin ? 'WIN' : 'LOSS'}, Gross=$${grossPnL.toFixed(2)}, Fees=$${simFees.toFixed(2)}, Net=$${tradeResult.pnl.toFixed(2)}`);
+    }
+
+    // ============ P&L VALIDATION BEFORE DATABASE INSERT ============
+    const expectedProfitable = direction === 'long' 
+      ? tradeResult.exitPrice > tradeResult.entryPrice
+      : tradeResult.exitPrice < tradeResult.entryPrice;
+
+    if (expectedProfitable && tradeResult.pnl < 0) {
+      console.warn(`⚠️ P&L ANOMALY: Direction=${direction}, price moved in our favor but P&L=${tradeResult.pnl.toFixed(4)}`);
+      console.warn(`   This indicates fees exceeded gross profit - trade should have been skipped`);
+    }
+
+    if (!expectedProfitable && tradeResult.pnl > 0) {
+      console.error(`❌ P&L ERROR: Direction=${direction}, price moved against us but P&L is positive!`);
+      console.error(`   Entry: ${tradeResult.entryPrice}, Exit: ${tradeResult.exitPrice}, Recorded P&L: ${tradeResult.pnl}`);
     }
 
     // Record the trade
