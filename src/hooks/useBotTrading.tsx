@@ -114,12 +114,18 @@ export function useBotTrading({
   const isCancelledRef = useRef(false);
   const isExecutingRef = useRef(false);
   const avgHoldTimeRef = useRef<number[]>([]);
-
-  // Get current price for a symbol
-  const getCurrentPrice = useCallback((symbol: string): number | null => {
-    const priceData = prices.find(p => p.symbol.toUpperCase() === symbol.toUpperCase());
-    return priceData?.price || null;
+  
+  // CRITICAL: Store prices in ref to avoid dependency array issues
+  const pricesRef = useRef(prices);
+  useEffect(() => {
+    pricesRef.current = prices;
   }, [prices]);
+
+  // Get current price for a symbol - use ref, not direct prices
+  const getCurrentPrice = useCallback((symbol: string): number | null => {
+    const priceData = pricesRef.current.find(p => p.symbol.toUpperCase() === symbol.toUpperCase());
+    return priceData?.price || null;
+  }, []);
 
   // Reset metrics when bot starts
   useEffect(() => {
@@ -183,12 +189,8 @@ export function useBotTrading({
         return;
       }
 
-      // Check hit rate enforcement
-      const hitRateCheck = profitLockStrategy.canTrade();
-      if (!hitRateCheck.canTrade) {
-        console.log(`⏸️ Trading paused: ${hitRateCheck.reason}`);
-        return;
-      }
+      // REMOVED: profitLockStrategy.canTrade() check - was blocking trades
+      // Bot should trade continuously without pause
 
       isExecutingRef.current = true;
 
@@ -563,6 +565,7 @@ export function useBotTrading({
       isCancelledRef.current = true;
       clearInterval(interval);
     };
+  // REMOVED: prices from deps - use pricesRef instead to prevent constant re-renders
   }, [
     isRunning,
     botId,
@@ -573,7 +576,6 @@ export function useBotTrading({
     amountPerTrade,
     tradeIntervalMs,
     stopLossPercent,
-    prices,
     leverages,
     botType,
     usdtFloat,

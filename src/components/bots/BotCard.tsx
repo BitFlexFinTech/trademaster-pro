@@ -209,6 +209,11 @@ export function BotCard({
     }
   }, [syncTrigger]);
 
+  // CRITICAL: Update pricesRef when prices change (no re-render of main useEffect)
+  useEffect(() => {
+    pricesRef.current = prices;
+  }, [prices]);
+
   // CRITICAL: Keep pricesRef updated with latest prices to avoid stale closures
   useEffect(() => {
     pricesRef.current = prices;
@@ -284,24 +289,20 @@ export function BotCard({
       abortControllerRef.current = null;
     }
 
-    // CRITICAL: Check stop flag immediately
-    if (isStoppingRef.current) {
-      console.log('🛑 Bot is stopping, not starting new loop');
-      return;
-    }
-
-    if (!isRunning || !existingBot) {
+    // FIXED ORDER: Reset flags FIRST when bot should be running, THEN check conditions
+    if (isRunning && existingBot) {
+      // Bot SHOULD be running - reset stopping flags BEFORE any checks
+      isStoppingRef.current = false;
+      isCancelledRef.current = false;
+      abortControllerRef.current = new AbortController();
+      console.log(`✅ Starting trading loop for ${botName}`);
+    } else {
+      // Bot should NOT be running
       console.log(`🛑 Bot not running (isRunning=${isRunning}, existingBot=${!!existingBot}) - clearing state`);
       setActiveExchange(null);
       isCancelledRef.current = true;
       return;
     }
-
-    // Create new abort controller for this trading session
-    abortControllerRef.current = new AbortController();
-    isCancelledRef.current = false;
-    isStoppingRef.current = false;
-    console.log(`✅ Starting trading loop for ${botName}`);
 
     // ===== LIVE MODE: Execute real trades via edge function =====
     if (tradingMode === 'live') {
@@ -1036,7 +1037,8 @@ export function BotCard({
         intervalRef.current = null;
       }
     };
-  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot?.id, prices, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy, localAmountPerTrade, localTradeIntervalMs, vaultProfit]);
+  // REMOVED: prices from deps - use pricesRef instead to prevent constant re-renders
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot?.id, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy, localAmountPerTrade, localTradeIntervalMs, vaultProfit]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
