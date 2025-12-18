@@ -143,6 +143,51 @@ export type Database = {
         }
         Relationships: []
       }
+      bot_config: {
+        Row: {
+          amount_per_trade: number
+          created_at: string | null
+          daily_stop_loss: number
+          daily_target: number
+          focus_pairs: string[] | null
+          id: string
+          leverage_defaults: Json | null
+          per_trade_stop_loss: number
+          profit_per_trade: number
+          trade_interval_ms: number
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          amount_per_trade?: number
+          created_at?: string | null
+          daily_stop_loss?: number
+          daily_target?: number
+          focus_pairs?: string[] | null
+          id?: string
+          leverage_defaults?: Json | null
+          per_trade_stop_loss?: number
+          profit_per_trade?: number
+          trade_interval_ms?: number
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          amount_per_trade?: number
+          created_at?: string | null
+          daily_stop_loss?: number
+          daily_target?: number
+          focus_pairs?: string[] | null
+          id?: string
+          leverage_defaults?: Json | null
+          per_trade_stop_loss?: number
+          profit_per_trade?: number
+          trade_interval_ms?: number
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       bot_runs: {
         Row: {
           analysis_report: Json | null

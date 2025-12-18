@@ -1,5 +1,8 @@
 project_id = "rkqeowpkwbbkqsadbxth"
 
+[functions.auto-apply-config]
+verify_jwt = false
+
 [functions.fetch-research]
 verify_jwt = false
 
