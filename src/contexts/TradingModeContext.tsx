@@ -219,61 +219,107 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // CRITICAL: Fetch real exchange balances from database - SINGLE SOURCE OF TRUTH
+  // Calculates TOTAL PORTFOLIO VALUE (all assets × current prices), not just USDT
   const fetchExchangeBalances = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       
+      // Fetch ALL holdings (not just stablecoins)
       const { data: holdings, error } = await supabase
         .from('portfolio_holdings')
         .select('exchange_name, asset_symbol, quantity, updated_at')
-        .eq('user_id', user.id)
-        .in('asset_symbol', ['USDT', 'USDC', 'USD']);
+        .eq('user_id', user.id);
       
       if (error) throw error;
       
-      // Group by exchange and sum USDT-equivalent balances
-      const balanceMap = new Map<string, { usdtBalance: number; lastSync: Date }>();
+      // Fetch current prices from price_cache
+      const { data: prices } = await supabase
+        .from('price_cache')
+        .select('symbol, price');
+      
+      // Create price map (symbol -> USD price)
+      const priceMap = new Map<string, number>();
+      prices?.forEach(p => {
+        priceMap.set(p.symbol, p.price);
+        priceMap.set(p.symbol.replace('USDT', ''), p.price); // Also map BTC -> price
+      });
+      // Stablecoins are always $1
+      priceMap.set('USDT', 1);
+      priceMap.set('USDC', 1);
+      priceMap.set('USD', 1);
+      
+      // Group by exchange and calculate TOTAL VALUE
+      const balanceMap = new Map<string, { 
+        usdtBalance: number; 
+        totalValue: number; 
+        lastSync: Date;
+        assets: Record<string, { quantity: number; value: number }>;
+      }>();
       
       holdings?.forEach(h => {
         if (!h.exchange_name) return;
-        const existing = balanceMap.get(h.exchange_name) || { usdtBalance: 0, lastSync: new Date(0) };
+        
+        const existing = balanceMap.get(h.exchange_name) || { 
+          usdtBalance: 0, 
+          totalValue: 0, 
+          lastSync: new Date(0),
+          assets: {}
+        };
+        
+        // Get price for this asset
+        const price = priceMap.get(h.asset_symbol) || 0;
+        const assetValue = h.quantity * price;
+        
+        // Track USDT balance separately (stablecoins only)
+        const isStablecoin = ['USDT', 'USDC', 'USD'].includes(h.asset_symbol);
+        
         balanceMap.set(h.exchange_name, {
-          usdtBalance: existing.usdtBalance + h.quantity,
+          usdtBalance: existing.usdtBalance + (isStablecoin ? h.quantity : 0),
+          totalValue: existing.totalValue + assetValue,
           lastSync: new Date(h.updated_at) > existing.lastSync ? new Date(h.updated_at) : existing.lastSync,
+          assets: {
+            ...existing.assets,
+            [h.asset_symbol]: { quantity: h.quantity, value: assetValue }
+          }
         });
       });
       
       const now = new Date();
       const newBalances: ExchangeBalance[] = Array.from(balanceMap.entries())
-        .filter(([_, data]) => data.usdtBalance > 0) // Only exchanges with balance
+        .filter(([_, data]) => data.totalValue > 0.01) // STRICT: Only exchanges with value > $0.01
         .map(([exchange, data]) => ({
           exchange,
           usdtBalance: data.usdtBalance,
-          totalValue: data.usdtBalance,
+          totalValue: data.totalValue, // TOTAL value of ALL assets
           lastSyncAt: data.lastSync,
-          isStale: (now.getTime() - data.lastSync.getTime()) > 5 * 60 * 1000, // Stale if > 5 min
+          isStale: (now.getTime() - data.lastSync.getTime()) > 5 * 60 * 1000,
         }));
       
       setExchangeBalances(newBalances);
       
-      // Update base balance per exchange to reflect real balances
+      // Update base balance per exchange to reflect TOTAL VALUE (not just USDT)
       const newBaseBalances: Record<string, number> = { ...DEFAULT_BASE_BALANCE_PER_EXCHANGE };
       newBalances.forEach(b => {
-        newBaseBalances[b.exchange] = b.usdtBalance;
+        newBaseBalances[b.exchange] = b.totalValue; // Use total value
       });
       setBaseBalancePerExchangeState(newBaseBalances);
       
-      if (import.meta.env.DEV) console.log('[BALANCE SYNC] Real exchange balances:', newBalances);
+      if (import.meta.env.DEV) {
+        console.log('[BALANCE SYNC] Real exchange balances (TOTAL VALUE):', newBalances);
+        newBalances.forEach(b => {
+          console.log(`  ${b.exchange}: $${b.totalValue.toFixed(2)} total (USDT: $${b.usdtBalance.toFixed(2)})`);
+        });
+      }
     } catch (err) {
       console.error('[BALANCE SYNC] Failed to fetch:', err);
     }
   }, []);
 
-  // Get real balance for a specific exchange
+  // Get real balance for a specific exchange - returns TOTAL VALUE
   const getRealBalance = useCallback((exchange: string): number => {
     const balance = exchangeBalances.find(b => b.exchange === exchange);
-    return balance?.usdtBalance || 0;
+    return balance?.totalValue || 0; // Return TOTAL VALUE, not just USDT
   }, [exchangeBalances]);
 
   const triggerSync = useCallback(async () => {
@@ -371,11 +417,12 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('virtualBalance', String(virtualBalance));
   }, [virtualBalance]);
 
-  // CRITICAL: Subscribe to portfolio_holdings changes for real-time balance updates
+  // CRITICAL: Subscribe to portfolio_holdings AND price_cache for real-time balance updates
   useEffect(() => {
     fetchExchangeBalances();
     
-    const channel = supabase
+    // Subscribe to portfolio changes
+    const portfolioChannel = supabase
       .channel('portfolio-balance-changes')
       .on(
         'postgres_changes',
@@ -391,8 +438,26 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
       )
       .subscribe();
     
+    // Subscribe to price changes to update total values in real-time
+    const priceChannel = supabase
+      .channel('price-updates-for-balance')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'price_cache',
+        },
+        () => {
+          // Recalculate total values when prices change
+          fetchExchangeBalances();
+        }
+      )
+      .subscribe();
+    
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(portfolioChannel);
+      supabase.removeChannel(priceChannel);
     };
   }, [fetchExchangeBalances]);
 

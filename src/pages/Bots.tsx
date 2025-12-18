@@ -378,6 +378,7 @@ export default function Bots() {
   }, [debouncedPrices, tradingMode]);
 
   // CRITICAL: Fetch USDT float using SINGLE SOURCE OF TRUTH (exchangeBalances)
+  // Uses TOTAL VALUE (all assets × prices), not just USDT
   useEffect(() => {
     async function fetchUsdtFloat() {
       if (!user) {
@@ -386,16 +387,21 @@ export default function Bots() {
       }
 
       // In Live mode, use REAL exchange balances from context (single source of truth)
+      // CRITICAL: Use totalValue (all assets), NOT just usdtBalance
       if (tradingMode === 'live' && exchangeBalances.length > 0) {
         const floatData: UsdtFloat[] = exchangeBalances
-          .filter(b => b.usdtBalance > 0) // Only exchanges with balance
+          .filter(b => b.totalValue > 0.01) // STRICT: Only exchanges with total value > $0.01
           .map(b => ({
             exchange: b.exchange,
-            amount: b.usdtBalance, // REAL balance from database
-            baseBalance: 0, // No locked base in live mode - all available
-            availableFloat: b.usdtBalance,
+            amount: b.totalValue, // TOTAL VALUE of all assets (BTC, ETH, etc. × prices)
+            baseBalance: 0,
+            availableFloat: b.totalValue, // All available for trading
             warning: b.isStale,
           }));
+        
+        if (import.meta.env.DEV) {
+          console.log('[BOTS] USDT Float (TOTAL VALUE):', floatData);
+        }
         
         setUsdtFloat(floatData);
         setLoadingFloat(false);
@@ -420,24 +426,41 @@ export default function Bots() {
         return;
       }
 
-      // Fallback: Fetch from database directly
+      // Fallback: Fetch ALL assets and calculate TOTAL VALUE
       try {
-        const { data } = await supabase
+        // Fetch all holdings (not just stablecoins)
+        const { data: holdings } = await supabase
           .from('portfolio_holdings')
-          .select('exchange_name, quantity')
-          .eq('user_id', user.id)
-          .in('asset_symbol', ['USDT', 'USDC', 'USD']);
+          .select('exchange_name, asset_symbol, quantity')
+          .eq('user_id', user.id);
 
+        // Fetch prices
+        const { data: priceData } = await supabase
+          .from('price_cache')
+          .select('symbol, price');
+        
+        const priceMap = new Map<string, number>();
+        priceData?.forEach(p => {
+          priceMap.set(p.symbol, p.price);
+        });
+        // Stablecoins = $1
+        priceMap.set('USDT', 1);
+        priceMap.set('USDC', 1);
+        priceMap.set('USD', 1);
+
+        // Calculate TOTAL VALUE per exchange
         const floatByExchange: Record<string, number> = {};
-        data?.forEach(h => {
+        holdings?.forEach(h => {
           if (h.exchange_name) {
-            floatByExchange[h.exchange_name] = (floatByExchange[h.exchange_name] || 0) + h.quantity;
+            const price = priceMap.get(h.asset_symbol) || 0;
+            const value = h.quantity * price;
+            floatByExchange[h.exchange_name] = (floatByExchange[h.exchange_name] || 0) + value;
           }
         });
 
-        // Only show exchanges WITH balance
+        // Only show exchanges WITH balance > $0.01
         const exchangesWithBalance = Object.entries(floatByExchange)
-          .filter(([_, amount]) => amount > 0)
+          .filter(([_, amount]) => amount > 0.01)
           .map(([exchange, amount]) => ({
             exchange,
             amount,
@@ -445,6 +468,10 @@ export default function Bots() {
             availableFloat: amount,
             warning: false,
           }));
+
+        if (import.meta.env.DEV) {
+          console.log('[BOTS FALLBACK] Total values:', exchangesWithBalance);
+        }
 
         setUsdtFloat(exchangesWithBalance);
       } catch (err) {
@@ -913,15 +940,30 @@ export default function Bots() {
         </div>
       )}
 
-      {/* USDT Float by Exchange - Collapsible */}
+      {/* Portfolio Value by Exchange - Collapsible */}
       <Collapsible open={usdtFloatOpen} onOpenChange={setUsdtFloatOpen} className="card-terminal p-3 mb-3 flex-shrink-0">
         <CollapsibleTrigger asChild>
           <div className="flex items-center justify-between cursor-pointer hover:bg-secondary/30 -m-3 p-3 rounded">
             <h3 className="text-xs font-semibold text-foreground flex items-center gap-2">
               <DollarSign className="w-3 h-3 text-muted-foreground" />
-              {tradingMode === 'demo' ? 'Virtual USDT Allocation' : 'USDT Float by Exchange'}
+              {tradingMode === 'demo' ? 'Virtual USDT Allocation' : 'Portfolio Value by Exchange'}
             </h3>
             <div className="flex items-center gap-2">
+              {/* Refresh Balance Button - Live Mode Only */}
+              {tradingMode === 'live' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-5 w-5 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fetchExchangeBalances();
+                    toast.success('Refreshing portfolio values...');
+                  }}
+                >
+                  <RefreshCw className="w-3 h-3" />
+                </Button>
+              )}
               {/* USDT Cap Indicator */}
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-muted-foreground">
@@ -1006,7 +1048,7 @@ export default function Bots() {
                               )}
                             </div>
                             <div className="flex justify-between text-[9px]">
-                              <span className="text-muted-foreground">Balance:</span>
+                              <span className="text-muted-foreground">Total Value:</span>
                               <span className="font-mono font-bold text-primary">
                                 ${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </span>
@@ -1014,7 +1056,7 @@ export default function Bots() {
                           </div>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p className="text-xs">Real balance: ${item.amount.toFixed(2)}</p>
+                          <p className="text-xs">Total portfolio value (all assets × prices)</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
