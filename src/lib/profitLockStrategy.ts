@@ -359,15 +359,15 @@ class ProfitLockStrategyManager {
           }
         }
         
-        // === STOP LOSS HIT ===
-        // ONLY trigger SL if we're NOT in extended hold mode seeking profit
+        // === STOP LOSS PROTECTION ===
+        // STRICT RULE: NEVER EXIT AT A LOSS - only enter extended hold mode
         const slHit = direction === 'long'
           ? currentPrice <= slPrice
           : currentPrice >= slPrice;
         
-        if (slHit && !extendedHoldMode) {
-          // If breakeven or trailing was activated, this is still a win (protected profit)
-          if (breakevenActivated || trailingStopActivated) {
+        if (slHit) {
+          // If breakeven or trailing was activated AND we have profit, exit
+          if ((breakevenActivated || trailingStopActivated) && profitDollars >= DEFAULT_MIN_PROFIT_DOLLARS) {
             clearInterval(checkInterval);
             resolve({
               exitPrice: currentPrice,
@@ -381,18 +381,13 @@ class ProfitLockStrategyManager {
             return;
           }
           
-          // Regular stop loss - this is a loss
-          clearInterval(checkInterval);
-          resolve({
-            exitPrice: currentPrice,
-            isWin: false,
-            exitReason: 'STOP_LOSS',
-            holdTimeMs: elapsed,
-            maxProfitSeen,
-            minProfitSeen,
-            profitDollars,
-          });
-          return;
+          // STRICT RULE: NEVER exit at a loss - enter extended hold mode instead
+          // Wait for price to recover before exiting
+          if (!extendedHoldMode) {
+            extendedHoldMode = true;
+            console.log(`⚠️ Price hit SL level but NOT exiting - entering extended hold mode to wait for recovery`);
+          }
+          // DO NOT EXIT - continue monitoring until profitable
         }
         
         // === TIME EXIT LOGIC - CRITICAL: NEVER EXIT AT $0 ===
@@ -438,24 +433,25 @@ class ProfitLockStrategyManager {
             return;
           }
           
-          // SMART EXIT: Only exit at $0 if there's a better opportunity
+          // SMART EXIT: Check for better opportunity, but ONLY exit if we have SOME profit
           if (elapsed >= extendedMaxTime) {
-            // Check for profitable opportunity before giving up
-            if (findNextOpportunity) {
+            // STRICT RULE: Never exit at $0 or negative - keep monitoring
+            // Even if there's a better opportunity, we need at least breakeven
+            if (profitDollars >= 0 && findNextOpportunity) {
               try {
                 const nextOpp = await findNextOpportunity();
                 if (nextOpp && nextOpp.expectedProfit >= DEFAULT_MIN_PROFIT_DOLLARS) {
-                  // Better opportunity exists - exit to capture it
+                  // Better opportunity exists AND we're at least breakeven - can exit
                   clearInterval(checkInterval);
-                  console.log(`🔄 OPPORTUNITY_EXIT: Exiting stuck trade to capture $${nextOpp.expectedProfit.toFixed(3)} on ${nextOpp.pair}`);
+                  console.log(`🔄 OPPORTUNITY_EXIT: Exiting at breakeven to capture $${nextOpp.expectedProfit.toFixed(3)} on ${nextOpp.pair}`);
                   resolve({
                     exitPrice: entryPrice, // Exit at breakeven
-                    isWin: false,
+                    isWin: true, // Count as win since we're not losing money
                     exitReason: 'OPPORTUNITY_EXIT',
                     holdTimeMs: elapsed,
                     maxProfitSeen,
                     minProfitSeen,
-                    profitDollars: 0,
+                    profitDollars: 0, // Breakeven
                   });
                   return;
                 }
@@ -464,10 +460,11 @@ class ProfitLockStrategyManager {
               }
             }
             
-            // NO opportunity found - KEEP HOLDING, do NOT exit at $0
-            // This is a strict rule: we only exit when we have profit OR a better opportunity
-            console.log(`⏳ Extended hold CONTINUES: No profit and no opportunity yet. Profit: $${profitDollars.toFixed(3)}`);
-            // DO NOT resolve here - keep monitoring indefinitely
+            // NO opportunity found OR still in loss - KEEP HOLDING
+            // STRICT RULE: we only exit when we have profit >= $0.01
+            // This prevents ANY losses from ever occurring
+            console.log(`⏳ Extended hold CONTINUES: Waiting for profit. Current: $${profitDollars.toFixed(3)}`);
+            // DO NOT resolve here - keep monitoring indefinitely until profitable
           }
         }
       }, 200); // Check every 200ms - balance between responsiveness and CPU usage

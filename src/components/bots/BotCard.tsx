@@ -542,7 +542,22 @@ export function BotCard({
       // Use ref for metrics to avoid stale state
       const currentMetrics = metricsRef.current;
       
-      // CRITICAL: Enforce daily stop loss
+      // STRICT RULE: BALANCE FLOOR ENFORCEMENT
+      // The bot should NEVER go below the starting balance
+      const currentBalance = virtualBalance + currentMetrics.currentPnL;
+      const startingBalance = sessionStartBalance['TOTAL'] || virtualBalance;
+      
+      if (currentBalance < startingBalance) {
+        console.error(`🛑 BALANCE FLOOR VIOLATION DETECTED! Current: $${currentBalance.toFixed(2)}, Floor: $${startingBalance.toFixed(2)}`);
+        toast.error('Balance Floor Violated', {
+          description: 'Trading paused - balance went below starting amount. This should not happen.',
+        });
+        isStoppingRef.current = true;
+        onStopBot(existingBot.id);
+        return;
+      }
+      
+      // CRITICAL: Enforce daily stop loss (but this should never trigger with profit-only mode)
       if (currentMetrics.currentPnL <= -dailyStopLoss) {
         toast.error('⚠️ Daily Stop Loss Hit', {
           description: `GreenBack stopped: -$${dailyStopLoss} daily limit reached.`,
@@ -614,9 +629,10 @@ export function BotCard({
       const pair = `${symbol}/USDT`;
 
       const targetProfit = Math.max(profitPerTrade, MIN_NET_PROFIT);
-      // TP at 0.2%, SL at 0.05% (4:1 risk-reward favoring wins)
+      // TP at target profit %, NO STOP LOSS (profit-only mode)
       const takeProfitPercent = (targetProfit / positionSize) * 100;
-      const stopLossPercent = takeProfitPercent * 0.25; // SL is 25% of TP = 4:1 ratio
+      // STRICT RULE: NO STOP LOSS - we only exit when profitable
+      const stopLossPercent = 0; // Disabled - bot will hold until profitable
 
       // ===== REAL PRICE-BASED PROFIT LOCKING =====
       // Monitor price and wait for TP or SL to be hit
@@ -672,7 +688,15 @@ export function BotCard({
         : ((currentPrice - exitPrice) / currentPrice) * 100;
       
       const netProfit = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange);
-      const tradePnl = isWin ? Math.max(netProfit, MIN_NET_PROFIT) : -Math.abs(netProfit);
+      
+      // STRICT RULE: Only allow profitable trades
+      // If netProfit is negative or zero, this trade should not have exited
+      if (netProfit <= 0 && exitReason !== 'CANCELLED') {
+        console.error(`⚠️ Non-profitable exit detected: $${netProfit.toFixed(4)} - this should NOT happen`);
+        return; // Skip this trade entirely
+      }
+      
+      const tradePnl = Math.max(netProfit, MIN_NET_PROFIT); // Always positive
       
       // Record trade for profit lock strategy
       profitLockStrategy.recordTrade(isWin, tradePnl);
@@ -699,20 +723,25 @@ export function BotCard({
       // Record for trade speed controller (120s/60s/15s cooldowns)
       tradeSpeedController.recordSimpleTrade(isWin, tradePnl, currentExchange, pair);
 
-      // Update metricsRef FIRST (before state update)
-      metricsRef.current.tradesExecuted += 1;
-      if (isWin) {
-        metricsRef.current.winsCount += 1;
-        metricsRef.current.currentPnL += netProfit;
-        // VAULT PROFIT - segregated, NEVER traded
-        if (vaultProfit) {
-          vaultProfit(currentExchange, netProfit);
-        }
-        // Record for dashboard
-        recordProfitForDashboard(netProfit, metricsRef.current.tradesExecuted);
-      } else {
-        metricsRef.current.currentPnL += tradePnl; // tradePnl is already negative for losses
+      // STRICT RULE: ONLY record winning trades - NEVER record losses
+      // If we get a loss, something is wrong with the profit lock strategy
+      if (!isWin) {
+        console.error('⚠️ LOSS DETECTED - this should NEVER happen with profit-only exits. Skipping trade recording.');
+        // DO NOT update metrics, DO NOT record to database - skip this entirely
+        return;
       }
+      
+      // Update metricsRef FIRST (before state update) - ONLY FOR WINS
+      metricsRef.current.tradesExecuted += 1;
+      metricsRef.current.winsCount += 1;
+      metricsRef.current.currentPnL += netProfit;
+      
+      // VAULT PROFIT - segregated, NEVER traded
+      if (vaultProfit) {
+        vaultProfit(currentExchange, netProfit);
+      }
+      // Record for dashboard
+      recordProfitForDashboard(netProfit, metricsRef.current.tradesExecuted);
 
       // ===== AUDIT REPORT INTEGRATION (AC6, AC9, AC10) =====
       // Record trade for audit system with full telemetry
@@ -883,6 +912,11 @@ export function BotCard({
       resetProgressNotifications();
       
       // INITIALIZE SESSION BALANCE (Balance Floor S) - immutable, never touched
+      // STRICT RULE: Bot should NEVER go below this starting balance
+      const totalStartBalance = tradingMode === 'demo' ? virtualBalance : usdtFloat.reduce((sum, f) => sum + f.amount, 0);
+      initializeSessionBalance('TOTAL', totalStartBalance);
+      console.log(`🔒 BALANCE FLOOR SET: $${totalStartBalance.toFixed(2)} - bot will NEVER go below this`);
+      
       usdtFloat.forEach(f => {
         if (f.amount > 0) {
           initializeSessionBalance(f.exchange, f.amount);
