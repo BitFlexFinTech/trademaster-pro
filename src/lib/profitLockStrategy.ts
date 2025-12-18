@@ -46,9 +46,12 @@ export interface NextOpportunity {
 
 // Rolling window for hit rate tracking
 const ROLLING_WINDOW_SIZE = 50;
-const MIN_HIT_RATE_TO_TRADE = 65; // Lowered from 85% - more realistic for real price monitoring
-const CRITICAL_HIT_RATE = 50;     // Below this triggers deep analysis
-const PAUSE_DURATION_MS = 30000;  // 30 second pause when hit rate drops (reduced from 60s)
+const MIN_HIT_RATE_TO_TRADE = 50; // 50% minimum win rate (from GREENBACK config)
+const CRITICAL_HIT_RATE = 40;     // Below this triggers deep analysis
+const PAUSE_DURATION_MS = 30000;  // 30 second pause when hit rate drops
+const MAX_CONSECUTIVE_LOSSES = 3; // Halt after 3 consecutive losses
+const WIN_RATE_CHECK_WINDOW = 20; // Check win rate over last 20 trades
+const COOLOFF_MS = 5 * 60 * 1000; // 5 minute cooloff period
 
 // CRITICAL: Minimum profit thresholds - NEVER exit below these
 // FEE-AWARE: Must account for exchange fees (~0.1-0.2% round trip)
@@ -77,10 +80,14 @@ class ProfitLockStrategyManager {
   private isPaused: boolean = false;
   private pauseUntil: number = 0;
   private consecutiveLosses: number = 0;
+  private consecutiveWins: number = 0;
   private consecutiveErrors: number = 0;
+  private sessionHaltActive: boolean = false;
+  private sessionHaltReason: string = '';
   
   /**
    * Record a trade result and update rolling hit rate
+   * Implements GREENBACK session halt controls
    */
   recordTrade(isWin: boolean, pnl: number): void {
     this.tradeHistory.push({
@@ -94,17 +101,85 @@ class ProfitLockStrategyManager {
       this.tradeHistory.shift();
     }
     
-    // Track consecutive losses
+    // Track consecutive wins/losses
     if (isWin) {
       this.consecutiveLosses = 0;
+      this.consecutiveWins++;
     } else {
       this.consecutiveLosses++;
+      this.consecutiveWins = 0;
       
-      // Pause after 3 consecutive losses
-      if (this.consecutiveLosses >= 3) {
-        this.pauseTrading(PAUSE_DURATION_MS, 'consecutive_losses');
+      // GREENBACK: Halt after MAX_CONSECUTIVE_LOSSES consecutive losses
+      if (this.consecutiveLosses >= MAX_CONSECUTIVE_LOSSES) {
+        this.haltSession(`${MAX_CONSECUTIVE_LOSSES} consecutive losses`);
       }
     }
+    
+    // GREENBACK: Check win rate over last WIN_RATE_CHECK_WINDOW trades
+    if (this.tradeHistory.length >= WIN_RATE_CHECK_WINDOW) {
+      const recentTrades = this.tradeHistory.slice(-WIN_RATE_CHECK_WINDOW);
+      const wins = recentTrades.filter(t => t.isWin).length;
+      const winRate = (wins / WIN_RATE_CHECK_WINDOW) * 100;
+      
+      if (winRate < MIN_HIT_RATE_TO_TRADE) {
+        this.haltSession(`Win rate ${winRate.toFixed(1)}% < ${MIN_HIT_RATE_TO_TRADE}% over last ${WIN_RATE_CHECK_WINDOW} trades`);
+      }
+    }
+  }
+  
+  /**
+   * Halt session with cooloff period (GREENBACK session control)
+   */
+  haltSession(reason: string): void {
+    console.log(`🛑 SESSION HALT: ${reason}`);
+    this.sessionHaltActive = true;
+    this.sessionHaltReason = reason;
+    this.pauseUntil = Date.now() + COOLOFF_MS;
+    this.isPaused = true;
+  }
+  
+  /**
+   * Check if session halt is active
+   */
+  isSessionHalted(): { halted: boolean; reason: string; resumeIn: number } {
+    if (!this.sessionHaltActive) {
+      return { halted: false, reason: '', resumeIn: 0 };
+    }
+    
+    const now = Date.now();
+    if (now >= this.pauseUntil) {
+      // Cooloff complete - check if conditions improved
+      const winRate = this.getRollingHitRate();
+      if (winRate >= MIN_HIT_RATE_TO_TRADE && this.consecutiveLosses < MAX_CONSECUTIVE_LOSSES) {
+        this.sessionHaltActive = false;
+        this.sessionHaltReason = '';
+        this.isPaused = false;
+        console.log('▶️ Session halt lifted - conditions improved');
+        return { halted: false, reason: '', resumeIn: 0 };
+      }
+      // Extend cooloff if conditions haven't improved
+      this.pauseUntil = now + COOLOFF_MS;
+    }
+    
+    return {
+      halted: true,
+      reason: this.sessionHaltReason,
+      resumeIn: Math.max(0, this.pauseUntil - now),
+    };
+  }
+  
+  /**
+   * Get consecutive losses count
+   */
+  getConsecutiveLosses(): number {
+    return this.consecutiveLosses;
+  }
+  
+  /**
+   * Get consecutive wins count
+   */
+  getConsecutiveWins(): number {
+    return this.consecutiveWins;
   }
   
   /**

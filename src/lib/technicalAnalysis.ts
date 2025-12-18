@@ -28,6 +28,7 @@ export interface SignalScore {
 
 /**
  * Calculate RSI (Relative Strength Index)
+ * @param period - Default 14, use 7 for micro-scalping
  */
 export function calculateRSI(closes: number[], period: number = 14): number | null {
   if (closes.length < period + 1) return null;
@@ -49,6 +50,48 @@ export function calculateRSI(closes: number[], period: number = 14): number | nu
   
   const rs = avgGain / avgLoss;
   return 100 - (100 / (1 + rs));
+}
+
+/**
+ * Calculate RSI with 7-period (for micro-scalping)
+ */
+export function calculateRSI7(closes: number[]): number | null {
+  return calculateRSI(closes, 7);
+}
+
+/**
+ * Calculate VWAP (Volume Weighted Average Price)
+ */
+export function calculateVWAP(
+  prices: number[],
+  volumes: number[]
+): number | null {
+  if (prices.length === 0 || prices.length !== volumes.length) return null;
+  
+  let sumPV = 0;
+  let sumV = 0;
+  
+  for (let i = 0; i < prices.length; i++) {
+    sumPV += prices[i] * volumes[i];
+    sumV += volumes[i];
+  }
+  
+  return sumV > 0 ? sumPV / sumV : null;
+}
+
+/**
+ * Calculate VWAP deviation percentage
+ */
+export function calculateVWAPDeviation(
+  currentPrice: number,
+  prices: number[],
+  volumes: number[]
+): { vwap: number; deviation: number } | null {
+  const vwap = calculateVWAP(prices, volumes);
+  if (vwap === null) return null;
+  
+  const deviation = ((currentPrice - vwap) / vwap) * 100;
+  return { vwap, deviation };
 }
 
 /**

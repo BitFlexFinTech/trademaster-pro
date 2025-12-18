@@ -181,8 +181,24 @@ async function getBybitLotSize(symbol: string): Promise<{ stepSize: string; minQ
   }
 }
 
-// Top 10 liquid USDT pairs
-const TOP_PAIRS = [
+// GREENBACK Micro-Scalping Configuration
+const GREENBACK_CONFIG = {
+  equity_start_usd: 230,
+  target_pnl_per_trade: { min: 0.25, max: 0.50 },
+  risk_per_trade_pct: 0.01,        // 1% = $2.30 max loss
+  max_daily_loss_pct: 0.03,        // 3% = $6.90
+  leverage_cap: 3,
+  instruments_whitelist: ['BTC/USDT', 'ETH/USDT'],
+  spread_threshold_bps: 1,         // 0.01% max spread
+  slippage_block_pct: 0.40,        // Block if slippage > 40% of target
+  sl_distance_pct: { min: 0.20, max: 0.30 },
+};
+
+// Instrument whitelist (highest liquidity only for GREENBACK)
+const TOP_PAIRS = GREENBACK_CONFIG.instruments_whitelist;
+
+// Legacy pairs for fallback
+const LEGACY_PAIRS = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT',
   'DOGE/USDT', 'ADA/USDT', 'AVAX/USDT', 'DOT/USDT', 'MATIC/USDT'
 ];
@@ -198,14 +214,14 @@ const EXCLUDED_COMBOS = new Set([
 // Spot-safe pairs for LONG trades (>50% win rate historically)
 const SPOT_SAFE_PAIRS = new Set(['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'MATIC/USDT']);
 
-// Safety limits - INCREASED for profitable trading
-const DEFAULT_POSITION_SIZE = 50; // Default $50 per trade (minimum for meaningful profit)
-const MIN_POSITION_SIZE = 20; // Absolute minimum to cover fees + generate profit
-const MAX_POSITION_SIZE_CAP = 5000; // Hard cap at $5000 for safety
-const DAILY_LOSS_LIMIT = -5; // Stop if daily loss exceeds $5
-const MAX_SLIPPAGE_PERCENT = 0.3; // 0.3% max slippage tolerance
-const PROFIT_LOCK_TIMEOUT_MS = 30000; // 30 second timeout for limit order profit lock
-const LIMIT_ORDER_PROFIT_TARGET = 0.005; // 0.5% profit target for limit exits (increased for better margin)
+// GREENBACK Safety limits
+const DEFAULT_POSITION_SIZE = 50;      // Default $50 per trade
+const MIN_POSITION_SIZE = 20;          // Absolute minimum
+const MAX_POSITION_SIZE_CAP = 500;     // Cap based on $230 equity * 2
+const DAILY_LOSS_LIMIT = -6.90;        // 3% of $230 = $6.90
+const MAX_SLIPPAGE_PERCENT = 0.15;     // 0.15% max slippage (tighter for micro-scalping)
+const PROFIT_LOCK_TIMEOUT_MS = 30000;  // 30 second timeout
+const LIMIT_ORDER_PROFIT_TARGET = 0.003; // 0.3% profit target (lower for micro-scalping)
 
 // ============ FEE CONSTANTS FOR ACCURATE P&L ============
 const EXCHANGE_FEES: Record<string, number> = {
@@ -217,7 +233,54 @@ const EXCHANGE_FEES: Record<string, number> = {
   kucoin: 0.001,     // 0.1%
   hyperliquid: 0.0002, // 0.02%
 };
-const MIN_NET_PROFIT = 0.05; // Minimum $0.05 net profit after fees required (lowered for smaller positions)
+const MIN_NET_PROFIT = 0.25; // Minimum $0.25 net profit (GREENBACK target min)
+
+// Helper: Calculate position size based on 1% risk
+function calculateGreenbackPositionSize(
+  equity: number,
+  slDistancePct: number,
+  leverage: number
+): number {
+  const riskAmount = equity * GREENBACK_CONFIG.risk_per_trade_pct;
+  const effectiveLeverage = Math.min(leverage, GREENBACK_CONFIG.leverage_cap);
+  const slDistance = slDistancePct / 100;
+  const positionSize = (riskAmount / slDistance) * effectiveLeverage;
+  return Math.min(positionSize, equity * 0.5, MAX_POSITION_SIZE_CAP);
+}
+
+// Helper: Check spread threshold
+function isSpreadAcceptable(bid: number, ask: number): boolean {
+  const spreadBps = ((ask - bid) / bid) * 10000;
+  return spreadBps <= GREENBACK_CONFIG.spread_threshold_bps;
+}
+
+// Helper: Calculate TP price for target net profit
+function calculateTPPrice(
+  entryPrice: number,
+  direction: 'long' | 'short',
+  positionSize: number,
+  targetNetProfit: number,
+  feeRate: number
+): number {
+  const totalFees = positionSize * feeRate * 2;
+  const requiredGross = targetNetProfit + totalFees;
+  const priceMove = requiredGross / positionSize;
+  return direction === 'long'
+    ? entryPrice * (1 + priceMove)
+    : entryPrice * (1 - priceMove);
+}
+
+// Helper: Calculate SL price
+function calculateSLPrice(
+  entryPrice: number,
+  direction: 'long' | 'short',
+  slPct: number = 0.25
+): number {
+  const slDistance = slPct / 100;
+  return direction === 'long'
+    ? entryPrice * (1 - slDistance)
+    : entryPrice * (1 + slDistance);
+}
 
 interface BotTradeRequest {
   botId: string;
