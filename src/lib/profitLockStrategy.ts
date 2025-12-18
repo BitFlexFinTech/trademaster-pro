@@ -53,7 +53,7 @@ const PAUSE_DURATION_MS = 30000;  // 30 second pause when hit rate drops (reduce
 const DEFAULT_MIN_PROFIT_PERCENT = 0.01; // 0.01% minimum profit
 const DEFAULT_MIN_PROFIT_DOLLARS = 0.01; // $0.01 minimum profit - STRICT RULE
 const MAX_EXTENDED_HOLD_MULTIPLIER = 10; // Hold up to 10x max time to find profit (was 2x)
-const SUPER_SCALP_MIN_HOLD_MS = 1000;    // Minimum 1 second before super-scalp exit
+const SUPER_SCALP_MIN_HOLD_MS = 200;    // Minimum 200ms before super-scalp exit - FAST SCALPING
 
 class ProfitLockStrategyManager {
   private tradeHistory: { isWin: boolean; timestamp: number; pnl: number }[] = [];
@@ -467,7 +467,7 @@ class ProfitLockStrategyManager {
             // DO NOT resolve here - keep monitoring indefinitely until profitable
           }
         }
-      }, 200); // Check every 200ms - balance between responsiveness and CPU usage
+      }, 50); // Check every 50ms - FAST SCALPING for rapid profit capture
     });
   }
   
