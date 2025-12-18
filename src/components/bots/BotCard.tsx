@@ -153,6 +153,7 @@ export function BotCard({
   const metricsRef = useRef({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 });  // Internal metrics tracking
   const abortControllerRef = useRef<AbortController | null>(null); // CRITICAL: For cancelling pending requests
   const pricesRef = useRef<Array<{ symbol: string; price: number; change_24h?: number }>>([]); // CRITICAL: Real-time price ref to avoid stale closures
+  const leveragesRef = useRef<Record<string, number>>(leverages); // CRITICAL: Leverage ref to avoid restarting trading loop
   const tradingLoopIdRef = useRef<string | null>(null); // UUID-based loop invalidation
   
   // Calculate stop loss automatically: 20% of profit (80% lower)
@@ -213,6 +214,11 @@ export function BotCard({
   useEffect(() => {
     pricesRef.current = prices;
   }, [prices]);
+
+  // CRITICAL: Update leveragesRef when leverages change (no restart of trading loop)
+  useEffect(() => {
+    leveragesRef.current = leverages;
+  }, [leverages]);
 
   // CRITICAL: Keep pricesRef updated with latest prices to avoid stale closures
   useEffect(() => {
@@ -355,7 +361,7 @@ export function BotCard({
                 mode: botType,
                 profitTarget: profitPerTrade,
                 exchanges: availableExchanges,
-                leverages,
+                leverages: leveragesRef.current,
                 isSandbox: false,
                 maxPositionSize: localAmountPerTrade,
                 stopLossPercent: 0.2,
@@ -729,15 +735,14 @@ export function BotCard({
         }
       }
 
-      const leverage = botType === 'leverage' ? (leverages[currentExchange] || 1) : 1;
+      const leverage = botType === 'leverage' ? (leveragesRef.current[currentExchange] || 1) : 1;
       const positionSize = localAmountPerTrade * leverage;
       const pair = `${symbol}/USDT`;
 
       const targetProfit = Math.max(profitPerTrade, MIN_NET_PROFIT);
-      // TIGHTER TP/SL for faster profit locking - 0.15% TP, 0.10% SL
-      const takeProfitPercent = 0.15; // Tight TP for fast locks
-      const stopLossPercent = 0.10;   // Tight SL - force exit avoids indefinite holds
-
+      // TP/SL must cover round-trip fees + ensure positive expectancy
+      const takeProfitPercent = 0.50; // 0.50% target
+      const stopLossPercent = 0.30;   // 0.30% max loss
       // ===== REAL PRICE-BASED PROFIT LOCKING =====
       // Monitor price and wait for TP or SL to be hit
       const tradeStartTime = Date.now();
@@ -1037,8 +1042,8 @@ export function BotCard({
         intervalRef.current = null;
       }
     };
-  // REMOVED: prices from deps - use pricesRef instead to prevent constant re-renders
-  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot?.id, leverages, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy, localAmountPerTrade, localTradeIntervalMs, vaultProfit]);
+  // REMOVED: prices + leverages from deps - use refs instead to prevent constant re-renders
+  }, [isRunning, tradingMode, dailyTarget, profitPerTrade, existingBot?.id, botType, user, notifyTrade, notifyTakeProfit, notifyDailyProgress, onUpdateBotPnl, setVirtualBalance, botName, onStopBot, dailyStopLoss, tradingStrategy, localAmountPerTrade, localTradeIntervalMs, vaultProfit]);
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
