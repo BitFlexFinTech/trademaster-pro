@@ -616,31 +616,33 @@ export function BotCard({
         return;
       }
       
-      // ===== HIT RATE ENFORCEMENT - CRITICAL =====
-      const hitRateCheck = profitLockStrategy.canTrade();
-      if (!hitRateCheck.canTrade) {
-        console.log(`⏸️ Trading paused: ${hitRateCheck.reason}`);
-        
-        // Trigger analysis if required
-        if (hitRateCheck.analysisRequired) {
-          const analysis = dailyTargetAnalyzer.analyze(dailyTarget);
-          console.log('📊 Daily Analysis:', analysis);
+      // TRADE SPEED AUTO-ADJUST: Only enforce hit rate and speed controls when autoSpeedAdjust is enabled
+      if (autoSpeedAdjust) {
+        // ===== HIT RATE ENFORCEMENT =====
+        const hitRateCheck = profitLockStrategy.canTrade();
+        if (!hitRateCheck.canTrade) {
+          console.log(`⏸️ Trading paused: ${hitRateCheck.reason}`);
           
-          if (analysis.recommendations.length > 0) {
-            toast.warning('Strategy Adjustment Needed', {
-              description: analysis.recommendations[0].title,
-              duration: 10000,
-            });
+          // Trigger analysis if required
+          if (hitRateCheck.analysisRequired) {
+            const analysis = dailyTargetAnalyzer.analyze(dailyTarget);
+            console.log('📊 Daily Analysis:', analysis);
+            
+            if (analysis.recommendations.length > 0) {
+              toast.warning('Strategy Adjustment Needed', {
+                description: analysis.recommendations[0].title,
+                duration: 10000,
+              });
+            }
           }
+          return;
         }
-        return;
-      }
-      
-      // TRADE SPEED AUTO-ADJUST: Check if we can trade based on rolling hit rate
-      // Only enforce if autoSpeedAdjust is enabled
-      if (autoSpeedAdjust && !tradeSpeedController.canTrade()) {
-        console.log('⏳ Trade speed cooldown active, skipping trade (auto-speed enabled)');
-        return;
+        
+        // Check trade speed cooldown
+        if (!tradeSpeedController.canTrade()) {
+          console.log('⏳ Trade speed cooldown active, skipping trade (auto-speed enabled)');
+          return;
+        }
       }
       
       // Use ref for metrics to avoid stale state
@@ -719,8 +721,8 @@ export function BotCard({
       if (history.prices.length >= 26) {
         const signal = generateSignalScore(history.prices, history.volumes);
         if (signal) {
-          // Only trade if signal meets 85% hit rate criteria
-          if (!meetsHitRateCriteria(signal, 0.85)) {
+          // Only trade if signal meets 70% hit rate criteria (lowered for more trades)
+          if (!meetsHitRateCriteria(signal, 0.70)) {
             console.log(`⏭️ Skipping trade: Signal score ${(signal.score * 100).toFixed(1)}% below threshold`);
             return;
           }
