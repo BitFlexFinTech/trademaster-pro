@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
@@ -57,6 +57,9 @@ export function useBotRuns() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [showAnalysisModal, setShowAnalysisModal] = useState(false);
   const [analyzedBotName, setAnalyzedBotName] = useState('');
+  
+  // Debounce ref for realtime updates
+  const debouncedFetchRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchBots = useCallback(async () => {
     if (!user) {
@@ -205,19 +208,17 @@ export function useBotRuns() {
   useEffect(() => {
     if (resetTrigger > 0) {
       console.log('[useBotRuns] Reset trigger - clearing all bot data');
-      setBots([]);
       setStats({ totalBots: 0, activeBots: 0, totalPnl: 0, totalTrades: 0 });
       setAnalysisData({ analysis: null, stats: null });
-      setTimeout(() => {
-        fetchBots();
-      }, 500);
+      // DON'T clear bots array - causes state flash. Just refetch.
+      fetchBots();
     }
   }, [resetTrigger, fetchBots]);
 
   // Listen to SYNC trigger - just refetch without resetting state
   useEffect(() => {
     if (syncTrigger > 0) {
-      console.log('[useBotRuns] Sync trigger - refetching bot data (preserving P&L)');
+      console.log('[useBotRuns] Sync trigger - refetching bot data (preserving state)');
       fetchBots();
     }
   }, [syncTrigger, fetchBots]);
@@ -226,20 +227,26 @@ export function useBotRuns() {
   useEffect(() => {
     if (dailyResetTrigger > 0) {
       console.log('[useBotRuns] Daily reset trigger - resetting P&L after 24 hours');
-      setBots([]);
       setStats({ totalBots: 0, activeBots: 0, totalPnl: 0, totalTrades: 0 });
       setAnalysisData({ analysis: null, stats: null });
-      setTimeout(() => {
-        fetchBots();
-      }, 500);
+      // DON'T clear bots array - causes state flash. Just refetch.
+      fetchBots();
     }
   }, [dailyResetTrigger, fetchBots]);
 
-  // Subscribe to realtime updates
+  // Subscribe to realtime updates with debounce to prevent rapid state churn
   useEffect(() => {
     if (!user) return;
 
-    const isSandbox = tradingMode === 'demo';
+    // Debounced fetch to prevent rapid updates
+    const debouncedFetch = () => {
+      if (debouncedFetchRef.current) {
+        clearTimeout(debouncedFetchRef.current);
+      }
+      debouncedFetchRef.current = setTimeout(() => {
+        fetchBots();
+      }, 500); // Wait 500ms after last change before fetching
+    };
     
     const botChannel = supabase
       .channel('bot-runs-realtime')
@@ -253,7 +260,7 @@ export function useBotRuns() {
         },
         (payload) => {
           console.log('📊 Bot run update received:', payload.eventType);
-          fetchBots();
+          debouncedFetch(); // Use debounced fetch
         }
       )
       .subscribe();
@@ -273,12 +280,15 @@ export function useBotRuns() {
           if (!newTrade.is_sandbox) {
             console.log(`🔴 LIVE TRADE: ${newTrade.pair}, P&L: $${newTrade.profit_loss?.toFixed(2)}`);
           }
-          fetchBots();
+          debouncedFetch(); // Use debounced fetch
         }
       )
       .subscribe();
 
     return () => {
+      if (debouncedFetchRef.current) {
+        clearTimeout(debouncedFetchRef.current);
+      }
       supabase.removeChannel(botChannel);
       supabase.removeChannel(tradesChannel);
     };
