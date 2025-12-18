@@ -125,6 +125,7 @@ export function BotCard({
   const isExecutingRef = useRef(false); // CRITICAL: Prevent concurrent executions
   const metricsRef = useRef({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 });  // Internal metrics tracking
   const abortControllerRef = useRef<AbortController | null>(null); // CRITICAL: For cancelling pending requests
+  const pricesRef = useRef<Array<{ symbol: string; price: number; change_24h?: number }>>([]); // CRITICAL: Real-time price ref to avoid stale closures
   const tradingLoopIdRef = useRef<string | null>(null); // UUID-based loop invalidation
   
   // Calculate stop loss automatically: 20% of profit (80% lower)
@@ -181,7 +182,10 @@ export function BotCard({
     }
   }, [syncTrigger]);
 
-  // Sync with existing bot
+  // CRITICAL: Keep pricesRef updated with latest prices to avoid stale closures
+  useEffect(() => {
+    pricesRef.current = prices;
+  }, [prices]);
   useEffect(() => {
     if (existingBot) {
       const newMetrics = {
@@ -691,8 +695,8 @@ export function BotCard({
         // Real price monitoring with max 30 second hold time for demo
         const result = await profitLockStrategy.monitorPriceForExit(
           () => {
-            // Get latest price from prices array
-            const latestPrice = prices.find(p => p.symbol.toUpperCase() === symbol)?.price;
+            // CRITICAL: Read from pricesRef for real-time prices, NOT stale closure
+            const latestPrice = pricesRef.current.find(p => p.symbol.toUpperCase() === symbol)?.price;
             return latestPrice || null;
           },
           {
@@ -702,7 +706,10 @@ export function BotCard({
             stopLossPercent,
             maxHoldTimeMs: 30000, // 30 second max hold for demo
             enableTrailingStop: true,
-          }
+            positionSize, // Pass position size for proper $ calculations
+          },
+          // CRITICAL: Pass shouldCancel to exit immediately when bot is stopped
+          () => isCancelledRef.current || isStoppingRef.current
         );
 
         exitPrice = result.exitPrice;
