@@ -1187,9 +1187,9 @@ export default function Bots() {
         "flex-1 min-h-0 overflow-hidden",
         isMobile && "hidden"
       )}>
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3 h-full">
           {/* Left Column - Spot and Leverage Bot Cards */}
-          <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-hidden">
+          <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-hidden max-h-[calc(100vh-200px)]">
           <BotCard
             botType="spot"
             existingBot={spotBot}
@@ -1235,7 +1235,7 @@ export default function Bots() {
         </div>
 
         {/* Middle Column - AI Strategy Panel + Audit Dashboard + Analytics Dashboard */}
-        <div className="lg:col-span-4 flex flex-col gap-3 overflow-hidden">
+        <div className="lg:col-span-4 flex flex-col gap-3 overflow-hidden max-h-[calc(100vh-200px)]">
           {/* AI Strategy Panel */}
           <div className="min-h-[280px] flex-shrink-0">
             <AIStrategyPanel
@@ -1277,7 +1277,7 @@ export default function Bots() {
         </div>
 
         {/* Right Column - Recent Trades & Bot History */}
-        <div className="lg:col-span-3 flex flex-col gap-3 overflow-hidden">
+        <div className="lg:col-span-3 flex flex-col gap-3 overflow-hidden max-h-[calc(100vh-200px)]">
           <div className="card-terminal p-3 flex flex-col overflow-hidden flex-1">
             <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2 flex-shrink-0">
               Recent Trades

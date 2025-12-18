@@ -24,6 +24,7 @@ import { recordTradeForAudit, shouldGenerateAudit, generateAuditReport, AuditRep
 import { generateDashboards, recordProfitForDashboard, DashboardCharts } from '@/lib/dashboardGenerator';
 import { profitLockStrategy } from '@/lib/profitLockStrategy';
 import { dailyTargetAnalyzer, type TradeRecord } from '@/lib/dailyTargetAnalyzer';
+import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { toast } from 'sonner';
 import {
   Tooltip,
@@ -129,6 +130,19 @@ export function BotCard({
     holdTimeMs: number;
     maxProfit: number;
   } | null>(null);
+
+  // Adaptive trading engine for position sizing based on hit rate
+  const { 
+    positionSizing, 
+    shouldContinueTrading, 
+    getAdjustedProfitTarget,
+    progressMetrics 
+  } = useAdaptiveTradingEngine({
+    currentHitRate: metrics.hitRate,
+    dailyTarget,
+    currentPnL: metrics.currentPnL,
+    isRunning,
+  });
 
   // Recent trades history for quick review (last 5)
   const [recentTrades, setRecentTrades] = useState<Array<{
@@ -737,7 +751,15 @@ export function BotCard({
       }
 
       const leverage = botType === 'leverage' ? (leveragesRef.current[currentExchange] || 1) : 1;
-      const positionSize = localAmountPerTrade * leverage;
+      
+      // ===== ADAPTIVE POSITION SIZING based on hit rate =====
+      // Use adaptive engine when running, otherwise use static amount
+      const basePositionSize = isRunning && positionSizing.recommendedSize > 0 
+        ? Math.min(positionSizing.recommendedSize, localAmountPerTrade * 2) // Cap at 2x base
+        : localAmountPerTrade;
+      const positionSize = basePositionSize * leverage;
+      console.log(`📊 Position Size: $${positionSize.toFixed(2)} (${positionSizing.riskPercent.toFixed(1)}% risk${positionSizing.adjustedForDrawdown ? ', ⚠️ drawdown adjusted' : ''})`);
+      
       const pair = `${symbol}/USDT`;
 
       const targetProfit = Math.max(profitPerTrade, MIN_NET_PROFIT);
@@ -1362,37 +1384,51 @@ export function BotCard({
         <Progress value={Math.min(progressPercent, 100)} className="h-2" />
       </div>
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-4 gap-2 mb-3">
-        <div className="bg-secondary/50 p-2 rounded text-center">
-          <div className="text-[9px] text-muted-foreground flex items-center justify-center gap-1">
-            <DollarSign className="w-2.5 h-2.5" /> P&L
+      {/* Metrics Grid - 5 columns with adaptive position size */}
+      <div className="grid grid-cols-5 gap-1.5 mb-2">
+        <div className="bg-secondary/50 p-1.5 rounded text-center">
+          <div className="text-[8px] text-muted-foreground flex items-center justify-center gap-1">
+            <DollarSign className="w-2 h-2" /> P&L
           </div>
-          <p className={cn('text-sm font-bold font-mono', metrics.currentPnL >= 0 ? 'text-primary' : 'text-destructive')}>
+          <p className={cn('text-xs font-bold font-mono', metrics.currentPnL >= 0 ? 'text-primary' : 'text-destructive')}>
             ${metrics.currentPnL.toFixed(2)}
           </p>
         </div>
-        <div className="bg-secondary/50 p-2 rounded text-center">
-          <div className="text-[9px] text-muted-foreground flex items-center justify-center gap-1">
-            <Activity className="w-2.5 h-2.5" /> Trades
+        <div className="bg-secondary/50 p-1.5 rounded text-center">
+          <div className="text-[8px] text-muted-foreground flex items-center justify-center gap-1">
+            <Activity className="w-2 h-2" /> Trades
           </div>
-          <p className="text-sm font-bold text-foreground font-mono">{metrics.tradesExecuted}</p>
+          <p className="text-xs font-bold text-foreground font-mono">{metrics.tradesExecuted}</p>
         </div>
-        <div className="bg-secondary/50 p-2 rounded text-center">
-          <div className="text-[9px] text-muted-foreground flex items-center justify-center gap-1">
-            <Target className="w-2.5 h-2.5" /> Hit Rate
+        <div className="bg-secondary/50 p-1.5 rounded text-center">
+          <div className="text-[8px] text-muted-foreground flex items-center justify-center gap-1">
+            <Target className="w-2 h-2" /> Hit
           </div>
-          <p className="text-sm font-bold text-primary font-mono">{metrics.hitRate.toFixed(1)}%</p>
+          <p className="text-xs font-bold text-primary font-mono">{metrics.hitRate.toFixed(1)}%</p>
         </div>
-        <div className="bg-secondary/50 p-2 rounded text-center">
-          <div className="text-[9px] text-muted-foreground flex items-center justify-center gap-1">
-            <Zap className="w-2.5 h-2.5" /> TPM
+        <div className="bg-secondary/50 p-1.5 rounded text-center">
+          <div className="text-[8px] text-muted-foreground flex items-center justify-center gap-1">
+            <Zap className="w-2 h-2" /> TPM
           </div>
           <p className={cn(
-            "text-sm font-bold font-mono",
+            "text-xs font-bold font-mono",
             metrics.tradesPerMinute >= 100 ? "text-primary animate-pulse" : "text-foreground"
           )}>
             {metrics.tradesPerMinute}
+          </p>
+        </div>
+        <div className={cn(
+          "p-1.5 rounded text-center",
+          positionSizing.adjustedForDrawdown ? "bg-yellow-500/20" : "bg-secondary/50"
+        )}>
+          <div className="text-[8px] text-muted-foreground flex items-center justify-center gap-1">
+            <TrendingUp className="w-2 h-2" /> Size
+          </div>
+          <p className={cn(
+            "text-xs font-bold font-mono",
+            positionSizing.adjustedForDrawdown ? "text-yellow-400" : "text-foreground"
+          )}>
+            ${positionSizing.recommendedSize.toFixed(0)}
           </p>
         </div>
       </div>
@@ -1541,7 +1577,7 @@ export function BotCard({
       )}
 
       {/* Scrollable Configuration Section */}
-      <ScrollArea className="flex-1 min-h-0 max-h-[200px] pr-2">
+      <ScrollArea className="flex-1 min-h-0 max-h-[120px] pr-2">
         {/* Trading Strategy Toggle */}
         <div className="mb-2">
           <Label className="text-[10px] text-muted-foreground mb-1 block">Trading Strategy</Label>
@@ -1723,7 +1759,7 @@ export function BotCard({
       </ScrollArea>
 
       {/* Action Buttons */}
-      <div className="flex gap-2 mt-auto">
+      <div className="flex gap-2 mt-auto flex-shrink-0 pt-2 border-t border-border/30">
         <Button
           className={cn('flex-1 gap-2', isRunning && !isStopping ? 'btn-outline-primary' : 'btn-primary')}
           onClick={handleStartStop}
