@@ -219,7 +219,15 @@ class ProfitLockStrategyManager {
     getCurrentPrice: () => number | null,
     config: PriceMonitorConfig,
     shouldCancel?: () => boolean,
-    findNextOpportunity?: () => Promise<NextOpportunity | null>
+    findNextOpportunity?: () => Promise<NextOpportunity | null>,
+    onPriceUpdate?: (data: {
+      currentPrice: number;
+      entryPrice: number;
+      profitPercent: number;
+      profitDollars: number;
+      elapsed: number;
+      maxProfitSeen: number;
+    }) => void
   ): Promise<PriceMonitorResult> {
     const startTime = Date.now();
     const {
@@ -289,6 +297,18 @@ class ProfitLockStrategyManager {
         // Track max/min profit
         maxProfitSeen = Math.max(maxProfitSeen, profitPercent);
         minProfitSeen = Math.min(minProfitSeen, profitPercent);
+        
+        // CALLBACK: Send real-time price update to UI
+        if (onPriceUpdate) {
+          onPriceUpdate({
+            currentPrice,
+            entryPrice,
+            profitPercent,
+            profitDollars,
+            elapsed,
+            maxProfitSeen,
+          });
+        }
         
         // === TAKE PROFIT HIT ===
         const tpHit = direction === 'long' 
