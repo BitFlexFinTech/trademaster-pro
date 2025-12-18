@@ -354,15 +354,17 @@ class ProfitLockStrategyManager {
         const minGrossForNetProfit = calculateMinGrossProfit(positionSize, minNetProfit, feeRate);
         const netProfitDollars = profitDollars - totalFees;
         
-        // Calculate target profit and ratio to prevent premature exits
+        // Calculate target profit - now correctly based on passed takeProfitPercent
+        // Since BotCard calculates TP to achieve minNetProfit, targetProfit ≈ minNetProfit
         const targetProfit = (takeProfitPercent / 100) * positionSize - totalFees;
-        const profitRatio = netProfitDollars / Math.max(targetProfit, minNetProfit);
+        const profitRatio = netProfitDollars / targetProfit; // Use targetProfit directly, not Math.max
         
-        // Only SUPER_SCALP exit when we've captured at least 75% of target profit
-        // This prevents premature $0.03 exits when target is $0.50
-        if (profitRatio >= 0.75 && netProfitDollars >= minNetProfit && elapsed >= SUPER_SCALP_MIN_HOLD_MS) {
+        // SUPER_SCALP: Exit at 75%+ of target OR when minNetProfit achieved (whichever first)
+        // This allows faster exits when target is achieved
+        const minProfitThreshold = minNetProfit * 0.75; // $0.375 for $0.50 target
+        if ((profitRatio >= 0.75 || netProfitDollars >= minNetProfit) && netProfitDollars >= minProfitThreshold && elapsed >= SUPER_SCALP_MIN_HOLD_MS) {
           clearInterval(checkInterval);
-          console.log(`⚡ SUPER-SCALP: ${(profitRatio * 100).toFixed(0)}% of target captured. Gross $${profitDollars.toFixed(3)} - Fees $${totalFees.toFixed(3)} = NET $${netProfitDollars.toFixed(3)} (target: $${targetProfit.toFixed(2)})`);
+          console.log(`⚡ SUPER-SCALP: ${(profitRatio * 100).toFixed(0)}% captured. NET $${netProfitDollars.toFixed(3)} (target: $${targetProfit.toFixed(2)}, min: $${minProfitThreshold.toFixed(2)})`);
           resolve({
             exitPrice: currentPrice,
             isWin: true,
@@ -370,7 +372,7 @@ class ProfitLockStrategyManager {
             holdTimeMs: elapsed,
             maxProfitSeen,
             minProfitSeen,
-            profitDollars: netProfitDollars, // Return NET profit after fees
+            profitDollars: netProfitDollars,
           });
           return;
         }

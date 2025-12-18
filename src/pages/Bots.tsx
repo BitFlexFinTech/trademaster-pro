@@ -1184,7 +1184,7 @@ export default function Bots() {
 
       {/* Main Content Grid - Scrollable */}
       <div className={cn(
-        "flex-1 min-h-0 overflow-y-auto",
+        "flex-1 min-h-0 overflow-hidden",
         isMobile && "hidden"
       )}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3">

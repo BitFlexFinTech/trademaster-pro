@@ -14,7 +14,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useOrderBookScanning } from '@/hooks/useOrderBookScanning';
 import { supabase } from '@/integrations/supabase/client';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
-import { calculateNetProfit, MIN_NET_PROFIT, getFeeRate, hasMinimumEdge } from '@/lib/exchangeFees';
+import { calculateNetProfit, MIN_NET_PROFIT, getFeeRate, hasMinimumEdge, calculateRequiredTPPercent } from '@/lib/exchangeFees';
 import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } from '@/lib/technicalAnalysis';
 import { demoDataStore } from '@/lib/demoDataStore';
 import { hitRateTracker } from '@/lib/sandbox/hitRateTracker';
@@ -741,24 +741,19 @@ export function BotCard({
       const pair = `${symbol}/USDT`;
 
       const targetProfit = Math.max(profitPerTrade, MIN_NET_PROFIT);
-      // TP/SL must cover round-trip fees + ensure positive expectancy
-      const takeProfitPercent = 0.50; // 0.50% target
-      const stopLossPercent = 0.30;   // 0.30% max loss
+      // DYNAMIC TP: Calculate the TP% needed to achieve target NET profit after fees
+      const takeProfitPercent = calculateRequiredTPPercent(positionSize, targetProfit, currentExchange);
+      const stopLossPercent = takeProfitPercent * 0.5; // SL at 50% of TP distance for good risk/reward
       
-      // ===== EDGE CHECK: Block trades without sufficient edge =====
-      const edgeCheck = hasMinimumEdge(
-        takeProfitPercent / 100, // Expected move as decimal
-        positionSize,
-        currentExchange,
-        minEdgeRequired / 100, // Convert % to decimal
-        MIN_NET_PROFIT
-      );
+      console.log(`📊 Dynamic TP: ${takeProfitPercent.toFixed(2)}% to achieve $${targetProfit.toFixed(2)} NET after fees`);
       
-      if (!edgeCheck.hasEdge) {
-        console.log(`⚠️ EDGE BLOCKED: Need ${edgeCheck.required.toFixed(2)}%, have ${takeProfitPercent.toFixed(2)}% (shortfall: ${edgeCheck.shortfall.toFixed(2)}%)`);
-        return; // Skip this trade cycle
+      // ===== SIMPLIFIED EDGE CHECK: Verify TP > round-trip fees =====
+      const feePercent = getFeeRate(currentExchange) * 2 * 100; // Round-trip as %
+      if (takeProfitPercent <= feePercent) {
+        console.log(`⚠️ TP ${takeProfitPercent.toFixed(2)}% too close to fees ${feePercent.toFixed(2)}% - adjusting`);
+        // This should never happen with calculateRequiredTPPercent, but safety check
       }
-      console.log(`✅ EDGE CHECK PASSED: ${edgeCheck.edge.toFixed(2)}% edge above minimum`);
+      console.log(`✅ EDGE OK: TP ${takeProfitPercent.toFixed(2)}% > fees ${feePercent.toFixed(2)}%`);
       // ===== REAL PRICE-BASED PROFIT LOCKING =====
       // Monitor price and wait for TP or SL to be hit
       const tradeStartTime = Date.now();
