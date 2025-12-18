@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -72,7 +72,7 @@ export function BotCard({
   const { user } = useAuth();
   // Use separate triggers: resetTrigger for full reset, dailyResetTrigger for 24h P&L reset, syncTrigger for data sync
   const { mode: tradingMode, virtualBalance, setVirtualBalance, resetTrigger, dailyResetTrigger, syncTrigger, vaultProfit, initializeSessionBalance, sessionStartBalance, profitVault, getTotalVaultedProfits } = useTradingMode();
-  const { notifyTrade, notifyTakeProfit, notifyDailyProgress, resetProgressNotifications } = useNotifications();
+  const { notifyTrade, notifyTakeProfit, notifyDailyProgress, resetProgressNotifications, soundEnabled, toggleSound, playWinSound, playLossSound } = useNotifications();
 
   // Order book scanning for guaranteed profit opportunities
   const activeExchanges = EXCHANGE_CONFIGS.map(e => e.name);
@@ -114,6 +114,31 @@ export function BotCard({
   const [isStopping, setIsStopping] = useState(false);
   const [connectionHealth, setConnectionHealth] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
   const [pendingTrades, setPendingTrades] = useState<Array<{ orderId: string; exchange: string; symbol: string; tradeId?: string }>>([]);
+  
+  // Active trade tracking for real-time display
+  const [activeTrade, setActiveTrade] = useState<{
+    pair: string;
+    direction: 'long' | 'short';
+    entryPrice: number;
+    currentPrice: number;
+    profitPercent: number;
+    profitDollars: number;
+    holdTimeMs: number;
+    maxProfit: number;
+  } | null>(null);
+
+  // Recent trades history for quick review (last 5)
+  const [recentTrades, setRecentTrades] = useState<Array<{
+    id: string;
+    pair: string;
+    direction: 'long' | 'short';
+    entryPrice: number;
+    exitPrice: number;
+    pnl: number;
+    holdTimeMs: number;
+    timestamp: number;
+    isWin: boolean;
+  }>>([]);
   
   // Refs for trading loop - CRITICAL: Use refs to avoid dependency issues
   const lastPricesRef = useRef<Record<string, number>>({});
@@ -185,7 +210,34 @@ export function BotCard({
   // CRITICAL: Keep pricesRef updated with latest prices to avoid stale closures
   useEffect(() => {
     pricesRef.current = prices;
-  }, [prices]);
+    // Log price updates to verify WebSocket is feeding fresh data
+    if (isRunning && prices.length > 0) {
+      const btcPrice = prices.find(p => p.symbol === 'BTCUSDT')?.price;
+      const ethPrice = prices.find(p => p.symbol === 'ETHUSDT')?.price;
+      if (import.meta.env.DEV && Math.random() < 0.1) { // Log 10% of updates to avoid spam
+        console.log(`[BotCard] Price update: BTC=$${btcPrice?.toFixed(2)} ETH=$${ethPrice?.toFixed(2)} (${prices.length} pairs)`);
+      }
+    }
+  }, [prices, isRunning]);
+
+  // Callback for real-time price updates from profitLockStrategy
+  const onPriceUpdate = useCallback((data: {
+    currentPrice: number;
+    entryPrice: number;
+    profitPercent: number;
+    profitDollars: number;
+    elapsed: number;
+    maxProfitSeen: number;
+  }) => {
+    setActiveTrade(prev => prev ? {
+      ...prev,
+      currentPrice: data.currentPrice,
+      profitPercent: data.profitPercent,
+      profitDollars: data.profitDollars,
+      holdTimeMs: data.elapsed,
+      maxProfit: Math.max(prev.maxProfit, data.maxProfitSeen),
+    } : null);
+  }, []);
   useEffect(() => {
     if (existingBot) {
       const newMetrics = {
@@ -692,6 +744,18 @@ export function BotCard({
       let holdTimeMs: number;
 
       try {
+        // Set active trade for real-time UI display
+        setActiveTrade({
+          pair,
+          direction,
+          entryPrice: currentPrice,
+          currentPrice: currentPrice,
+          profitPercent: 0,
+          profitDollars: 0,
+          holdTimeMs: 0,
+          maxProfit: 0,
+        });
+
         // Real price monitoring with max 30 second hold time for demo
         const result = await profitLockStrategy.monitorPriceForExit(
           () => {
@@ -709,7 +773,11 @@ export function BotCard({
             positionSize, // Pass position size for proper $ calculations
           },
           // CRITICAL: Pass shouldCancel to exit immediately when bot is stopped
-          () => isCancelledRef.current || isStoppingRef.current
+          () => isCancelledRef.current || isStoppingRef.current,
+          // findNextOpportunity - not used here
+          undefined,
+          // CALLBACK: Real-time price updates for UI
+          onPriceUpdate
         );
 
         exitPrice = result.exitPrice;
@@ -727,6 +795,9 @@ export function BotCard({
         exitReason = 'ERROR';
         holdTimeMs = Date.now() - tradeStartTime;
       }
+
+      // Clear active trade
+      setActiveTrade(null);
 
       // Check if bot was stopped during monitoring
       if (isCancelledRef.current || isStoppingRef.current) {
@@ -767,6 +838,26 @@ export function BotCard({
         holdTimeMs,
       };
       dailyTargetAnalyzer.recordTrade(tradeRecord);
+      
+      // Record to recent trades for UI display
+      setRecentTrades(prev => [{
+        id: crypto.randomUUID(),
+        pair,
+        direction,
+        entryPrice: currentPrice,
+        exitPrice,
+        pnl: tradePnl,
+        holdTimeMs,
+        timestamp: Date.now(),
+        isWin,
+      }, ...prev.slice(0, 4)]); // Keep last 5
+      
+      // Play appropriate sound
+      if (isWin) {
+        playWinSound();
+      } else {
+        playLossSound();
+      }
       
       console.log(`✅ Trade: ${pair} ${direction} | Entry: $${currentPrice.toFixed(4)} | Exit: $${exitPrice.toFixed(4)} | P&L: $${tradePnl.toFixed(2)} | Reason: ${exitReason}`);
       
@@ -1202,6 +1293,24 @@ export function BotCard({
           <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[10px]">
             {isRunning ? 'Running' : 'Stopped'}
           </Badge>
+          {/* Sound Toggle */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleSound}
+                  className="h-6 w-6 p-0"
+                >
+                  {soundEnabled ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3 text-muted-foreground" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {soundEnabled ? 'Sound On - Click to mute' : 'Sound Off - Click to enable'}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
 
@@ -1248,6 +1357,149 @@ export function BotCard({
           </p>
         </div>
       </div>
+
+      {/* Active Trade Monitor - Real-time Price vs Entry */}
+      {isRunning && activeTrade && (
+        <div className="mb-3 p-2 bg-secondary/30 rounded-lg border border-primary/20">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Radar className="w-4 h-4 text-primary animate-pulse" />
+              <span className="text-[10px] font-medium text-muted-foreground">LIVE TRADE</span>
+              <span className="text-[10px] font-mono text-foreground">{activeTrade.pair}</span>
+            </div>
+            <Badge variant={activeTrade.direction === 'long' ? 'default' : 'destructive'} className="text-[9px]">
+              {activeTrade.direction.toUpperCase()}
+            </Badge>
+          </div>
+          
+          {/* Price Display Grid */}
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-secondary/50 p-1.5 rounded">
+              <div className="text-[8px] text-muted-foreground">Entry</div>
+              <div className="text-xs font-mono text-foreground">
+                ${activeTrade.entryPrice.toFixed(activeTrade.entryPrice < 1 ? 6 : 2)}
+              </div>
+            </div>
+            <div className={cn(
+              "p-1.5 rounded border-2 transition-all duration-100",
+              activeTrade.profitDollars > 0 ? "bg-primary/20 border-primary" : 
+              activeTrade.profitDollars < 0 ? "bg-destructive/20 border-destructive" : "bg-secondary/50 border-transparent"
+            )}>
+              <div className="text-[8px] text-muted-foreground">Current</div>
+              <div className={cn(
+                "text-xs font-mono font-bold",
+                activeTrade.profitDollars > 0 ? "text-primary" : 
+                activeTrade.profitDollars < 0 ? "text-destructive" : "text-foreground"
+              )}>
+                ${activeTrade.currentPrice.toFixed(activeTrade.currentPrice < 1 ? 6 : 2)}
+              </div>
+            </div>
+            <div className="bg-secondary/50 p-1.5 rounded">
+              <div className="text-[8px] text-muted-foreground">P&L</div>
+              <div className={cn(
+                "text-xs font-mono font-bold",
+                activeTrade.profitDollars > 0 ? "text-primary" : 
+                activeTrade.profitDollars < 0 ? "text-destructive" : "text-foreground"
+              )}>
+                {activeTrade.profitDollars >= 0 ? '+' : ''}${activeTrade.profitDollars.toFixed(3)}
+              </div>
+            </div>
+          </div>
+          
+          {/* Progress Bars */}
+          <div className="mt-2 space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[8px] text-muted-foreground w-10">Profit:</span>
+              <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
+                <div 
+                  className={cn(
+                    "h-full transition-all duration-100",
+                    activeTrade.profitPercent >= 0 ? "bg-primary" : "bg-destructive"
+                  )}
+                  style={{ width: `${Math.min(Math.abs(activeTrade.profitPercent) * 100, 100)}%` }}
+                />
+              </div>
+              <span className={cn(
+                "text-[9px] font-mono w-14 text-right",
+                activeTrade.profitPercent >= 0 ? "text-primary" : "text-destructive"
+              )}>
+                {activeTrade.profitPercent >= 0 ? '+' : ''}{(activeTrade.profitPercent * 100).toFixed(3)}%
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[8px] text-muted-foreground w-10">Hold:</span>
+              <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-yellow-500 transition-all duration-100"
+                  style={{ width: `${Math.min((activeTrade.holdTimeMs / 30000) * 100, 100)}%` }}
+                />
+              </div>
+              <span className="text-[9px] font-mono text-muted-foreground w-14 text-right">
+                {(activeTrade.holdTimeMs / 1000).toFixed(1)}s
+              </span>
+            </div>
+          </div>
+          
+          <div className="mt-1.5 flex items-center justify-between text-[8px] text-muted-foreground">
+            <span>Max seen: +${activeTrade.maxProfit.toFixed(3)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Trades - Last 5 Completed */}
+      {recentTrades.length > 0 && (
+        <div className="mb-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <History className="w-3 h-3 text-muted-foreground" />
+            <span className="text-[10px] font-medium text-muted-foreground">RECENT TRADES</span>
+            <Badge variant="secondary" className="text-[8px] h-4 px-1">
+              {recentTrades.filter(t => t.isWin).length}/{recentTrades.length} wins
+            </Badge>
+          </div>
+          <div className="space-y-1 max-h-[100px] overflow-y-auto">
+            {recentTrades.map((trade) => (
+              <div 
+                key={trade.id}
+                className={cn(
+                  "flex items-center justify-between p-1.5 rounded text-[9px] border",
+                  trade.isWin 
+                    ? "bg-primary/10 border-primary/20" 
+                    : "bg-destructive/10 border-destructive/20"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  {trade.isWin ? (
+                    <TrendingUp className="w-3 h-3 text-primary" />
+                  ) : (
+                    <TrendingDown className="w-3 h-3 text-destructive" />
+                  )}
+                  <span className="font-medium">{trade.pair}</span>
+                  <Badge 
+                    variant="outline" 
+                    className={cn(
+                      "text-[7px] h-3 px-1",
+                      trade.direction === 'long' ? "text-primary" : "text-destructive"
+                    )}
+                  >
+                    {trade.direction.toUpperCase()}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    "font-mono font-bold",
+                    trade.isWin ? "text-primary" : "text-destructive"
+                  )}>
+                    {trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)}
+                  </span>
+                  <span className="text-muted-foreground font-mono">
+                    {(trade.holdTimeMs / 1000).toFixed(1)}s
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Scrollable Configuration Section */}
       <ScrollArea className="flex-1 min-h-0 max-h-[200px] pr-2">

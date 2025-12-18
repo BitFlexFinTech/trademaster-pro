@@ -1,10 +1,19 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 
-// Notification sound (base64 encoded short beep)
+// Notification sounds - Base64 encoded for instant playback
 const NOTIFICATION_SOUND = 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2Onpx2VFF+joqMhYF9gX+Dg4N/fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+';
+
+// Win sound - pleasant rising chime
+const WIN_SOUND = 'data:audio/wav;base64,UklGRl9vT19teleVuZSIiIiIiIiIiIiIkZWVlZWVlZWVlZGRkZGNjY2NjY2JiYmJiYmJhYWFhYWFhYGBgYGBgYF9fX19fX19e3t7e3t7e3d3d3d3d3dzc3Nzc3NzVFRUVFRUVFRUUFBQUFBQUExMTExMTExJSUlJSUlJSUVFRUVFRUVBQUFBQUFBQT09PT09PT05OTk5OTk5OTk5KSkpKSkpKSklJSUlJSUlJSEhISEhISEhHR0dHR0dHR0ZGRkZGRkZGRUVFRUVFRUVEREREREREQ0NDQ0NDQ0NCQkJCQkJCQkFBQUFBQUFBQEBAQEBAQEA/Pz8/Pz8/Pz4+Pj4+Pj4+PT09PT09PTw8PDw8PDw7Ozs7Ozs7Ozo6Ojo6Ojo5OTk5OTk5ODg4ODg4ODc3Nzc3Nzc2NjY2NjY2NTU1NTU1NTQ0NDQ0NDQzMzMzMzMzMjIyMjIyMjExMTExMTEwMDAwMDAwLy8vLy8vLy4uLi4uLi4tLS0tLS0tLCwsLCwsLCsrKysrKysqKioqKioqKSkpKSkpKSgoKCgoKCgnJycnJycnJiYmJiYmJiUlJSUlJSUkJCQkJCQkIyMjIyMjIyIiIiIiIiIhISEhISEhICAgICAgIB8fHx8fHx8eHh4eHh4eHR0dHR0dHRwcHBwcHBwbGxsbGxsbGhoaGhoaGhkZGRkZGRkYGBgYGBgYFxcXFxcXFxYWFhYWFhYVFRUVFRUVFBQUFBQUFBMTExMTExMSEhISEhISERERERERERERJCQkJCQkJCYmJiYmJiYoKCgoKCgoKisrKysrKystLS0tLS0tLy8vLy8vLzExMTExMTEzMzMzMzMzNTU1NTU1NTc3Nzc3Nzc5OTk5OTk5Ozs7Ozs7Oz09PT09PT0/Pz8/Pz8/QUFBQUFBQUNDQ0NDQ0NFRUVFRUVFRUdHR0dHR0dJSUlJSUlJSUtLS0tLS0tNTU1NTU1NT09PT09PT1FRUVFRUVFTV1VVVVVVVVVXV1dXV1dXWVlZWVlZWVtbW1tbW1tdXV1dXV1dX19fX19fX2FhYWFhYWFjY2NjY2NjZWVlZWVlZWdnZ2dnZ2dpampqampqa2tra2tra21tbW1tbW9vb29vb29xcXFxcXFxc3Nzc3Nzc3V1dXV1dXV3d3d3d3d3eXl5eXl5eXt7e3t7e3t9fX19fX19f39/f39/f4GBgYGBgYGDg4ODg4ODhYWFhYWFhYeHh4eHh4eJiYmJiYmJi4uLi4uLi42NjY2NjY2Pj4+Pj4+PkZGRkZGRkZOTk5OTk5OVlZWVlZWVl5eXl5eXl5mZmZmZmZmbm5ubm5ubnZ2dnZ2dnQ==';
+
+// Loss sound - subtle low tone
+const LOSS_SOUND = 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAESsAACJWAAABAAgAZGF0YQoGAACBhYqFbF1fdH2Onpx2VFF+joqMhYF9gX+Dg4N/fn5+f35+fXx8e3t6eXl4d3Z1dHNycXBvbm1sa2ppaGdmZWRjYmFgX15dXFtaWVhXVlVUU1JRUE9OTUxLSklIR0ZFRENCQUA/Pj08Ozo5ODc2NTQzMjEwLy4tLCsqKSgnJiUkIyIhIB8eHRwbGhkYFxYVFBMSERAPDg0MCwoJCAcGBQQDAgEA';
+
+// Target reached sound - celebration fanfare
+const TARGET_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAESsAACJWAAABAAgAZGF0YQoGAACBhYqFbF1fdJKVmZydnZ2dm5qYlpSSkI6MioiGhIKAfn17eXd1c3FvbWtpZ2VjYV9dW1lXVVNRUE5MS0lHRURCQD8+PDs6ODc2NDMyMTAvLi0sKyopKCcmJSQjIiEgHx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQBCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKTlJWWl5iZmpucnZ6foKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr/AwcLDxMXGx8jJysvMzc7P0NHS09TV1tfY2drb3N3e3+Dh4uPk5ebn6Onq6+zt7u/w8fLz9PX29/j5+vv8/f7/';
 
 interface NotificationSettings {
   soundEnabled: boolean;
@@ -16,17 +25,42 @@ export function useNotifications() {
   const { toast } = useToast();
   const { user } = useAuth();
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const winAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lossAudioRef = useRef<HTMLAudioElement | null>(null);
+  const targetAudioRef = useRef<HTMLAudioElement | null>(null);
+  
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    const stored = localStorage.getItem('notificationSoundEnabled');
+    return stored !== null ? stored === 'true' : true;
+  });
+  const soundEnabledRef = useRef(soundEnabled);
+  
   const settingsRef = useRef<NotificationSettings>({
     soundEnabled: true,
     pushEnabled: true,
     profitThreshold: 0.5,
   });
 
-  // Initialize audio element
+  // Initialize audio elements
   useEffect(() => {
     audioRef.current = new Audio(NOTIFICATION_SOUND);
     audioRef.current.volume = 0.5;
+    
+    winAudioRef.current = new Audio(WIN_SOUND);
+    winAudioRef.current.volume = 0.6;
+    
+    lossAudioRef.current = new Audio(LOSS_SOUND);
+    lossAudioRef.current.volume = 0.4;
+    
+    targetAudioRef.current = new Audio(TARGET_SOUND);
+    targetAudioRef.current.volume = 0.7;
   }, []);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+    localStorage.setItem('notificationSoundEnabled', String(soundEnabled));
+  }, [soundEnabled]);
 
   // Fetch user notification settings
   useEffect(() => {
@@ -51,12 +85,35 @@ export function useNotifications() {
     fetchSettings();
   }, [user]);
 
+  const toggleSound = useCallback(() => {
+    setSoundEnabled(prev => !prev);
+  }, []);
+
   const playSound = useCallback(() => {
-    if (settingsRef.current.soundEnabled && audioRef.current) {
+    if (soundEnabledRef.current && settingsRef.current.soundEnabled && audioRef.current) {
       audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(() => {
-        // Ignore autoplay errors
-      });
+      audioRef.current.play().catch(() => {});
+    }
+  }, []);
+
+  const playWinSound = useCallback(() => {
+    if (soundEnabledRef.current && settingsRef.current.soundEnabled && winAudioRef.current) {
+      winAudioRef.current.currentTime = 0;
+      winAudioRef.current.play().catch(() => {});
+    }
+  }, []);
+
+  const playLossSound = useCallback(() => {
+    if (soundEnabledRef.current && settingsRef.current.soundEnabled && lossAudioRef.current) {
+      lossAudioRef.current.currentTime = 0;
+      lossAudioRef.current.play().catch(() => {});
+    }
+  }, []);
+
+  const playTargetSound = useCallback(() => {
+    if (soundEnabledRef.current && settingsRef.current.soundEnabled && targetAudioRef.current) {
+      targetAudioRef.current.currentTime = 0;
+      targetAudioRef.current.play().catch(() => {});
     }
   }, []);
 
@@ -82,7 +139,7 @@ export function useNotifications() {
 
   const notifyHighProfit = useCallback((pair: string, profit: number, buyExchange: string, sellExchange: string) => {
     if (profit >= settingsRef.current.profitThreshold) {
-      playSound();
+      playWinSound();
       
       toast({
         title: '🚀 High Profit Opportunity!',
@@ -95,7 +152,7 @@ export function useNotifications() {
         `${pair}: ${profit.toFixed(2)}% profit between ${buyExchange} and ${sellExchange}`
       );
     }
-  }, [playSound, toast, sendPushNotification]);
+  }, [playWinSound, toast, sendPushNotification]);
 
   const notifySignal = useCallback((pair: string, direction: 'long' | 'short', profit: number) => {
     playSound();
@@ -158,7 +215,12 @@ export function useNotifications() {
       }
     }
     
-    playSound();
+    // Play appropriate sound based on profit
+    if (profit >= 0) {
+      playWinSound();
+    } else {
+      playLossSound();
+    }
     
     const isProfit = profit >= 0;
     toast({
@@ -174,21 +236,21 @@ export function useNotifications() {
         `${direction.toUpperCase()} ${pair} on ${exchange}: ${isProfit ? '+' : ''}$${profit.toFixed(2)}`
       );
     }
-  }, [playSound, toast, sendPushNotification]);
+  }, [playWinSound, playLossSound, toast, sendPushNotification]);
 
   const notifyTakeProfit = useCallback((
     level: number,
     pair: string,
     profit: number
   ) => {
-    playSound();
+    playWinSound();
     
     toast({
       title: `🎯 Take Profit ${level} Hit!`,
       description: `${pair}: +$${profit.toFixed(2)} locked in`,
       duration: 5000,
     });
-  }, [playSound, toast]);
+  }, [playWinSound, toast]);
 
   // Track which progress thresholds have been notified
   const notifiedThresholdsRef = useRef<Set<number>>(new Set());
@@ -204,7 +266,13 @@ export function useNotifications() {
     for (const threshold of thresholds) {
       if (progressPercent >= threshold && !notifiedThresholdsRef.current.has(threshold)) {
         notifiedThresholdsRef.current.add(threshold);
-        playSound();
+        
+        // Special celebration sound for 100%
+        if (threshold === 100) {
+          playTargetSound();
+        } else {
+          playWinSound();
+        }
         
         const messages: Record<number, { title: string; desc: string }> = {
           50: { title: '📈 Halfway There!', desc: `${botName} at 50% of daily target ($${currentPnL.toFixed(2)}/$${dailyTarget})` },
@@ -226,7 +294,7 @@ export function useNotifications() {
         break; // Only notify one threshold at a time
       }
     }
-  }, [playSound, toast, sendPushNotification]);
+  }, [playWinSound, playTargetSound, toast, sendPushNotification]);
 
   const resetProgressNotifications = useCallback(() => {
     notifiedThresholdsRef.current.clear();
@@ -241,7 +309,12 @@ export function useNotifications() {
     notifyDailyProgress,
     resetProgressNotifications,
     playSound,
+    playWinSound,
+    playLossSound,
+    playTargetSound,
     requestPushPermission,
     saveAlert,
+    soundEnabled,
+    toggleSound,
   };
 }

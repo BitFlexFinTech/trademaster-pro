@@ -66,6 +66,11 @@ export function useBinanceWebSocket() {
               lastUpdated: Date.now(),
             };
 
+            // VERBOSE LOGGING: Show real-time price updates for debugging
+            if (import.meta.env.DEV && ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'].includes(ticker.symbol)) {
+              console.log(`[WS] ${ticker.symbol}: $${ticker.price.toFixed(2)} (${ticker.priceChangePercent >= 0 ? '+' : ''}${ticker.priceChangePercent.toFixed(2)}%)`);
+            }
+
             setTickers(prev => {
               const updated = new Map(prev);
               updated.set(ticker.symbol, ticker);
