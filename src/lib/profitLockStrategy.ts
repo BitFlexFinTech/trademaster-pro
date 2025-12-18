@@ -55,8 +55,8 @@ const PAUSE_DURATION_MS = 30000;  // 30 second pause when hit rate drops (reduce
 const DEFAULT_MIN_PROFIT_PERCENT = 0.01; // 0.01% minimum profit (before fees)
 const DEFAULT_MIN_PROFIT_DOLLARS = 0.01; // $0.01 minimum profit - base value (fees added dynamically)
 const DEFAULT_FEE_RATE = 0.001;          // Default 0.1% fee rate per side
-const DEFAULT_MIN_NET_PROFIT = 0.50;     // Default $0.50 minimum NET profit after fees
-const MAX_EXTENDED_HOLD_MULTIPLIER = 10; // Hold up to 10x max time to find profit (was 2x)
+const DEFAULT_MIN_NET_PROFIT = 0.25;     // Default $0.25 minimum NET profit after fees (lowered for faster locks)
+const MAX_EXTENDED_HOLD_MULTIPLIER = 2;  // Hold up to 2x max time (60s total) then force exit
 const SUPER_SCALP_MIN_HOLD_MS = 200;    // Minimum 200ms before super-scalp exit - FAST SCALPING
 
 /**
@@ -503,11 +503,21 @@ class ProfitLockStrategyManager {
               }
             }
             
-            // NO opportunity found OR still in loss - KEEP HOLDING
-            // STRICT RULE: we only exit when we have profit >= $0.01
-            // This prevents ANY losses from ever occurring
-            console.log(`⏳ Extended hold CONTINUES: Waiting for profit. Current: $${profitDollars.toFixed(3)}`);
-            // DO NOT resolve here - keep monitoring indefinitely until profitable
+            // FORCE EXIT: Max time reached - exit to unblock trading
+            // We've waited long enough, accept current P&L and continue
+            clearInterval(checkInterval);
+            const isForceWin = netProfitDollars > 0;
+            console.log(`⏰ FORCE EXIT: Max hold ${extendedMaxTime/1000}s reached. Exiting with NET $${netProfitDollars.toFixed(3)} (${isForceWin ? 'WIN' : 'LOSS'})`);
+            resolve({
+              exitPrice: currentPrice,
+              isWin: isForceWin,
+              exitReason: isForceWin ? 'TIME_EXIT' : 'STOP_LOSS',
+              holdTimeMs: elapsed,
+              maxProfitSeen,
+              minProfitSeen,
+              profitDollars: netProfitDollars,
+            });
+            return;
           }
         }
       }, 50); // Check every 50ms - FAST SCALPING for rapid profit capture
