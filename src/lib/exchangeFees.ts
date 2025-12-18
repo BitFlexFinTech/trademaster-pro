@@ -130,3 +130,18 @@ export const hasMinimumEdge = (
     shortfall: edge < 0 ? Math.abs(edge * 100) : 0,
   };
 };
+
+/**
+ * Calculate the TP percentage needed to achieve target NET profit after fees
+ * Formula: (targetNetProfit + roundTripFees) / positionSize * 100
+ */
+export const calculateRequiredTPPercent = (
+  positionSize: number,
+  targetNetProfit: number,
+  exchange: string
+): number => {
+  const feeRate = getFeeRate(exchange);
+  const roundTripFees = positionSize * feeRate * 2;
+  const requiredGross = targetNetProfit + roundTripFees;
+  return (requiredGross / positionSize) * 100;
+};
