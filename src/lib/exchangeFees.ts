@@ -9,8 +9,8 @@ export const EXCHANGE_FEES: Record<string, number> = {
   hyperliquid: 0.0002, // 0.02%
 };
 
-// Minimum net profit after fees - require meaningful profit
-export const MIN_NET_PROFIT = 0.50;
+// Minimum net profit after fees - lowered to allow smaller positions
+export const MIN_NET_PROFIT = 0.05;
 
 // Minimum edge required above fees (as decimal, e.g., 0.003 = 0.3%)
 export const DEFAULT_MIN_EDGE_PERCENT = 0.003;

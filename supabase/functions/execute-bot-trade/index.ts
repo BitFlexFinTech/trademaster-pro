@@ -205,7 +205,7 @@ const MAX_POSITION_SIZE_CAP = 5000; // Hard cap at $5000 for safety
 const DAILY_LOSS_LIMIT = -5; // Stop if daily loss exceeds $5
 const MAX_SLIPPAGE_PERCENT = 0.3; // 0.3% max slippage tolerance
 const PROFIT_LOCK_TIMEOUT_MS = 30000; // 30 second timeout for limit order profit lock
-const LIMIT_ORDER_PROFIT_TARGET = 0.003; // 0.3% profit target for limit exits
+const LIMIT_ORDER_PROFIT_TARGET = 0.005; // 0.5% profit target for limit exits (increased for better margin)
 
 // ============ FEE CONSTANTS FOR ACCURATE P&L ============
 const EXCHANGE_FEES: Record<string, number> = {
@@ -217,7 +217,7 @@ const EXCHANGE_FEES: Record<string, number> = {
   kucoin: 0.001,     // 0.1%
   hyperliquid: 0.0002, // 0.02%
 };
-const MIN_NET_PROFIT = 0.10; // Minimum $0.10 net profit after fees required
+const MIN_NET_PROFIT = 0.05; // Minimum $0.05 net profit after fees required (lowered for smaller positions)
 
 interface BotTradeRequest {
   botId: string;
@@ -758,13 +758,7 @@ serve(async (req) => {
     // Base position size from target and user cap
     let positionSize = Math.min(profitTarget / (expectedMove * leverage), userPositionSize);
 
-    // In SPOT mode, start with a conservative cap (e.g. $30)
-    if (mode === 'spot') {
-      positionSize = Math.min(positionSize, 30);
-      console.log(`SPOT mode: Base conservative position size: $${positionSize}`);
-    }
-
-    // In LIVE mode, further cap by available stablecoin balance on the selected exchange
+    // Fetch available stablecoin balance on the selected exchange FIRST
     let availableBalance = 0;
     try {
       const { data: holdings, error: holdingsError } = await supabase
@@ -784,6 +778,23 @@ serve(async (req) => {
       }
     } catch (e) {
       console.error("Unexpected error fetching portfolio holdings for position sizing:", e);
+    }
+
+    // Dynamic position sizing based on actual balance (10% max risk per trade)
+    const MAX_RISK_PERCENT = 0.10; // 10% of balance per trade
+    const ABSOLUTE_MIN_POSITION = 30; // Never below $30
+    
+    if (mode === 'spot') {
+      // Calculate position as 10% of balance, minimum $30
+      const balanceBasedPosition = availableBalance > 0 ? availableBalance * MAX_RISK_PERCENT : ABSOLUTE_MIN_POSITION;
+      positionSize = Math.max(ABSOLUTE_MIN_POSITION, balanceBasedPosition);
+      
+      // Cap at 20% of available balance for safety
+      if (availableBalance > 0) {
+        positionSize = Math.min(positionSize, availableBalance * 0.20);
+      }
+      
+      console.log(`SPOT mode: Dynamic position size: $${positionSize.toFixed(2)} (balance: $${availableBalance.toFixed(2)}, 10% risk)`);
     }
 
     if (!isSandbox) {
