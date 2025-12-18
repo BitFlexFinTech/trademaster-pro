@@ -32,6 +32,7 @@ import { BotSettingsDrawer } from '@/components/bots/BotSettingsDrawer';
 import { AIStrategyPanel } from '@/components/bots/AIStrategyPanel';
 import { AuditDashboardPanel } from '@/components/bots/AuditDashboardPanel';
 import { EmergencyKillBanner } from '@/components/bots/EmergencyKillBanner';
+import { RealTimeProfitDashboard } from '@/components/bots/RealTimeProfitDashboard';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { AuditReport } from '@/lib/selfAuditReporter';
 import { DashboardCharts } from '@/lib/dashboardGenerator';
@@ -1137,6 +1138,9 @@ export default function Bots() {
               className="h-full"
             />
           </div>
+          
+          {/* Real-Time Profit Dashboard */}
+          <RealTimeProfitDashboard className="flex-shrink-0" />
           
           {/* Audit Dashboard Panel */}
           {(auditReport || dashboards) && (
