@@ -66,6 +66,17 @@ export function AIStrategyPanel({
   const [appliedId, setAppliedId] = useState<string | null>(null);
   const [countdowns, setCountdowns] = useState<Record<string, number>>({});
 
+  // Deduplicate recommendations - MUST be at top level (not inside JSX)
+  const dedupedRecommendations = useMemo(() => {
+    const seen = new Set<string>();
+    return recommendations.filter(rec => {
+      const key = `${rec.type}-${rec.title}-${String(rec.currentValue)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [recommendations]);
+
   // Update countdowns every second
   useEffect(() => {
     if (recentlyApplied.length === 0) return;
@@ -247,16 +258,7 @@ export function AIStrategyPanel({
         ) : (
           <ScrollArea className="flex-1">
             <div className="space-y-1.5 pr-2">
-              {useMemo(() => {
-                // Deduplicate recommendations by type + title + currentValue
-                const seen = new Set<string>();
-                return recommendations.filter(rec => {
-                  const key = `${rec.type}-${rec.title}-${String(rec.currentValue)}`;
-                  if (seen.has(key)) return false;
-                  seen.add(key);
-                  return true;
-                });
-              }, [recommendations]).map((rec, index) => {
+              {dedupedRecommendations.map((rec, index) => {
                 const PriorityIcon = getPriorityIcon(rec.priority);
                 const isExpanded = expandedRec === rec.id;
                 const isApplying = applyingId === rec.id;
