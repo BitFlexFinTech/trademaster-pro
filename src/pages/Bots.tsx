@@ -167,6 +167,7 @@ export default function Bots() {
       ...acc,
       [config.name]: Math.min(3, config.maxLeverage),
     }), {} as Record<string, number>),
+    autoSpeedAdjust: true,          // NEW: Toggle for automatic speed adjustment based on hit rate
   });
   
   // Exchange minimum trade amounts
@@ -288,9 +289,9 @@ export default function Bots() {
     }
   }, [suggestedPositionSize]);
 
-  // AUTO-APPLY high priority trade speed recommendations to protect profits
+  // AUTO-APPLY high priority trade speed recommendations to protect profits (only if autoSpeedAdjust is enabled)
   useEffect(() => {
-    if (tradeSpeedRecommendation?.priority === 'high') {
+    if (tradeSpeedRecommendation?.priority === 'high' && botConfig.autoSpeedAdjust) {
       // Auto-apply to protect profits
       setBotConfig(prev => ({
         ...prev,
@@ -302,7 +303,7 @@ export default function Bots() {
         duration: 5000,
       });
     }
-  }, [tradeSpeedRecommendation]);
+  }, [tradeSpeedRecommendation, botConfig.autoSpeedAdjust]);
 
   // AUTO-APPLY AI Daily Target Recommendations (CRITICAL FIX)
   // This ensures daily target, profit per trade, position amount, and speed are auto-updated
@@ -1202,6 +1203,7 @@ export default function Bots() {
             perTradeStopLoss={botConfig.perTradeStopLoss}
             amountPerTrade={botConfig.amountPerTrade}
             tradeIntervalMs={botConfig.tradeIntervalMs}
+            autoSpeedAdjust={botConfig.autoSpeedAdjust}
             onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
             isAnyBotRunning={!!spotBot || !!leverageBot}
             onAuditGenerated={(report, charts) => {
@@ -1222,6 +1224,7 @@ export default function Bots() {
             perTradeStopLoss={botConfig.perTradeStopLoss}
             amountPerTrade={botConfig.amountPerTrade}
             tradeIntervalMs={botConfig.tradeIntervalMs}
+            autoSpeedAdjust={botConfig.autoSpeedAdjust}
             onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
             isAnyBotRunning={!!spotBot || !!leverageBot}
             onAuditGenerated={(report, charts) => {
