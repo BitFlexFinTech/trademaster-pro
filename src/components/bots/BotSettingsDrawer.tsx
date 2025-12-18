@@ -5,11 +5,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Settings, DollarSign, TrendingUp, Target, Zap } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Settings, DollarSign, TrendingUp, Target, Zap, Gauge, AlertTriangle } from 'lucide-react';
 import { EXCHANGE_CONFIGS, TOP_PAIRS } from '@/lib/exchangeConfig';
 import { cn } from '@/lib/utils';
 
-interface BotSettings {
+export interface BotSettings {
   dailyStopLoss: number;
   perTradeStopLoss: number;
   profitPerTrade: number;
@@ -18,6 +19,7 @@ interface BotSettings {
   maxPositionSize: number;
   focusPairs: string[];
   leverageDefaults: Record<string, number>;
+  autoSpeedAdjust: boolean;
 }
 
 interface BotSettingsDrawerProps {
@@ -248,7 +250,38 @@ export function BotSettingsDrawer({ settings, onSettingsChange, disabled }: BotS
                   className="h-8 text-sm"
                 />
                 <span className="text-[10px] text-muted-foreground">100-60000ms (Demo: 100+, Live: 5000+)</span>
+          </div>
+
+          {/* Auto Speed Adjustment Toggle */}
+          <div className="space-y-4 p-3 bg-secondary/30 border border-border rounded-lg">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Gauge className="w-4 h-4 text-primary" />
+              Speed Control
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <Label className="text-xs text-foreground">Auto Speed Adjustment</Label>
+                <span className="text-[10px] text-muted-foreground block">
+                  Automatically slow down when hit rate drops below 95%
+                </span>
               </div>
+              <Switch
+                checked={localSettings.autoSpeedAdjust}
+                onCheckedChange={(checked) => setLocalSettings(prev => ({
+                  ...prev,
+                  autoSpeedAdjust: checked
+                }))}
+              />
+            </div>
+            
+            {!localSettings.autoSpeedAdjust && (
+              <div className="flex items-center gap-1 text-[10px] text-warning">
+                <AlertTriangle className="w-3 h-3" />
+                Manual mode: Trade speed will use your interval setting regardless of hit rate
+              </div>
+            )}
+          </div>
             </div>
           </div>
           {/* Leverage Defaults */}

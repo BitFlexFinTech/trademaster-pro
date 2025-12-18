@@ -47,6 +47,7 @@ interface BotCardProps {
   perTradeStopLoss?: number;
   amountPerTrade?: number;
   tradeIntervalMs?: number;
+  autoSpeedAdjust?: boolean;
   onConfigChange?: (key: string, value: number) => void;
   isAnyBotRunning?: boolean;
   onAuditGenerated?: (report: AuditReport, dashboards: DashboardCharts) => void;
@@ -65,6 +66,7 @@ export function BotCard({
   perTradeStopLoss = 0.10,
   amountPerTrade = 100,
   tradeIntervalMs = 200,
+  autoSpeedAdjust = true,
   onConfigChange,
   isAnyBotRunning = false,
   onAuditGenerated,
@@ -635,8 +637,9 @@ export function BotCard({
       }
       
       // TRADE SPEED AUTO-ADJUST: Check if we can trade based on rolling hit rate
-      if (!tradeSpeedController.canTrade()) {
-        console.log('⏳ Trade speed cooldown active, skipping trade');
+      // Only enforce if autoSpeedAdjust is enabled
+      if (autoSpeedAdjust && !tradeSpeedController.canTrade()) {
+        console.log('⏳ Trade speed cooldown active, skipping trade (auto-speed enabled)');
         return;
       }
       
