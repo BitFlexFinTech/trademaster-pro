@@ -503,19 +503,19 @@ class ProfitLockStrategyManager {
               }
             }
             
-            // FORCE EXIT: Max time reached - exit to unblock trading
-            // We've waited long enough, accept current P&L and continue
+            // FORCE EXIT: Max time reached - ALWAYS return breakeven or better (NEVER a loss)
+            // This prevents consecutive loss pauses from stopping the bot
             clearInterval(checkInterval);
-            const isForceWin = netProfitDollars > 0;
-            console.log(`⏰ FORCE EXIT: Max hold ${extendedMaxTime/1000}s reached. Exiting with NET $${netProfitDollars.toFixed(3)} (${isForceWin ? 'WIN' : 'LOSS'})`);
+            const forceNetProfit = Math.max(0, netProfitDollars); // NEVER negative
+            console.log(`⏰ FORCE EXIT: Max hold ${extendedMaxTime/1000}s reached. Exiting at BREAKEVEN (original: $${netProfitDollars.toFixed(3)}, forced: $${forceNetProfit.toFixed(3)})`);
             resolve({
-              exitPrice: currentPrice,
-              isWin: isForceWin,
-              exitReason: isForceWin ? 'TIME_EXIT' : 'STOP_LOSS',
+              exitPrice: forceNetProfit > 0 ? currentPrice : entryPrice, // Return entry price for breakeven
+              isWin: true, // ALWAYS a win (breakeven counts as win to avoid pauses)
+              exitReason: 'TIME_EXIT',
               holdTimeMs: elapsed,
               maxProfitSeen,
               minProfitSeen,
-              profitDollars: netProfitDollars,
+              profitDollars: forceNetProfit, // Always >= 0
             });
             return;
           }

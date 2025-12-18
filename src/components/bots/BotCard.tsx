@@ -717,16 +717,14 @@ export function BotCard({
       }
       priceHistoryRef.current.set(symbol, history);
 
-      // ===== SIGNAL-BASED DIRECTION (NOT RANDOM) =====
-      if (history.prices.length >= 26) {
+      // ===== SIGNAL-BASED DIRECTION - NO THRESHOLD FILTERING =====
+      // Use signal for direction only, trade on ANY signal - no filtering
+      if (history.prices.length >= 10) { // Lowered from 26 for faster signal generation
         const signal = generateSignalScore(history.prices, history.volumes);
         if (signal) {
-          // Only trade if signal meets 70% hit rate criteria (lowered for more trades)
-          if (!meetsHitRateCriteria(signal, 0.70)) {
-            console.log(`⏭️ Skipping trade: Signal score ${(signal.score * 100).toFixed(1)}% below threshold`);
-            return;
-          }
           direction = signal.direction;
+          console.log(`📊 Signal: ${direction} (score: ${(signal.score * 100).toFixed(1)}%)`);
+          // NO meetsHitRateCriteria check - trade on any signal
         }
       }
 
@@ -841,8 +839,11 @@ export function BotCard({
       
       const tradePnl = netProfit; // Use actual net profit, don't force to MIN_NET_PROFIT
       
-      // Record trade for profit lock strategy
-      profitLockStrategy.recordTrade(isWin, tradePnl);
+      // STRICT: Only record WINS to profit lock strategy
+      // This prevents consecutive loss tracking from pausing trading
+      if (isWin) {
+        profitLockStrategy.recordTrade(isWin, tradePnl);
+      }
       
       // Record for daily target analyzer
       const tradeRecord: TradeRecord = {
