@@ -33,6 +33,8 @@ import { AIStrategyPanel } from '@/components/bots/AIStrategyPanel';
 import { AuditDashboardPanel } from '@/components/bots/AuditDashboardPanel';
 import { EmergencyKillBanner } from '@/components/bots/EmergencyKillBanner';
 import { RealTimeProfitDashboard } from '@/components/bots/RealTimeProfitDashboard';
+import { RiskManagementPanel } from '@/components/bots/RiskManagementPanel';
+import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { AuditReport } from '@/lib/selfAuditReporter';
 import { DashboardCharts } from '@/lib/dashboardGenerator';
@@ -208,6 +210,35 @@ export default function Bots() {
   const combinedHitRate = tradesExecuted > 0
     ? ((spotBot?.tradesExecuted || 0) * (spotBot?.hitRate || 0) + (leverageBot?.tradesExecuted || 0) * (leverageBot?.hitRate || 0)) / tradesExecuted
     : 70;
+
+  // Adaptive Trading Engine for risk management
+  const {
+    portfolioMetrics,
+    positionSizing,
+    shouldContinueTrading,
+    drawdownAlertLevel,
+    positionReductionReasons,
+  } = useAdaptiveTradingEngine({
+    currentHitRate: combinedHitRate,
+    dailyTarget: activeBot?.dailyTarget || 40,
+    currentPnL,
+    isRunning: !!activeBot,
+  });
+
+  // Handlers for risk management panel
+  const handleReduceRisk = useCallback(() => {
+    setBotConfig(prev => ({
+      ...prev,
+      amountPerTrade: Math.max(10, prev.amountPerTrade * 0.5),
+    }));
+    toast.success('Risk reduced', { description: 'Position size halved' });
+  }, []);
+
+  const handlePauseAllBots = useCallback(async () => {
+    if (spotBot) await stopBot(spotBot.id);
+    if (leverageBot) await stopBot(leverageBot.id);
+    toast.info('Trading paused', { description: 'All bots stopped' });
+  }, [spotBot, leverageBot, stopBot]);
 
   // Build USDT float per exchange map for AI monitor
   const usdtFloatPerExchange = useMemo(() => {
@@ -1253,6 +1284,22 @@ export default function Bots() {
           {/* Real-Time Profit Dashboard */}
           <RealTimeProfitDashboard className="flex-shrink-0" />
           
+          {/* Risk Management Panel */}
+          <RiskManagementPanel
+            currentDrawdown={portfolioMetrics.drawdownPercent}
+            maxDrawdown={15}
+            currentRiskPercent={positionSizing.riskPercent}
+            recommendedSize={positionSizing.recommendedSize}
+            baseSize={botConfig.amountPerTrade}
+            adjustedForDrawdown={positionSizing.adjustedForDrawdown}
+            reductionReasons={positionReductionReasons}
+            alertLevel={drawdownAlertLevel}
+            availableBalance={portfolioMetrics.availableBalance}
+            isRunning={!!activeBot}
+            onPauseTrading={handlePauseAllBots}
+            onReduceRisk={handleReduceRisk}
+            className="flex-shrink-0"
+          />
           {/* Audit Dashboard Panel */}
           {(auditReport || dashboards) && (
             <div className="flex-shrink-0">

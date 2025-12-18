@@ -35,6 +35,14 @@ const AGGRESSIVE_CONFIG = {
   maxPositionPercent: 10,  // Max 10% of portfolio per trade
 };
 
+const DRAWDOWN_THRESHOLDS = {
+  warning: 5,      // Yellow alert, reduce 30%
+  high: 10,        // Orange alert, reduce 50%
+  critical: 15,    // Red alert, halt trading
+};
+
+export type DrawdownAlertLevel = 'safe' | 'warning' | 'high' | 'critical';
+
 export function useAdaptiveTradingEngine({
   currentHitRate,
   dailyTarget,
@@ -191,11 +199,40 @@ export function useAdaptiveTradingEngine({
     };
   }, [currentPnL, dailyTarget, getAdjustedProfitTarget]);
 
+  /**
+   * Calculate drawdown alert level based on current drawdown
+   */
+  const drawdownAlertLevel = useMemo((): DrawdownAlertLevel => {
+    if (portfolioMetrics.drawdownPercent >= DRAWDOWN_THRESHOLDS.critical) return 'critical';
+    if (portfolioMetrics.drawdownPercent >= DRAWDOWN_THRESHOLDS.high) return 'high';
+    if (portfolioMetrics.drawdownPercent >= DRAWDOWN_THRESHOLDS.warning) return 'warning';
+    return 'safe';
+  }, [portfolioMetrics.drawdownPercent]);
+
+  /**
+   * Get reasons why position size was reduced
+   */
+  const positionReductionReasons = useMemo((): string[] => {
+    const reasons: string[] = [];
+    if (portfolioMetrics.drawdownPercent >= DRAWDOWN_THRESHOLDS.warning) {
+      reasons.push(`Drawdown > ${DRAWDOWN_THRESHOLDS.warning}%`);
+    }
+    if (currentHitRate < 90) {
+      reasons.push('Hit rate < 90%');
+    } else if (currentHitRate < AGGRESSIVE_CONFIG.hitRateThreshold) {
+      reasons.push('Hit rate < 95%');
+    }
+    return reasons;
+  }, [portfolioMetrics.drawdownPercent, currentHitRate]);
+
   return {
     portfolioMetrics,
     positionSizing,
     shouldContinueTrading,
     getAdjustedProfitTarget,
     progressMetrics,
+    drawdownAlertLevel,
+    positionReductionReasons,
+    drawdownThresholds: DRAWDOWN_THRESHOLDS,
   };
 }
