@@ -228,10 +228,10 @@ export function BotSettingsDrawer({ settings, onSettingsChange, disabled }: BotS
                   value={localSettings.amountPerTrade}
                   onChange={(e) => setLocalSettings(prev => ({ 
                     ...prev, 
-                    amountPerTrade: parseFloat(e.target.value) || 100 
+                    amountPerTrade: parseFloat(e.target.value) || 5 
                   }))}
-                  min={10}
-                  step={10}
+                  min={5}
+                  step={1}
                   className="h-8 text-sm"
                 />
               </div>
