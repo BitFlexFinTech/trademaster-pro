@@ -189,6 +189,35 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
     return S;
   }, [sessionStartBalance, baseBalancePerExchange]);
 
+  // Cancel stale orders before fetching balances to free up locked USDT
+  const cancelStaleOrders = useCallback(async (maxAgeSeconds: number = 60) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return 0;
+      
+      const { data, error } = await supabase.functions.invoke('cancel-stale-orders', {
+        body: { maxAgeSeconds },
+      });
+      
+      if (error) {
+        console.warn('[STALE ORDERS] Failed to cancel:', error);
+        return 0;
+      }
+      
+      if (data?.cancelledCount > 0) {
+        console.log(`[STALE ORDERS] Cancelled ${data.cancelledCount} stale orders to free up USDT`);
+        toast.info(`Cancelled ${data.cancelledCount} stale orders`, {
+          description: 'USDT freed up for trading',
+        });
+      }
+      
+      return data?.cancelledCount || 0;
+    } catch (err) {
+      console.warn('[STALE ORDERS] Error:', err);
+      return 0;
+    }
+  }, []);
+
   // CRITICAL: Fetch real exchange balances from database - SINGLE SOURCE OF TRUTH
   const fetchExchangeBalances = useCallback(async () => {
     try {
@@ -249,6 +278,9 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
 
   const triggerSync = useCallback(async () => {
     try {
+      // CRITICAL: Cancel stale orders FIRST to free up locked USDT
+      await cancelStaleOrders(60); // Cancel orders older than 60 seconds
+      
       const { data, error } = await supabase.functions.invoke('sync-exchange-balances');
       
       if (error) throw error;
@@ -277,7 +309,7 @@ export function TradingModeProvider({ children }: { children: ReactNode }) {
         description: 'Could not sync exchange balances. Try again.',
       });
     }
-  }, [fetchExchangeBalances]);
+  }, [fetchExchangeBalances, cancelStaleOrders]);
 
   const setMode = useCallback((newMode: 'demo' | 'live') => {
     setModeState(newMode);

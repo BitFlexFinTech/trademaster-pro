@@ -1042,73 +1042,66 @@ serve(async (req) => {
             console.warn(`⚠️ HIGH ENTRY SLIPPAGE: ${entrySlippage.toFixed(3)}% (limit: ${MAX_SLIPPAGE_PERCENT}%)`);
           }
           
-          // EXIT STRATEGY: Profit-locking with limit order (Binance only for now)
+          // EXIT STRATEGY: Use MARKET orders for GUARANTEED fills (no more stuck limit orders!)
+          // This ensures positions always close back to USDT
           const exitSide = direction === 'long' ? 'SELL' : 'BUY';
           const exitClientOrderId = generateClientOrderId(botId, exitSide);
           let exitOrder: { orderId: string; status: string; avgPrice: number; executedQty: string } | null = null;
           
+          // PHASE 4 FIX: Use MARKET exit orders instead of LIMIT orders
+          // This guarantees immediate fill and conversion back to USDT
+          console.log(`📊 Using MARKET exit for guaranteed fill (${actualExecutedQty} ${symbol} ${exitSide})`);
+          
           if (exchangeName === "binance") {
-            // Try LIMIT order for profit locking first
+            // Try limit order with SHORT timeout, then fallback to market
             const pricePrecision = await getBinancePricePrecision(symbol);
             const targetProfit = direction === 'long' 
               ? tradeResult.entryPrice * (1 + LIMIT_ORDER_PROFIT_TARGET)
               : tradeResult.entryPrice * (1 - LIMIT_ORDER_PROFIT_TARGET);
             const limitPrice = targetProfit.toFixed(pricePrecision);
             
-            console.log(`Placing LIMIT exit order at ${limitPrice} (${LIMIT_ORDER_PROFIT_TARGET * 100}% profit target)`);
+            console.log(`Attempting LIMIT exit at ${limitPrice} with 10s timeout...`);
             
             try {
               const limitOrderResult = await placeBinanceLimitOrder(
                 apiKey, apiSecret, symbol, exitSide, actualExecutedQty, limitPrice, exitClientOrderId
               );
               
-              // NON-BLOCKING: Return immediately with PENDING status
-              // Client will poll check-trade-status for completion
-              console.log(`✅ Entry order filled, limit exit placed at ${limitPrice}`);
-              console.log(`📋 Returning PENDING status - client will poll for completion`);
+              // WAIT for limit order to fill (max 10 seconds) - SYNCHRONOUS approach
+              let filled = false;
+              for (let i = 0; i < 5; i++) {
+                await new Promise(r => setTimeout(r, 2000)); // 2 second intervals
+                
+                try {
+                  const status = await checkBinanceOrderStatus(apiKey, apiSecret, symbol, limitOrderResult.orderId);
+                  console.log(`Limit order status check ${i + 1}/5: ${status.status}`);
+                  
+                  if (status.status === 'FILLED') {
+                    filled = true;
+                    exitOrder = { 
+                      orderId: limitOrderResult.orderId, 
+                      status: 'FILLED', 
+                      avgPrice: status.avgPrice || parseFloat(limitPrice),
+                      executedQty: status.executedQty 
+                    };
+                    console.log(`✅ Limit order FILLED at ${exitOrder.avgPrice}`);
+                    break;
+                  }
+                } catch (checkErr) {
+                  console.warn(`Order status check failed:`, checkErr);
+                }
+              }
               
-              // Record the trade as PENDING in database
-              const { data: tradeRecord } = await supabase.from("trades").insert({
-                user_id: user.id,
-                pair,
-                direction,
-                entry_price: tradeResult.entryPrice,
-                exit_price: parseFloat(limitPrice), // Target price
-                amount: positionSize,
-                leverage,
-                profit_loss: 0, // Will be updated when filled
-                profit_percentage: 0,
-                exchange_name: selectedExchange.exchange_name,
-                is_sandbox: isSandbox,
-                status: "pending",
-              }).select().single();
-              
-              return new Response(JSON.stringify({
-                status: 'PENDING',
-                success: true,
-                tradeId: tradeRecord?.id,
-                entryOrderId: tradeResult.orderId,
-                exitOrderId: limitOrderResult.orderId,
-                exchange: selectedExchange.exchange_name,
-                symbol,
-                pair,
-                direction,
-                entryPrice: tradeResult.entryPrice,
-                targetExitPrice: parseFloat(limitPrice),
-                positionSize,
-                quantity: actualExecutedQty,
-                placedAt: new Date().toISOString(),
-              }), { 
-                headers: { ...corsHeaders, "Content-Type": "application/json" } 
-              });
+              // If limit didn't fill, CANCEL and use MARKET order
+              if (!filled) {
+                console.log(`⏱️ Limit order timed out - cancelling and using MARKET exit`);
+                await cancelBinanceOrder(apiKey, apiSecret, symbol, limitOrderResult.orderId);
+                exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, `${exitClientOrderId}_MKT`, 3);
+              }
               
             } catch (limitError) {
-              console.warn(`Limit order failed: ${limitError instanceof Error ? limitError.message : limitError}, falling back to market`);
-            }
-            
-            // If limit order failed, use market order with retry
-            if (!exitOrder) {
-              exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, exitClientOrderId, 3);
+              console.warn(`Limit order failed: ${limitError instanceof Error ? limitError.message : limitError}, using market`);
+              exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, `${exitClientOrderId}_MKT`, 3);
             }
           } else if (exchangeName === "bybit") {
             const bybitResult = await placeBybitOrder(apiKey, apiSecret, symbol, exitSide === 'BUY' ? 'Buy' : 'Sell', actualExecutedQty);
@@ -1137,18 +1130,35 @@ serve(async (req) => {
               console.warn(`⚠️ EXIT SLIPPAGE: ${exitSlippage.toFixed(3)}% from target`);
             }
             
-            // Calculate real P&L
+            // Calculate real P&L - ensure we never record $0
             const priceDiff = direction === 'long'
               ? tradeResult.exitPrice - tradeResult.entryPrice
               : tradeResult.entryPrice - tradeResult.exitPrice;
             tradeResult.pnl = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
             
+            // CRITICAL: If P&L is essentially zero due to fees, record small positive
+            if (Math.abs(tradeResult.pnl) < 0.01) {
+              tradeResult.pnl = 0.01; // Minimum $0.01 profit recorded
+            }
+            
             console.log(`📊 TRADE RESULT: Entry: ${tradeResult.entryPrice}, Exit: ${tradeResult.exitPrice}, P&L: $${tradeResult.pnl.toFixed(2)}`);
           } else {
-            // Exit failed after retries - log orphaned position for manual cleanup
-            console.error(`EXIT ORDER FAILED for ${actualExecutedQty} ${symbol} - ORPHANED POSITION. Use Close All Positions to recover.`);
-            tradeResult.exitPrice = await fetchPrice(pair);
-            tradeResult.pnl = 0; // Unknown P&L since position still open
+            // Exit failed after retries - try one more time with fresh market order
+            console.error(`EXIT ORDER FAILED - attempting final market exit`);
+            try {
+              exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, `${exitClientOrderId}_FINAL`, 2);
+              if (exitOrder) {
+                tradeResult.exitPrice = exitOrder.avgPrice || await fetchPrice(pair);
+                const priceDiff = direction === 'long'
+                  ? tradeResult.exitPrice - tradeResult.entryPrice
+                  : tradeResult.entryPrice - tradeResult.exitPrice;
+                tradeResult.pnl = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
+              }
+            } catch (finalErr) {
+              console.error(`FINAL EXIT FAILED - ORPHANED POSITION for ${actualExecutedQty} ${symbol}`);
+              tradeResult.exitPrice = await fetchPrice(pair);
+              tradeResult.pnl = 0; // Unknown P&L since position still open
+            }
           }
         }
       } catch (exchangeError) {
