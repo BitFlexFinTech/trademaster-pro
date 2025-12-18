@@ -48,7 +48,8 @@ interface BotStats {
 
 export function useBotRuns() {
   const { user } = useAuth();
-  const { resetTrigger, mode: tradingMode } = useTradingMode();
+  // Use separate triggers for different purposes
+  const { resetTrigger, syncTrigger, dailyResetTrigger, mode: tradingMode } = useTradingMode();
   const [bots, setBots] = useState<BotRun[]>([]);
   const [stats, setStats] = useState<BotStats>({ totalBots: 0, activeBots: 0, totalPnl: 0, totalTrades: 0 });
   const [loading, setLoading] = useState(true);
@@ -112,7 +113,6 @@ export function useBotRuns() {
     }
 
     try {
-      // Check if bot with same name is already running - prevent duplicates
       const { data: existingBot } = await supabase
         .from('bot_runs')
         .select('*')
@@ -201,26 +201,46 @@ export function useBotRuns() {
     fetchBots();
   }, [fetchBots]);
 
-  // Listen to reset trigger - clear bots immediately
+  // Listen to FULL RESET trigger - clear bots completely (manual demo reset)
   useEffect(() => {
     if (resetTrigger > 0) {
+      console.log('[useBotRuns] Reset trigger - clearing all bot data');
       setBots([]);
       setStats({ totalBots: 0, activeBots: 0, totalPnl: 0, totalTrades: 0 });
       setAnalysisData({ analysis: null, stats: null });
-      // Delay refetch to allow database deletes to complete
       setTimeout(() => {
         fetchBots();
       }, 500);
     }
   }, [resetTrigger, fetchBots]);
 
-  // Subscribe to realtime updates for bot_runs AND trades tables
+  // Listen to SYNC trigger - just refetch without resetting state
+  useEffect(() => {
+    if (syncTrigger > 0) {
+      console.log('[useBotRuns] Sync trigger - refetching bot data (preserving P&L)');
+      fetchBots();
+    }
+  }, [syncTrigger, fetchBots]);
+
+  // Listen to DAILY RESET trigger - 24-hour P&L reset
+  useEffect(() => {
+    if (dailyResetTrigger > 0) {
+      console.log('[useBotRuns] Daily reset trigger - resetting P&L after 24 hours');
+      setBots([]);
+      setStats({ totalBots: 0, activeBots: 0, totalPnl: 0, totalTrades: 0 });
+      setAnalysisData({ analysis: null, stats: null });
+      setTimeout(() => {
+        fetchBots();
+      }, 500);
+    }
+  }, [dailyResetTrigger, fetchBots]);
+
+  // Subscribe to realtime updates
   useEffect(() => {
     if (!user) return;
 
     const isSandbox = tradingMode === 'demo';
     
-    // Channel for bot_runs
     const botChannel = supabase
       .channel('bot-runs-realtime')
       .on(
@@ -238,7 +258,6 @@ export function useBotRuns() {
       )
       .subscribe();
 
-    // Channel for trades - for Live mode real trade updates
     const tradesChannel = supabase
       .channel('trades-realtime')
       .on(
@@ -251,11 +270,9 @@ export function useBotRuns() {
         },
         (payload) => {
           const newTrade = payload.new as { is_sandbox: boolean; pair: string; profit_loss: number };
-          // Only log for non-sandbox trades (real trades)
           if (!newTrade.is_sandbox) {
             console.log(`🔴 LIVE TRADE: ${newTrade.pair}, P&L: $${newTrade.profit_loss?.toFixed(2)}`);
           }
-          // Refetch to update metrics
           fetchBots();
         }
       )
@@ -267,7 +284,6 @@ export function useBotRuns() {
     };
   }, [user, fetchBots, tradingMode]);
 
-  // Analyze bot performance
   const analyzeBot = async (botId: string, botName: string) => {
     console.log(`📊 Starting AI analysis for bot ${botName} (${botId})...`);
     setAnalysisLoading(true);
@@ -304,7 +320,6 @@ export function useBotRuns() {
     }
   };
 
-  // Stop bot with automatic analysis
   const stopBotWithAnalysis = async (botId: string, botName: string) => {
     if (!user) return;
 
@@ -329,7 +344,6 @@ export function useBotRuns() {
       toast.success(`${botName} stopped`);
       fetchBots();
       
-      // Trigger analysis after stopping
       await analyzeBot(botId, botName);
     } catch (error) {
       console.error('❌ Error stopping bot:', error);
@@ -337,7 +351,6 @@ export function useBotRuns() {
     }
   };
 
-  // Helper methods for specific bot types
   const getSpotBot = () => bots.find(b => b.botName === 'GreenBack Spot' && b.status === 'running');
   const getLeverageBot = () => bots.find(b => b.botName === 'GreenBack Leverage' && b.status === 'running');
   
@@ -347,7 +360,6 @@ export function useBotRuns() {
   const startLeverageBot = (dailyTarget: number, profitPerTrade: number, isSandbox: boolean = true) => 
     startBot('GreenBack Leverage', 'leverage', dailyTarget, profitPerTrade, isSandbox);
 
-  // Update bot configuration (persists to database)
   const updateBotConfig = async (botId: string, config: { profitPerTrade?: number; dailyTarget?: number; stopLoss?: number }) => {
     if (!user) return;
 
@@ -364,7 +376,7 @@ export function useBotRuns() {
 
       if (error) throw error;
       
-      await fetchBots(); // Refetch to sync all components
+      await fetchBots();
       return true;
     } catch (error) {
       console.error('Error updating bot config:', error);
@@ -387,7 +399,6 @@ export function useBotRuns() {
     getLeverageBot,
     startSpotBot,
     startLeverageBot,
-    // Analysis state
     analyzeBot,
     analysisData,
     analysisLoading,

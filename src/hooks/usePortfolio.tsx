@@ -23,7 +23,8 @@ interface PortfolioData {
 
 export function usePortfolio() {
   const { user } = useAuth();
-  const { mode: tradingMode, virtualBalance, resetTrigger, lastSyncTime, demoAllocation } = useTradingMode();
+  // Use syncTrigger for data refresh (does NOT reset P&L)
+  const { mode: tradingMode, virtualBalance, syncTrigger, lastSyncTime, demoAllocation, exchangeBalances } = useTradingMode();
   const { prices } = useRealtimePrices();
   
   const [portfolio, setPortfolio] = useState<PortfolioData>({
@@ -35,11 +36,9 @@ export function usePortfolio() {
   });
   const [loading, setLoading] = useState(true);
   
-  // Request deduplication - prevent concurrent fetches
   const fetchingRef = useRef(false);
 
   const fetchPortfolio = useCallback(async () => {
-    // Prevent concurrent fetches (request deduplication)
     if (fetchingRef.current) {
       if (import.meta.env.DEV) console.log('Portfolio fetch already in progress, skipping...');
       return;
@@ -51,11 +50,8 @@ export function usePortfolio() {
       if (tradingMode === 'demo') {
         setLoading(true);
         
-        // Generate demo holdings from virtual balance with real prices
         const demoHoldings = generateDemoPortfolio(virtualBalance, prices);
         const { totalValue, change24h, changePercent } = calculateDemoPortfolioValue(virtualBalance, prices);
-        
-        // Calculate available USDT from demo allocation
         const availableUSDT = virtualBalance * (demoAllocation.USDT / 100);
         
         setPortfolio({
@@ -70,87 +66,83 @@ export function usePortfolio() {
         return;
       }
 
-      // Live mode - fetch from database
+      // Live mode - use exchangeBalances from context (single source of truth)
       if (!user) {
         setLoading(false);
         return;
       }
 
-      // Fetch user holdings
-      const { data: holdings, error: holdingsError } = await supabase
-        .from('portfolio_holdings')
-        .select('*')
-        .eq('user_id', user.id);
+      // Use exchangeBalances from TradingModeContext for consistency
+      if (exchangeBalances.length > 0) {
+        const totalValue = exchangeBalances.reduce((sum, b) => sum + b.totalValue, 0);
+        const availableUSDT = exchangeBalances.reduce((sum, b) => sum + b.usdtBalance, 0);
+        
+        // Fetch detailed holdings for display
+        const { data: holdings, error: holdingsError } = await supabase
+          .from('portfolio_holdings')
+          .select('*')
+          .eq('user_id', user.id);
 
-      if (holdingsError) throw holdingsError;
+        if (holdingsError) throw holdingsError;
 
-      // Use real-time prices from hook instead of fetching again
-      const priceMap = new Map(prices.map(p => [p.symbol, { price: p.price, change: p.change_24h }]));
-      
-      let totalValue = 0;
-      let totalChange = 0;
-      let availableUSDT = 0;
-      const calculatedHoldings: Holding[] = [];
+        const priceMap = new Map(prices.map(p => [p.symbol, { price: p.price, change: p.change_24h }]));
+        
+        let totalChange = 0;
+        const calculatedHoldings: Holding[] = [];
 
-      holdings?.forEach(holding => {
-        // Track USDT/USDC/USD as available for trading
-        if (['USDT', 'USDC', 'USD'].includes(holding.asset_symbol)) {
-          availableUSDT += holding.quantity;
-          // Still add to total value (stablecoins = $1)
-          totalValue += holding.quantity;
-          calculatedHoldings.push({
-            symbol: holding.asset_symbol,
-            quantity: holding.quantity,
-            value: holding.quantity,
-            percent: 0,
-            averageBuyPrice: 1,
-          });
-        } else {
-          const priceData = priceMap.get(holding.asset_symbol);
-          if (priceData) {
-            const value = holding.quantity * priceData.price;
-            const changeAmount = value * (priceData.change || 0) / 100;
-            totalValue += value;
-            totalChange += changeAmount;
-            
+        holdings?.forEach(holding => {
+          if (['USDT', 'USDC', 'USD'].includes(holding.asset_symbol)) {
             calculatedHoldings.push({
               symbol: holding.asset_symbol,
               quantity: holding.quantity,
-              value,
+              value: holding.quantity,
               percent: 0,
-              averageBuyPrice: holding.average_buy_price || 0,
+              averageBuyPrice: 1,
             });
+          } else {
+            const priceData = priceMap.get(holding.asset_symbol);
+            if (priceData) {
+              const value = holding.quantity * priceData.price;
+              const changeAmount = value * (priceData.change || 0) / 100;
+              totalChange += changeAmount;
+              
+              calculatedHoldings.push({
+                symbol: holding.asset_symbol,
+                quantity: holding.quantity,
+                value,
+                percent: 0,
+                averageBuyPrice: holding.average_buy_price || 0,
+              });
+            }
           }
-        }
-      });
+        });
 
-      // Calculate percentages
-      calculatedHoldings.forEach(h => {
-        h.percent = totalValue > 0 ? Math.round((h.value / totalValue) * 100) : 0;
-      });
+        calculatedHoldings.forEach(h => {
+          h.percent = totalValue > 0 ? Math.round((h.value / totalValue) * 100) : 0;
+        });
 
-      // Sort by value descending
-      calculatedHoldings.sort((a, b) => b.value - a.value);
+        calculatedHoldings.sort((a, b) => b.value - a.value);
 
-      setPortfolio({
-        totalValue,
-        change24h: totalChange,
-        changePercent: totalValue > 0 ? (totalChange / (totalValue - totalChange)) * 100 : 0,
-        holdings: calculatedHoldings.slice(0, 5),
-        availableUSDT,
-      });
+        setPortfolio({
+          totalValue,
+          change24h: totalChange,
+          changePercent: totalValue > 0 ? (totalChange / (totalValue - totalChange)) * 100 : 0,
+          holdings: calculatedHoldings.slice(0, 5),
+          availableUSDT,
+        });
+      }
     } catch (error) {
       console.error('Error fetching portfolio:', error);
     } finally {
       setLoading(false);
       fetchingRef.current = false;
     }
-  }, [user, tradingMode, virtualBalance, prices, demoAllocation]);
+  }, [user, tradingMode, virtualBalance, prices, demoAllocation, exchangeBalances]);
 
-  // Refetch when mode, virtualBalance, prices, or resetTrigger changes
+  // Refetch when syncTrigger changes (not resetTrigger - that would reset P&L)
   useEffect(() => {
     fetchPortfolio();
-  }, [fetchPortfolio, resetTrigger]);
+  }, [fetchPortfolio, syncTrigger]);
 
   return { portfolio, loading, refetch: fetchPortfolio, tradingMode, lastSyncTime };
 }
