@@ -170,6 +170,7 @@ export function BotCard({
   const pricesRef = useRef<Array<{ symbol: string; price: number; change_24h?: number }>>([]); // CRITICAL: Real-time price ref to avoid stale closures
   const leveragesRef = useRef<Record<string, number>>(leverages); // CRITICAL: Leverage ref to avoid restarting trading loop
   const tradingLoopIdRef = useRef<string | null>(null); // UUID-based loop invalidation
+  const prevBotStatusRef = useRef<string | null>(null); // CRITICAL: Track previous bot status to distinguish real stops from data flashes
   
   // Calculate stop loss automatically: 20% of profit (80% lower)
   const calculatedStopLoss = profitPerTrade * 0.2;
@@ -266,25 +267,44 @@ export function BotCard({
       maxProfit: Math.max(prev.maxProfit, data.maxProfitSeen),
     } : null);
   }, []);
+  // FIXED: Merge metrics from existingBot WITHOUT causing state flash
   useEffect(() => {
     if (existingBot) {
-      const newMetrics = {
+      // Update tracked status
+      prevBotStatusRef.current = existingBot.status;
+      
+      // Only update metrics if values actually changed (prevents unnecessary re-renders)
+      setMetrics(prev => {
+        const newPnL = existingBot.currentPnl || 0;
+        const newTrades = existingBot.tradesExecuted || 0;
+        const newHitRate = existingBot.hitRate || 0;
+        const newDrawdown = existingBot.maxDrawdown || 0;
+        
+        // Only update if different
+        if (prev.currentPnL !== newPnL || prev.tradesExecuted !== newTrades || 
+            prev.hitRate !== newHitRate || prev.maxDrawdown !== newDrawdown) {
+          return {
+            ...prev,
+            currentPnL: newPnL,
+            tradesExecuted: newTrades,
+            hitRate: newHitRate,
+            maxDrawdown: newDrawdown,
+          };
+        }
+        return prev;
+      });
+      
+      // Update ref for internal tracking
+      metricsRef.current = {
         currentPnL: existingBot.currentPnl || 0,
         tradesExecuted: existingBot.tradesExecuted || 0,
         hitRate: existingBot.hitRate || 0,
-        avgTimeToTP: 12.3,
-        maxDrawdown: existingBot.maxDrawdown || 0,
-        tradesPerMinute: 0,
+        winsCount: Math.round(((existingBot.hitRate || 0) * (existingBot.tradesExecuted || 0)) / 100),
       };
-      setMetrics(newMetrics);
-      metricsRef.current = {
-        currentPnL: newMetrics.currentPnL,
-        tradesExecuted: newMetrics.tradesExecuted,
-        hitRate: newMetrics.hitRate,
-        winsCount: Math.round((newMetrics.hitRate * newMetrics.tradesExecuted) / 100),
-      };
-      setDailyTarget(existingBot.dailyTarget);
-      setProfitPerTrade(existingBot.profitPerTrade);
+      
+      // Only update config if bot exists
+      if (existingBot.dailyTarget) setDailyTarget(existingBot.dailyTarget);
+      if (existingBot.profitPerTrade) setProfitPerTrade(existingBot.profitPerTrade);
     }
   }, [existingBot]);
 
@@ -310,16 +330,27 @@ export function BotCard({
       abortControllerRef.current = null;
     }
 
+    // FIXED: If existingBot is temporarily undefined but we previously had a running bot,
+    // DON'T clear state - it's just a data refetch flash
+    if (!existingBot && prevBotStatusRef.current === 'running') {
+      console.log('⏳ existingBot temporarily undefined during refetch, preserving state');
+      return; // Don't clear state during refetch
+    }
+
     // FIXED ORDER: Reset flags FIRST when bot should be running, THEN check conditions
     if (isRunning && existingBot) {
       // Bot SHOULD be running - reset stopping flags BEFORE any checks
       isStoppingRef.current = false;
       isCancelledRef.current = false;
       abortControllerRef.current = new AbortController();
+      prevBotStatusRef.current = 'running'; // Track that we're running
       console.log(`✅ Starting trading loop for ${botName}`);
     } else {
-      // Bot should NOT be running
-      console.log(`🛑 Bot not running (isRunning=${isRunning}, existingBot=${!!existingBot}) - clearing state`);
+      // Bot should NOT be running - but only log/clear if it was actually running before
+      if (prevBotStatusRef.current === 'running' || existingBot?.status === 'stopped') {
+        console.log(`🛑 Bot stopped (isRunning=${isRunning}, existingBot=${!!existingBot})`);
+        prevBotStatusRef.current = existingBot?.status || 'stopped';
+      }
       setActiveExchange(null);
       isCancelledRef.current = true;
       return;
