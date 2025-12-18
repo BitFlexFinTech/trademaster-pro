@@ -123,7 +123,8 @@ export function BotCard({
   const isStoppingRef = useRef(false);  // CRITICAL: Immediate stop flag
   const isExecutingRef = useRef(false); // CRITICAL: Prevent concurrent executions
   const metricsRef = useRef({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 });  // Internal metrics tracking
-
+  const abortControllerRef = useRef<AbortController | null>(null); // CRITICAL: For cancelling pending requests
+  
   // Calculate stop loss automatically: 20% of profit (80% lower)
   const calculatedStopLoss = profitPerTrade * 0.2;
 
@@ -184,10 +185,14 @@ export function BotCard({
   // ===== TRADING LOGIC =====
   // CRITICAL: NO metrics.* in dependency array - causes infinite re-renders and prevents stop
   useEffect(() => {
-    // Clear any existing interval first
+    // CRITICAL: Clear any existing interval and abort controller FIRST
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
 
     // CRITICAL: Check stop flag immediately
@@ -197,13 +202,17 @@ export function BotCard({
     }
 
     if (!isRunning || !existingBot) {
+      console.log(`🛑 Bot not running (isRunning=${isRunning}, existingBot=${!!existingBot}) - clearing state`);
       setActiveExchange(null);
       isCancelledRef.current = true;
       return;
     }
 
+    // Create new abort controller for this trading session
+    abortControllerRef.current = new AbortController();
     isCancelledRef.current = false;
     isStoppingRef.current = false;
+    console.log(`✅ Starting trading loop for ${botName}`);
 
     // ===== LIVE MODE: Execute real trades via edge function =====
     if (tradingMode === 'live') {
@@ -480,6 +489,11 @@ export function BotCard({
       return () => {
         console.log('🛑 STOPPING: Live trade execution loop cleanup');
         isCancelledRef.current = true;
+        isStoppingRef.current = true;
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+        }
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
           intervalRef.current = null;
@@ -862,6 +876,11 @@ export function BotCard({
     return () => {
       console.log('🛑 STOPPING: Demo trade simulation loop cleanup');
       isCancelledRef.current = true;
+      isStoppingRef.current = true;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -871,10 +890,19 @@ export function BotCard({
 
   const handleStartStop = async () => {
     if (isRunning && existingBot) {
+      console.log('🛑🛑🛑 STOPPING BOT - Setting all flags and clearing intervals 🛑🛑🛑');
+      
       // CRITICAL: Set stopping flag and UI state FIRST
       setIsStopping(true);
       isStoppingRef.current = true;
       isCancelledRef.current = true;
+      isExecutingRef.current = false; // Release execution lock
+      
+      // CRITICAL: Abort any pending fetch requests
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
       
       // Clear interval IMMEDIATELY
       if (intervalRef.current) {
@@ -884,18 +912,14 @@ export function BotCard({
       
       // Reset profit lock strategy to cancel any active monitoring
       profitLockStrategy.reset();
-      isExecutingRef.current = false; // Reset execution lock
       
       console.log('🛑 STOP: Flags set, interval cleared, calling onStopBot');
       
-      // 500ms safeguard timeout - force clear if still running
-      setTimeout(() => {
-        if (intervalRef.current) {
-          console.log('🛑 FORCE STOP: Safeguard timeout triggered');
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
-        }
-      }, 500);
+      // Force clear ALL intervals as safeguard (brute force approach)
+      for (let i = 1; i < 10000; i++) {
+        clearInterval(i);
+        clearTimeout(i);
+      }
       
       await onStopBot(existingBot.id);
       setMetrics({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, avgTimeToTP: 12.3, maxDrawdown: 0, tradesPerMinute: 0 });
@@ -903,6 +927,8 @@ export function BotCard({
       setActiveExchange(null);
       resetProgressNotifications();
       setIsStopping(false);
+      
+      console.log('✅ Bot stopped successfully');
     } else {
       // Starting bot - reset stop flags
       isStoppingRef.current = false;
@@ -948,14 +974,20 @@ export function BotCard({
     isCancelledRef.current = true;
     isExecutingRef.current = false; // Reset execution lock
     
-    // Force clear ALL possible intervals (brute force)
+    // CRITICAL: Abort any pending fetch requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    
+    // Force clear the interval ref
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
     
-    // Clear any possible lingering intervals (up to 10000)
-    for (let i = 0; i < 10000; i++) {
+    // Force clear ALL possible intervals (brute force - nuclear option)
+    for (let i = 1; i < 10000; i++) {
       clearInterval(i);
       clearTimeout(i);
     }
@@ -978,6 +1010,7 @@ export function BotCard({
     });
     
     setIsStopping(false);
+    console.log('✅ Emergency stop complete');
   };
 
   const handleWithdrawProfits = async () => {

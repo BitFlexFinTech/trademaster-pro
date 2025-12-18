@@ -107,190 +107,50 @@ export function GreenBackWidget() {
     });
   }, [combinedPnL, combinedTrades, combinedHitRate]);
 
-  // ===== TRADING LOGIC =====
-  // LIVE MODE: No local simulation - data comes from edge function via Realtime
-  // DEMO MODE: Local simulation for fast trading
+  // ===== NO TRADING LOOP IN WIDGET =====
+  // CRITICAL: All trading happens in BotCard on the /bots page ONLY
+  // This widget is DISPLAY-ONLY - it reads data from the database via useBotRuns
+  // This prevents duplicate trading loops that caused the "bot won't stop" issue
+  
+  // Subscribe to real-time bot_runs updates for live metrics
+  useEffect(() => {
+    if (!user) return;
+    
+    const channel = supabase
+      .channel('widget-bot-updates')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'bot_runs',
+        filter: `user_id=eq.${user.id}`,
+      }, () => {
+        // Refetch bot data when changes occur
+        refetch();
+      })
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, refetch]);
+  
+  // Update active exchange indicator based on bot status
   useEffect(() => {
     if (!anyBotRunning) {
       setActiveExchange(null);
       return;
     }
-
-    const activeBot = spotBot || leverageBot;
-    if (!activeBot) return;
-
-    // ===== LIVE MODE: Execute real trades via edge function =====
-    if (tradingMode === 'live') {
-      console.log('🔴 LIVE MODE: Executing real trades via edge function every 5 seconds');
-      
-      let isCancelled = false;
-      
-      const executeLiveTrade = async () => {
-        if (isCancelled) return;
-        
-        try {
-          console.log('📤 Calling execute-bot-trade edge function...');
-          const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
-            body: {
-              botId: activeBot.id,
-              mode: activeBot.mode || 'spot',
-              profitTarget: profitPerTrade,
-              exchanges: activeExchangeConfigs.map(e => e.name),
-              leverages: { Binance: 5, OKX: 5, Bybit: 5, Kraken: 2, Nexo: 2 },
-              isSandbox: false,
-              maxPositionSize: 100,
-            }
-          });
-          
-          if (error) {
-            console.error('❌ Live trade error:', error);
-            return;
-          }
-          
-          console.log('✅ Live trade result:', data);
-          
-          if (data?.exchange) {
-            setActiveExchange(data.exchange);
-          }
-          
-          if (data?.pair && data?.direction) {
-            setTradePulse(true);
-            setTimeout(() => setTradePulse(false), 600);
-            setLastTrade({
-              pair: data.pair,
-              direction: data.direction,
-              pnl: data.pnl || 0,
-              exchange: data.exchange,
-              timestamp: Date.now(),
-            });
-            notifyTrade(data.exchange, data.pair, data.direction, data.pnl || 0);
-          }
-        } catch (err) {
-          console.error('❌ Failed to execute live trade:', err);
-        }
-      };
-      
-      // Execute first trade immediately, then every 5 seconds
-      executeLiveTrade();
-      const interval = setInterval(executeLiveTrade, 5000);
-      
-      return () => {
-        console.log('🛑 STOPPING: Live trade execution loop cleanup (Widget)');
-        isCancelled = true;
-        clearInterval(interval);
-      };
-    }
-
-    // ===== DEMO MODE: Local simulation =====
-    console.log('🟢 DEMO MODE: Running local trading simulation');
     
-    const activeExchangeNames = activeExchangeConfigs.map(e => e.name);
-
-    prices.forEach(p => {
-      if (!lastPricesRef.current[p.symbol]) {
-        lastPricesRef.current[p.symbol] = p.price;
-      }
-    });
-
+    // Cycle through exchanges for visual indicator only
+    const exchanges = activeExchangeConfigs.map(e => e.name);
     let idx = 0;
-    const interval = setInterval(async () => {
-      // CRITICAL: Enforce daily stop loss at -$5
-      if (metrics.currentPnL <= -5) {
-        sonnerToast.error('⚠️ Daily Stop Loss Hit', {
-          description: 'GreenBack stopped: -$5 daily limit reached.',
-        });
-        const botToStop = spotBot || leverageBot;
-        if (botToStop) await stopBot(botToStop.id);
-        return;
-      }
-
-      const currentExchange = activeExchangeNames[idx % activeExchangeNames.length];
-      setActiveExchange(currentExchange);
+    const interval = setInterval(() => {
+      setActiveExchange(exchanges[idx % exchanges.length]);
       idx++;
-
-      const symbol = TOP_PAIRS[Math.floor(Math.random() * TOP_PAIRS.length)];
-      const priceData = prices.find(p => p.symbol.toUpperCase() === symbol);
-      if (!priceData) return;
-
-      const currentPrice = priceData.price;
-      const lastPrice = lastPricesRef.current[symbol] || currentPrice;
-      const priceChange = lastPrice > 0 ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
-      lastPricesRef.current[symbol] = currentPrice;
-
-      if (Math.abs(priceChange) < 0.001) return;
-
-      const direction: 'long' | 'short' = priceChange >= 0 ? 'long' : 'short';
-      const isWin = Math.random() < 0.70;
-      const tradePnl = isWin ? profitPerTrade : -0.60;
-      const pair = `${symbol}/USDT`;
-
-      setTradePulse(true);
-      setTimeout(() => setTradePulse(false), 600);
-      setLastTrade({ pair, direction, pnl: tradePnl, exchange: currentExchange, timestamp: Date.now() });
-
-      setMetrics(prev => {
-        const newPnl = Math.min(Math.max(prev.currentPnL + tradePnl, -5), dailyTarget * 1.5);
-        const newTrades = prev.tradesExecuted + 1;
-        const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
-        const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
-
-        const positionSize = 100;
-        const leverage = leverageBot ? 5 : 1;
-        const priceChangePercent = tradePnl / (positionSize * leverage);
-        const exitPrice = direction === 'long'
-          ? currentPrice * (1 + priceChangePercent)
-          : currentPrice * (1 - priceChangePercent);
-
-        if (user) {
-          supabase.from('trades').insert({
-            user_id: user.id,
-            pair,
-            direction,
-            entry_price: currentPrice,
-            exit_price: exitPrice,
-            amount: 100,
-            leverage: leverageBot ? 5 : 1,
-            profit_loss: tradePnl,
-            profit_percentage: (tradePnl / 100) * 100,
-            exchange_name: currentExchange,
-            is_sandbox: true, // Always true for demo
-            status: 'closed',
-            closed_at: new Date().toISOString(),
-          }).then(({ error }) => {
-            if (error) console.error('Failed to log trade:', error);
-          });
-        }
-
-        notifyTrade(currentExchange, pair, direction, tradePnl);
-        if (isWin && Math.random() > 0.6) {
-          const tpLevel = Math.ceil(Math.random() * 3);
-          setTimeout(() => notifyTakeProfit(tpLevel, pair, tradePnl * (tpLevel / 3)), 500);
-        }
-
-        if (newPnl >= dailyTarget && prev.currentPnL < dailyTarget) {
-          sonnerToast.success('🎯 Daily Target Reached!', {
-            description: `GreenBack hit $${dailyTarget} target! Bot continues running.`,
-          });
-        }
-
-        // DEMO MODE: Update virtual balance
-        setVirtualBalance(prev => prev + tradePnl);
-        updateBotPnl(activeBot.id, newPnl, newTrades, newHitRate);
-
-        return {
-          ...prev,
-          currentPnL: newPnl,
-          tradesExecuted: newTrades,
-          hitRate: newHitRate,
-        };
-      });
     }, 3000);
-
-    return () => {
-      console.log('🛑 STOPPING: Demo trade simulation loop cleanup (Widget)');
-      clearInterval(interval);
-    };
-  }, [anyBotRunning, dailyTarget, profitPerTrade, spotBot, leverageBot, prices, notifyTrade, notifyTakeProfit, tradingMode, updateBotPnl, setVirtualBalance, user, stopBot, metrics.currentPnL, activeExchangeConfigs]);
+    
+    return () => clearInterval(interval);
+  }, [anyBotRunning, activeExchangeConfigs]);
 
   const handleStartSpot = async () => {
     if (spotBot) {
