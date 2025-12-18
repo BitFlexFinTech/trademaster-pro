@@ -733,10 +733,9 @@ export function BotCard({
       const pair = `${symbol}/USDT`;
 
       const targetProfit = Math.max(profitPerTrade, MIN_NET_PROFIT);
-      // TP at target profit %, NO STOP LOSS (profit-only mode)
-      const takeProfitPercent = (targetProfit / positionSize) * 100;
-      // STRICT RULE: NO STOP LOSS - we only exit when profitable
-      const stopLossPercent = 0; // Disabled - bot will hold until profitable
+      // TIGHTER TP/SL for faster profit locking - 0.15% TP, 0.10% SL
+      const takeProfitPercent = 0.15; // Tight TP for fast locks
+      const stopLossPercent = 0.10;   // Tight SL - force exit avoids indefinite holds
 
       // ===== REAL PRICE-BASED PROFIT LOCKING =====
       // Monitor price and wait for TP or SL to be hit
