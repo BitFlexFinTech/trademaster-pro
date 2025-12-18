@@ -6,8 +6,8 @@
 export interface PriceMonitorConfig {
   entryPrice: number;
   direction: 'long' | 'short';
-  takeProfitPercent: number;  // e.g., 0.2 = 0.2%
-  stopLossPercent: number;    // e.g., 0.1 = 0.1% (should be lower than TP)
+  takeProfitPercent: number;  // e.g., 0.3 = 0.3%
+  stopLossPercent: number;    // e.g., 0.15 = 0.15% (tighter than TP for positive expectancy)
   maxHoldTimeMs: number;      // Max time to hold position
   enableTrailingStop: boolean;
 }
@@ -32,9 +32,9 @@ export interface HitRateEnforcement {
 
 // Rolling window for hit rate tracking
 const ROLLING_WINDOW_SIZE = 50;
-const MIN_HIT_RATE_TO_TRADE = 85; // Must maintain 85% to continue trading
-const CRITICAL_HIT_RATE = 80;     // Below this triggers deep analysis
-const PAUSE_DURATION_MS = 60000;  // 1 minute pause when hit rate drops
+const MIN_HIT_RATE_TO_TRADE = 65; // Lowered from 85% - more realistic for real price monitoring
+const CRITICAL_HIT_RATE = 50;     // Below this triggers deep analysis
+const PAUSE_DURATION_MS = 30000;  // 30 second pause when hit rate drops (reduced from 60s)
 
 class ProfitLockStrategyManager {
   private tradeHistory: { isWin: boolean; timestamp: number; pnl: number }[] = [];
@@ -337,7 +337,7 @@ class ProfitLockStrategyManager {
           });
           return;
         }
-      }, 100); // Check every 100ms for real-time responsiveness
+      }, 200); // Check every 200ms - balance between responsiveness and CPU usage
     });
   }
   
