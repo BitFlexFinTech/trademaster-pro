@@ -109,7 +109,15 @@ export function useBotRuns() {
     }
   }, [user, tradingMode]);
 
-  const startBot = async (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number, isSandbox: boolean = true) => {
+  const startBot = async (
+    botName: string, 
+    mode: 'spot' | 'leverage', 
+    dailyTarget: number, 
+    profitPerTrade: number, 
+    isSandbox: boolean = true,
+    amountPerTrade?: number,
+    tradeIntervalMs?: number
+  ) => {
     if (!user) {
       toast.error('Please login to start bots');
       return null;
@@ -130,6 +138,15 @@ export function useBotRuns() {
         return existingBot;
       }
 
+      // Log the config being used to start the bot
+      console.log(`[useBotRuns] Starting ${botName} with config:`, {
+        dailyTarget,
+        profitPerTrade,
+        amountPerTrade,
+        tradeIntervalMs,
+        isSandbox,
+      });
+
       const { data, error } = await supabase
         .from('bot_runs')
         .insert({
@@ -147,7 +164,9 @@ export function useBotRuns() {
 
       if (error) throw error;
       
-      toast.success(`${botName} started`);
+      toast.success(`${botName} started`, {
+        description: `Amount: $${amountPerTrade || 100}, Interval: ${((tradeIntervalMs || 60000) / 1000).toFixed(0)}s`,
+      });
       fetchBots();
       return data;
     } catch (error) {

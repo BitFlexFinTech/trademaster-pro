@@ -39,7 +39,7 @@ interface BotCardProps {
   botType: 'spot' | 'leverage';
   existingBot: any;
   prices: Array<{ symbol: string; price: number; change_24h?: number }>;
-  onStartBot: (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number, isSandbox: boolean) => Promise<any>;
+  onStartBot: (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number, isSandbox: boolean, amountPerTrade?: number, tradeIntervalMs?: number) => Promise<any>;
   onStopBot: (botId: string) => Promise<void>;
   onUpdateBotPnl: (botId: string, pnl: number, trades: number, hitRate: number) => Promise<void>;
   suggestedUSDT: number;
@@ -66,7 +66,7 @@ export function BotCard({
   dailyStopLoss = 5,
   perTradeStopLoss = 0.10,
   amountPerTrade = 100,
-  tradeIntervalMs = 200,
+  tradeIntervalMs = 60000, // 60s default (user requested)
   autoSpeedAdjust = true,
   onConfigChange,
   isAnyBotRunning = false,
@@ -308,14 +308,17 @@ export function BotCard({
     }
   }, [existingBot]);
 
-  // Sync local config with parent
+  // Sync local config with parent - use ref to prevent re-initialization during bot run
+  const hasInitializedConfigRef = useRef(false);
+  
   useEffect(() => {
-    setLocalAmountPerTrade(amountPerTrade);
-  }, [amountPerTrade]);
-
-  useEffect(() => {
-    setLocalTradeIntervalMs(tradeIntervalMs);
-  }, [tradeIntervalMs]);
+    // Only sync from parent if not running, or if this is first initialization
+    if (!hasInitializedConfigRef.current || !isRunning) {
+      setLocalAmountPerTrade(amountPerTrade);
+      setLocalTradeIntervalMs(tradeIntervalMs);
+      hasInitializedConfigRef.current = true;
+    }
+  }, [amountPerTrade, tradeIntervalMs, isRunning]);
 
   // ===== TRADING LOGIC =====
   // CRITICAL: NO metrics.* in dependency array - causes infinite re-renders and prevents stop
@@ -1147,15 +1150,6 @@ export function BotCard({
       setIsStopping(false);
       
       console.log('✅ Bot stopped successfully (P&L preserved)');
-      
-      await onStopBot(existingBot.id);
-      setMetrics({ currentPnL: 0, tradesExecuted: 0, hitRate: 0, avgTimeToTP: 12.3, maxDrawdown: 0, tradesPerMinute: 0 });
-      metricsRef.current = { currentPnL: 0, tradesExecuted: 0, hitRate: 0, winsCount: 0 };
-      setActiveExchange(null);
-      resetProgressNotifications();
-      setIsStopping(false);
-      
-      console.log('✅ Bot stopped successfully');
     } else {
       // Starting bot - reset stop flags
       isStoppingRef.current = false;
@@ -1163,6 +1157,14 @@ export function BotCard({
       isExecutingRef.current = false; // Reset execution lock
       setIsStopping(false);
       resetProgressNotifications();
+      
+      // Log config being used
+      console.log(`🚀 Starting ${botName} with config:`, {
+        dailyTarget,
+        profitPerTrade,
+        amountPerTrade: localAmountPerTrade,
+        tradeIntervalMs: localTradeIntervalMs,
+      });
       
       // INITIALIZE SESSION BALANCE (Balance Floor S) - immutable, never touched
       // STRICT RULE: Bot should NEVER go below this starting balance
@@ -1187,7 +1189,8 @@ export function BotCard({
         }
       }
       
-      await onStartBot(botName, botType, dailyTarget, profitPerTrade, tradingMode === 'demo');
+      // CRITICAL: Pass localAmountPerTrade and localTradeIntervalMs to startBot
+      await onStartBot(botName, botType, dailyTarget, profitPerTrade, tradingMode === 'demo', localAmountPerTrade, localTradeIntervalMs);
     }
   };
 
