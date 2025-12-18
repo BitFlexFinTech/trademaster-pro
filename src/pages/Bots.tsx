@@ -34,6 +34,8 @@ import { AuditDashboardPanel } from '@/components/bots/AuditDashboardPanel';
 import { EmergencyKillBanner } from '@/components/bots/EmergencyKillBanner';
 import { RealTimeProfitDashboard } from '@/components/bots/RealTimeProfitDashboard';
 import { RiskManagementPanel } from '@/components/bots/RiskManagementPanel';
+import { SpreadMonitor } from '@/components/bots/SpreadMonitor';
+import { SessionDashboard } from '@/components/bots/SessionDashboard';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { AuditReport } from '@/lib/selfAuditReporter';
@@ -1283,6 +1285,12 @@ export default function Bots() {
           
           {/* Real-Time Profit Dashboard */}
           <RealTimeProfitDashboard className="flex-shrink-0" />
+          
+          {/* Session Controls Dashboard */}
+          <SessionDashboard />
+          
+          {/* Spread Monitor */}
+          <SpreadMonitor />
           
           {/* Risk Management Panel */}
           <RiskManagementPanel
