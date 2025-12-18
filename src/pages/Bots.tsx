@@ -157,22 +157,46 @@ export default function Bots() {
     };
   }, [prices]);
 
-  // Bot configuration state for applying recommendations
-  // CRITICAL: Minimum $0.01 profit per trade, $10 position size
-  const [botConfig, setBotConfig] = useState({
-    profitPerTrade: 0.01,           // Minimum $0.01 profit per trade - STRICT RULE
-    amountPerTrade: 10,             // Minimum $10 per trade - exchange minimum
-    tradeIntervalMs: 3000,          // 3s default, enforced minimum
-    maxPositionSize: 5000,          // Max $5000 per trade
-    dailyStopLoss: 5,
-    perTradeStopLoss: 0.002,        // Auto-calculated: profitPerTrade * 0.2 (80/20 rule)
-    focusPairs: [...TOP_PAIRS],
-    leverageDefaults: EXCHANGE_CONFIGS.reduce((acc, config) => ({
-      ...acc,
-      [config.name]: Math.min(3, config.maxLeverage),
-    }), {} as Record<string, number>),
-    autoSpeedAdjust: true,          // NEW: Toggle for automatic speed adjustment based on hit rate
-  });
+  // Bot configuration state - LOAD FROM LOCALSTORAGE ON MOUNT
+  const loadSavedBotConfig = () => {
+    const saved = localStorage.getItem('greenback-bot-settings');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return {
+          profitPerTrade: parsed.profitPerTrade ?? 0.50,
+          amountPerTrade: parsed.amountPerTrade ?? 100,
+          tradeIntervalMs: parsed.tradeIntervalMs ?? 60000, // 60s default
+          maxPositionSize: parsed.maxPositionSize ?? 5000,
+          dailyStopLoss: parsed.dailyStopLoss ?? 5,
+          perTradeStopLoss: parsed.perTradeStopLoss ?? 0.10,
+          focusPairs: parsed.focusPairs ?? [...TOP_PAIRS],
+          leverageDefaults: parsed.leverageDefaults ?? EXCHANGE_CONFIGS.reduce((acc, config) => ({
+            ...acc,
+            [config.name]: Math.min(3, config.maxLeverage),
+          }), {} as Record<string, number>),
+          autoSpeedAdjust: parsed.autoSpeedAdjust ?? true,
+        };
+      } catch { /* ignore parse errors */ }
+    }
+    // Default values if no saved settings
+    return {
+      profitPerTrade: 0.50,
+      amountPerTrade: 100,
+      tradeIntervalMs: 60000, // 60s default (user requested)
+      maxPositionSize: 5000,
+      dailyStopLoss: 5,
+      perTradeStopLoss: 0.10,
+      focusPairs: [...TOP_PAIRS],
+      leverageDefaults: EXCHANGE_CONFIGS.reduce((acc, config) => ({
+        ...acc,
+        [config.name]: Math.min(3, config.maxLeverage),
+      }), {} as Record<string, number>),
+      autoSpeedAdjust: true,
+    };
+  };
+  
+  const [botConfig, setBotConfig] = useState(loadSavedBotConfig);
   
   // Exchange minimum trade amounts
   const EXCHANGE_MINIMUMS: Record<string, number> = {
@@ -192,6 +216,11 @@ export default function Bots() {
       perTradeStopLoss: prev.profitPerTrade * 0.2
     }));
   }, [botConfig.profitPerTrade]);
+
+  // Persist botConfig to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('greenback-bot-settings', JSON.stringify(botConfig));
+  }, [botConfig]);
 
   // Find spot and leverage bots separately
   const spotBot = bots.find(b => b.botName === 'GreenBack Spot' && b.status === 'running');
@@ -309,68 +338,9 @@ export default function Bots() {
     recordPredictionOutcome,
   } = useMLConfidence();
 
-  // Auto-apply ALL AI recommendations (not just high priority) - PHASE 8
-  useEffect(() => {
-    if (suggestedPositionSize && suggestedPositionSize !== botConfig.amountPerTrade) {
-      setBotConfig(prev => ({
-        ...prev,
-        amountPerTrade: Math.min(suggestedPositionSize, MAX_USDT_ALLOCATION)
-      }));
-      toast.info('📊 Position size auto-adjusted', {
-        description: `Set to $${suggestedPositionSize.toFixed(0)} based on balance`,
-      });
-    }
-  }, [suggestedPositionSize]);
-
-  // AUTO-APPLY high priority trade speed recommendations to protect profits (only if autoSpeedAdjust is enabled)
-  useEffect(() => {
-    if (tradeSpeedRecommendation?.priority === 'high' && botConfig.autoSpeedAdjust) {
-      // Auto-apply to protect profits
-      setBotConfig(prev => ({
-        ...prev,
-        tradeIntervalMs: tradeSpeedRecommendation.suggestedIntervalMs
-      }));
-      
-      toast.warning('🛡️ Auto-Protecting Profits', {
-        description: `Trade speed adjusted: ${tradeSpeedRecommendation.reasoning}`,
-        duration: 5000,
-      });
-    }
-  }, [tradeSpeedRecommendation, botConfig.autoSpeedAdjust]);
-
-  // AUTO-APPLY AI Daily Target Recommendations (CRITICAL FIX)
-  // This ensures daily target, profit per trade, position amount, and speed are auto-updated
-  useEffect(() => {
-    if (aiTargetRecommendation && !spotBot && !leverageBot) {
-      // Only auto-apply when bot is NOT running
-      const hasChanges = aiTargetRecommendation.profitPerTrade !== botConfig.profitPerTrade;
-      
-      if (hasChanges) {
-        // Calculate position size from metrics
-        const suggestedPosition = aiTargetRecommendation.metrics?.totalAvailable 
-          ? Math.min(aiTargetRecommendation.metrics.totalAvailable * 0.1, MAX_USDT_ALLOCATION) // 10% of available
-          : botConfig.amountPerTrade;
-        
-        // Calculate trade interval based on estimated trades per day
-        const tradesPerDay = aiTargetRecommendation.estimatedTrades || 50;
-        const tradingHoursPerDay = 8;
-        const tradesPerHour = tradesPerDay / tradingHoursPerDay;
-        const intervalMs = Math.max(3000, Math.floor((3600 * 1000) / tradesPerHour)); // At least 3s between trades
-        
-        setBotConfig(prev => ({
-          ...prev,
-          profitPerTrade: aiTargetRecommendation.profitPerTrade,
-          amountPerTrade: Math.min(suggestedPosition, MAX_USDT_ALLOCATION),
-          tradeIntervalMs: intervalMs,
-        }));
-        
-        toast.success('🎯 AI Settings Auto-Applied', {
-          description: `Daily Target: $${aiTargetRecommendation.dailyTarget}, Profit/Trade: $${aiTargetRecommendation.profitPerTrade.toFixed(2)}, Position: $${suggestedPosition.toFixed(0)}`,
-          duration: 5000,
-        });
-      }
-    }
-  }, [aiTargetRecommendation, spotBot, leverageBot]);
+  // REMOVED: Auto-apply useEffects that were overwriting user settings
+  // User must manually click "Apply" button to accept AI recommendations
+  // This preserves user-configured values in localStorage
 
   // Fetch AI recommendations on page load and when balance changes
   useEffect(() => {
@@ -1222,7 +1192,7 @@ export default function Bots() {
       )}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3 h-full">
           {/* Left Column - Spot and Leverage Bot Cards */}
-          <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-hidden max-h-[calc(100vh-200px)]">
+          <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-y-auto h-full min-h-0">
           <BotCard
             botType="spot"
             existingBot={spotBot}
@@ -1268,7 +1238,7 @@ export default function Bots() {
         </div>
 
         {/* Middle Column - AI Strategy Panel + Audit Dashboard + Analytics Dashboard */}
-        <div className="lg:col-span-4 flex flex-col gap-3 overflow-hidden max-h-[calc(100vh-200px)]">
+        <div className="lg:col-span-4 flex flex-col gap-3 overflow-y-auto h-full min-h-0">
           {/* AI Strategy Panel */}
           <div className="min-h-[280px] flex-shrink-0">
             <AIStrategyPanel
@@ -1332,7 +1302,7 @@ export default function Bots() {
         </div>
 
         {/* Right Column - Recent Trades & Bot History */}
-        <div className="lg:col-span-3 flex flex-col gap-3 overflow-hidden max-h-[calc(100vh-200px)]">
+        <div className="lg:col-span-3 flex flex-col gap-3 overflow-y-auto h-full min-h-0">
           <div className="card-terminal p-3 flex flex-col overflow-hidden flex-1">
             <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2 flex-shrink-0">
               Recent Trades
