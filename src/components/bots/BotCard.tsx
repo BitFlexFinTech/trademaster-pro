@@ -1650,10 +1650,14 @@ export function BotCard({
             <Input
               type="number"
               value={dailyTarget}
-              onChange={(e) => setDailyTarget(Number(e.target.value))}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                if (val >= 0) setDailyTarget(val);
+              }}
               disabled={isRunning}
               className="h-7 text-xs font-mono"
-              min={10}
+              min={1}
+              step={1}
             />
           </div>
           <div>
@@ -1662,14 +1666,16 @@ export function BotCard({
               type="number"
               value={profitPerTrade}
               onChange={(e) => {
-                const val = Math.max(MIN_NET_PROFIT, Number(e.target.value));
-                setProfitPerTrade(val);
-                onConfigChange?.('perTradeStopLoss', val * 0.2);
+                const val = Number(e.target.value);
+                if (val >= 0) {
+                  setProfitPerTrade(val);
+                  onConfigChange?.('perTradeStopLoss', val * 0.2);
+                }
               }}
               disabled={isRunning}
               className="h-7 text-xs font-mono"
-              min={MIN_NET_PROFIT}
-              step={0.10}
+              min={0.01}
+              step={0.01}
             />
           </div>
         </div>
@@ -1682,15 +1688,16 @@ export function BotCard({
               type="number"
               value={localAmountPerTrade}
               onChange={(e) => {
-                const val = Math.max(20, Math.min(5000, Number(e.target.value)));
-                setLocalAmountPerTrade(val);
-                onConfigChange?.('amountPerTrade', val);
+                const val = Number(e.target.value);
+                if (val >= 0) {
+                  setLocalAmountPerTrade(val);
+                  onConfigChange?.('amountPerTrade', val);
+                }
               }}
               disabled={isRunning}
               className="h-7 text-xs font-mono"
-              min={20}
-              max={5000}
-              step={10}
+              min={5}
+              step={1}
             />
           </div>
           <div>
