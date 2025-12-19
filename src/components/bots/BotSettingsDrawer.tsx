@@ -20,6 +20,7 @@ export interface BotSettings {
   focusPairs: string[];
   leverageDefaults: Record<string, number>;
   autoSpeedAdjust: boolean;
+  minProfitThreshold: number; // 0.0005 = 0.05% profit threshold for adaptive profit-taking
 }
 
 interface BotSettingsDrawerProps {
@@ -196,6 +197,40 @@ export function BotSettingsDrawer({ settings, onSettingsChange, disabled }: BotS
                   Higher position sizes increase both profit potential and risk
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Adaptive Profit-Taking Threshold */}
+          <div className="space-y-4 p-3 bg-primary/10 border border-primary/30 rounded-lg">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Target className="w-4 h-4 text-primary" />
+              Adaptive Profit-Taking (Live)
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">
+                Take Profit When Above (% after fees)
+              </Label>
+              <Slider
+                value={[localSettings.minProfitThreshold * 100]}
+                min={0.01}
+                max={0.5}
+                step={0.01}
+                onValueChange={([value]) => setLocalSettings(prev => ({ 
+                  ...prev, 
+                  minProfitThreshold: value / 100 
+                }))}
+                className="w-full"
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>0.01%</span>
+                <span className="font-mono text-primary">{(localSettings.minProfitThreshold * 100).toFixed(2)}%</span>
+                <span>0.5%</span>
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-1">
+                Bot will sell immediately when profit exceeds {(localSettings.minProfitThreshold * 100).toFixed(2)}% + fees.
+                Lower = more frequent small profits. Higher = wait for bigger moves.
+              </div>
             </div>
           </div>
 
