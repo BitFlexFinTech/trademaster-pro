@@ -176,6 +176,7 @@ export default function Bots() {
             [config.name]: Math.min(3, config.maxLeverage),
           }), {} as Record<string, number>),
           autoSpeedAdjust: parsed.autoSpeedAdjust ?? true,
+          minProfitThreshold: parsed.minProfitThreshold ?? 0.0005,
         };
       } catch { /* ignore parse errors */ }
     }
@@ -193,6 +194,7 @@ export default function Bots() {
         [config.name]: Math.min(3, config.maxLeverage),
       }), {} as Record<string, number>),
       autoSpeedAdjust: true,
+      minProfitThreshold: 0.0005, // 0.05% default for adaptive profit-taking
     };
   };
   

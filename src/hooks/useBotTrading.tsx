@@ -79,6 +79,7 @@ interface UseBotTradingProps {
   onMetricsUpdate: (metrics: BotMetrics) => void;
   targetHitRate?: number;
   tradingStrategy?: TradingStrategy;
+  minProfitThreshold?: number;
 }
 
 export function useBotTrading({
@@ -96,6 +97,7 @@ export function useBotTrading({
   onMetricsUpdate,
   targetHitRate = 80,
   tradingStrategy = 'profit',
+  minProfitThreshold = 0.0005,
 }: UseBotTradingProps) {
   const { user } = useAuth();
   const { mode: tradingMode, setVirtualBalance } = useTradingMode();
@@ -189,7 +191,7 @@ export function useBotTrading({
     const pollOpenPositions = async () => {
       try {
         const { data, error } = await supabase.functions.invoke('check-trade-status', {
-          body: { checkOpenPositions: true }
+          body: { checkOpenPositions: true, profitThreshold: minProfitThreshold }
         });
         
         if (error) {

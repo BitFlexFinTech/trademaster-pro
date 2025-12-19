@@ -152,6 +152,7 @@ export type Database = {
           focus_pairs: string[] | null
           id: string
           leverage_defaults: Json | null
+          min_profit_threshold: number
           per_trade_stop_loss: number
           profit_per_trade: number
           trade_interval_ms: number
@@ -166,6 +167,7 @@ export type Database = {
           focus_pairs?: string[] | null
           id?: string
           leverage_defaults?: Json | null
+          min_profit_threshold?: number
           per_trade_stop_loss?: number
           profit_per_trade?: number
           trade_interval_ms?: number
@@ -180,6 +182,7 @@ export type Database = {
           focus_pairs?: string[] | null
           id?: string
           leverage_defaults?: Json | null
+          min_profit_threshold?: number
           per_trade_stop_loss?: number
           profit_per_trade?: number
           trade_interval_ms?: number

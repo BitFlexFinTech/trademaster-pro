@@ -42,6 +42,147 @@ const EXCHANGE_FEES: Record<string, number> = {
   hyperliquid: 0.0002,
 };
 
+// Default profit threshold above fees (0.05% = covers fees + small profit)
+const DEFAULT_PROFIT_THRESHOLD = 0.0005;
+
+// Get current price from Binance
+async function getBinancePrice(symbol: string): Promise<number> {
+  try {
+    const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
+    if (!response.ok) {
+      console.error(`Failed to get price for ${symbol}`);
+      return 0;
+    }
+    const data = await response.json();
+    return parseFloat(data.price) || 0;
+  } catch (e) {
+    console.error(`Error fetching price for ${symbol}:`, e);
+    return 0;
+  }
+}
+
+// Cancel a Binance OCO order
+async function cancelBinanceOCO(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  orderListId: string
+): Promise<boolean> {
+  try {
+    const timestamp = Date.now();
+    const params = `symbol=${symbol}&orderListId=${orderListId}&timestamp=${timestamp}`;
+    const signature = await hmacSha256(apiSecret, params);
+    
+    const response = await fetch(
+      `https://api.binance.com/api/v3/orderList?${params}&signature=${signature}`,
+      {
+        method: "DELETE",
+        headers: { "X-MBX-APIKEY": apiKey },
+      }
+    );
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error(`Failed to cancel OCO ${orderListId}:`, error);
+      return false;
+    }
+    
+    console.log(`Successfully cancelled OCO ${orderListId}`);
+    return true;
+  } catch (e) {
+    console.error(`Error cancelling OCO:`, e);
+    return false;
+  }
+}
+
+// Place a market sell order on Binance
+async function placeBinanceMarketSell(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  quantity: string
+): Promise<{ success: boolean; avgPrice: number; orderId?: string }> {
+  try {
+    const timestamp = Date.now();
+    const params = `symbol=${symbol}&side=SELL&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+    const signature = await hmacSha256(apiSecret, params);
+    
+    const response = await fetch(
+      `https://api.binance.com/api/v3/order?${params}&signature=${signature}`,
+      {
+        method: "POST",
+        headers: { "X-MBX-APIKEY": apiKey },
+      }
+    );
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error(`Market sell failed:`, error);
+      return { success: false, avgPrice: 0 };
+    }
+    
+    const data = await response.json();
+    
+    // Calculate average fill price from fills array
+    let avgPrice = 0;
+    if (data.fills && data.fills.length > 0) {
+      let totalQty = 0;
+      let totalValue = 0;
+      for (const fill of data.fills) {
+        const qty = parseFloat(fill.qty);
+        const price = parseFloat(fill.price);
+        totalQty += qty;
+        totalValue += qty * price;
+      }
+      avgPrice = totalValue / totalQty;
+    } else {
+      avgPrice = parseFloat(data.price) || 0;
+    }
+    
+    console.log(`Market sell executed at ${avgPrice}, orderId: ${data.orderId}`);
+    return { success: true, avgPrice, orderId: data.orderId };
+  } catch (e) {
+    console.error(`Error placing market sell:`, e);
+    return { success: false, avgPrice: 0 };
+  }
+}
+
+// Get account balances from Binance
+async function getBinanceBalance(
+  apiKey: string,
+  apiSecret: string,
+  asset: string
+): Promise<{ free: number; locked: number }> {
+  try {
+    const timestamp = Date.now();
+    const params = `timestamp=${timestamp}`;
+    const signature = await hmacSha256(apiSecret, params);
+    
+    const response = await fetch(
+      `https://api.binance.com/api/v3/account?${params}&signature=${signature}`,
+      {
+        headers: { "X-MBX-APIKEY": apiKey },
+      }
+    );
+    
+    if (!response.ok) {
+      console.error(`Failed to get account balance`);
+      return { free: 0, locked: 0 };
+    }
+    
+    const data = await response.json();
+    const balance = data.balances?.find((b: any) => b.asset === asset);
+    
+    return {
+      free: parseFloat(balance?.free || '0'),
+      locked: parseFloat(balance?.locked || '0'),
+    };
+  } catch (e) {
+    console.error(`Error getting balance:`, e);
+    return { free: 0, locked: 0 };
+  }
+}
+
 // Check Binance single order status
 async function checkBinanceOrderStatus(
   apiKey: string, 
@@ -112,18 +253,14 @@ async function checkBinanceOCOStatus(
   
   for (const order of orders) {
     if (order.status === 'FILLED') {
-      // LIMIT_MAKER or LIMIT = Take Profit
       if (order.type === 'LIMIT_MAKER' || order.type === 'LIMIT') {
         filledLeg = 'TP';
-      }
-      // STOP_LOSS_LIMIT = Stop Loss
-      else if (order.type === 'STOP_LOSS_LIMIT') {
+      } else if (order.type === 'STOP_LOSS_LIMIT') {
         filledLeg = 'SL';
       }
       executedQty = order.executedQty || '0';
       avgPrice = parseFloat(order.price) || 0;
       
-      // Try to get actual average price from order details
       if (order.avgPrice) {
         avgPrice = parseFloat(order.avgPrice);
       }
@@ -281,13 +418,16 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions } = body;
+    const { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold } = body;
 
-    console.log(`Check trade status request:`, { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions });
+    console.log(`Check trade status request:`, { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold });
 
-    // MODE 1: Check all open positions for the user
+    // Get user's profit threshold from bot_config or use default
+    const minProfitThreshold = profitThreshold || DEFAULT_PROFIT_THRESHOLD;
+
+    // MODE 1: Check all open positions with ADAPTIVE PROFIT-TAKING
     if (checkOpenPositions) {
-      console.log(`Checking all open positions for user ${user.id}`);
+      console.log(`Checking all open positions for user ${user.id} with profit threshold: ${minProfitThreshold * 100}%`);
       
       // Get all open trades
       const { data: openTrades, error: tradesError } = await supabase
@@ -309,7 +449,8 @@ serve(async (req) => {
         return new Response(JSON.stringify({ 
           message: 'No open positions',
           openPositions: 0,
-          closedPositions: 0
+          closedPositions: 0,
+          profitsTaken: 0
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -326,6 +467,7 @@ serve(async (req) => {
         .order('created_at', { ascending: false });
       
       let closedCount = 0;
+      let profitsTaken = 0;
       const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
       
       for (const trade of openTrades) {
@@ -335,30 +477,21 @@ serve(async (req) => {
           return data?.tradeId === trade.id;
         });
         
-        if (!alert || !alert.data) {
-          console.log(`No OCO info found for trade ${trade.id}`);
-          continue;
-        }
-        
-        const alertData = alert.data as any;
-        const { orderListId, symbol: alertSymbol, direction, entryPrice, exchange: alertExchange } = alertData;
-        
-        if (!orderListId) {
-          console.log(`No orderListId in alert for trade ${trade.id}`);
-          continue;
-        }
+        const alertData = (alert?.data || {}) as any;
+        const { orderListId, symbol: alertSymbol, direction, entryPrice, exchange: alertExchange, quantity } = alertData;
+        const exchangeName = (alertExchange || trade.exchange_name || 'binance').toLowerCase();
         
         // Get exchange credentials
         const { data: connection } = await supabase
           .from("exchange_connections")
           .select("*")
           .eq("user_id", user.id)
-          .eq("exchange_name", alertExchange || trade.exchange_name)
+          .eq("exchange_name", exchangeName)
           .eq("is_connected", true)
-          .single();
+          .maybeSingle();
         
         if (!connection || !connection.encrypted_api_key) {
-          console.log(`No credentials for ${alertExchange || trade.exchange_name}`);
+          console.log(`No credentials for ${exchangeName}`);
           continue;
         }
         
@@ -366,97 +499,167 @@ serve(async (req) => {
           const apiKey = await decryptSecret(connection.encrypted_api_key!, connection.encryption_iv!, encryptionKey);
           const apiSecret = await decryptSecret(connection.encrypted_api_secret!, connection.encryption_iv!, encryptionKey);
           
-          // Check OCO order status
-          const ocoStatus = await checkBinanceOCOStatus(apiKey, apiSecret, orderListId);
+          // Get the trading symbol (e.g., "ETHUSDT")
+          const tradingSymbol = alertSymbol || trade.pair?.replace('/', '') || 'BTCUSDT';
+          const baseAsset = tradingSymbol.replace('USDT', '');
+          const actualEntryPrice = trade.entry_price || entryPrice;
+          const tradeDirection = trade.direction || direction || 'long';
+          const positionSize = trade.amount || 50;
+          const leverage = trade.leverage || 1;
+          const feeRate = EXCHANGE_FEES[exchangeName] || 0.001;
           
-          console.log(`OCO ${orderListId} for trade ${trade.id}: ${ocoStatus.status}, filled: ${ocoStatus.filledLeg}`);
-          
-          if (ocoStatus.status === 'ALL_DONE' && ocoStatus.filledLeg !== 'NONE') {
-            // Position closed - update trade
-            const exitPrice = ocoStatus.avgPrice;
-            const tradeDirection = trade.direction || direction;
+          // STEP 1: First check if OCO was already filled
+          if (orderListId) {
+            const ocoStatus = await checkBinanceOCOStatus(apiKey, apiSecret, orderListId);
+            console.log(`OCO ${orderListId} for trade ${trade.id}: ${ocoStatus.status}, filled: ${ocoStatus.filledLeg}`);
             
-            // Calculate P&L
-            const actualEntryPrice = trade.entry_price || entryPrice;
-            const priceDiff = tradeDirection === 'long'
-              ? exitPrice - actualEntryPrice
-              : actualEntryPrice - exitPrice;
-            
-            const positionSize = trade.amount || 50;
-            const leverage = trade.leverage || 1;
-            const grossPnL = (priceDiff / actualEntryPrice) * positionSize * leverage;
-            
-            // Deduct fees
-            const feeRate = EXCHANGE_FEES[(alertExchange || trade.exchange_name || 'binance').toLowerCase()] || 0.001;
-            const fees = positionSize * feeRate * 2;
-            const netPnL = grossPnL - fees;
-            
-            console.log(`Closing trade ${trade.id}: ${ocoStatus.filledLeg}, Exit: ${exitPrice}, P&L: $${netPnL.toFixed(2)}`);
-            
-            // Update trade record
-            const { error: updateError } = await supabase
-              .from('trades')
-              .update({
+            if (ocoStatus.status === 'ALL_DONE' && ocoStatus.filledLeg !== 'NONE') {
+              // Position closed via OCO - update trade
+              const exitPrice = ocoStatus.avgPrice;
+              
+              const priceDiff = tradeDirection === 'long'
+                ? exitPrice - actualEntryPrice
+                : actualEntryPrice - exitPrice;
+              
+              const grossPnL = (priceDiff / actualEntryPrice) * positionSize * leverage;
+              const fees = positionSize * feeRate * 2;
+              const netPnL = grossPnL - fees;
+              
+              console.log(`Trade ${trade.id} closed via OCO ${ocoStatus.filledLeg}: Exit ${exitPrice}, P&L: $${netPnL.toFixed(2)}`);
+              
+              await supabase.from('trades').update({
                 exit_price: exitPrice,
                 profit_loss: netPnL,
                 profit_percentage: (netPnL / positionSize) * 100,
                 status: 'closed',
                 closed_at: new Date().toISOString(),
-              })
-              .eq('id', trade.id);
-            
-            if (updateError) {
-              console.error(`Failed to update trade ${trade.id}:`, updateError);
-            } else {
-              closedCount++;
+              }).eq('id', trade.id);
               
-              // Create alert for closed position
               await supabase.from('alerts').insert({
                 user_id: user.id,
                 title: `${ocoStatus.filledLeg === 'TP' ? '✅ Take Profit' : '🛑 Stop Loss'}: ${trade.pair}`,
-                message: `${tradeDirection?.toUpperCase()} closed at ${exitPrice.toFixed(2)} | P&L: $${netPnL.toFixed(2)}`,
+                message: `${tradeDirection.toUpperCase()} closed at ${exitPrice.toFixed(2)} | P&L: $${netPnL.toFixed(2)}`,
                 alert_type: 'position_closed',
+                data: { tradeId: trade.id, filledLeg: ocoStatus.filledLeg, exitPrice, pnl: netPnL }
+              });
+              
+              closedCount++;
+              if (netPnL > 0) profitsTaken++;
+              
+              // Update bot run P&L
+              await updateBotRunPnL(supabase, user.id, netPnL);
+              continue;
+            }
+          }
+          
+          // STEP 2: ADAPTIVE PROFIT-TAKING - Check current price and take profit if > fees
+          const currentPrice = await getBinancePrice(tradingSymbol);
+          
+          if (currentPrice <= 0) {
+            console.log(`Could not get price for ${tradingSymbol}`);
+            continue;
+          }
+          
+          // Calculate unrealized P&L
+          const priceDiff = tradeDirection === 'long'
+            ? currentPrice - actualEntryPrice
+            : actualEntryPrice - currentPrice;
+          
+          const unrealizedPnLPercent = priceDiff / actualEntryPrice;
+          const grossUnrealizedPnL = unrealizedPnLPercent * positionSize * leverage;
+          const totalFees = positionSize * feeRate * 2; // Entry + exit fees
+          const netUnrealizedPnL = grossUnrealizedPnL - totalFees;
+          
+          console.log(`Trade ${trade.id} (${tradingSymbol}): Entry ${actualEntryPrice}, Current ${currentPrice}, Unrealized: $${netUnrealizedPnL.toFixed(3)} (${(unrealizedPnLPercent * 100).toFixed(3)}%)`);
+          
+          // Check if profit exceeds threshold (fees + minimum profit margin)
+          const minProfitAmount = positionSize * minProfitThreshold;
+          const shouldTakeProfit = netUnrealizedPnL > minProfitAmount && netUnrealizedPnL > 0.01; // At least $0.01 profit
+          
+          if (shouldTakeProfit) {
+            console.log(`🎯 PROFIT THRESHOLD MET! Taking profit on trade ${trade.id}: $${netUnrealizedPnL.toFixed(3)}`);
+            
+            // Get actual balance of the asset
+            const balance = await getBinanceBalance(apiKey, apiSecret, baseAsset);
+            const availableQty = balance.free + balance.locked;
+            
+            if (availableQty <= 0) {
+              console.log(`No ${baseAsset} balance available to sell`);
+              continue;
+            }
+            
+            // Cancel the OCO order first (if exists)
+            if (orderListId) {
+              const cancelled = await cancelBinanceOCO(apiKey, apiSecret, tradingSymbol, orderListId);
+              if (!cancelled) {
+                console.log(`Failed to cancel OCO, trying market sell anyway`);
+              }
+            }
+            
+            // Format quantity for Binance (usually 5 decimal places for crypto)
+            const sellQty = availableQty.toFixed(5);
+            
+            // Place market sell order
+            const sellResult = await placeBinanceMarketSell(apiKey, apiSecret, tradingSymbol, sellQty);
+            
+            if (sellResult.success) {
+              const exitPrice = sellResult.avgPrice;
+              
+              // Recalculate actual P&L with real exit price
+              const actualPriceDiff = tradeDirection === 'long'
+                ? exitPrice - actualEntryPrice
+                : actualEntryPrice - exitPrice;
+              
+              const actualGrossPnL = (actualPriceDiff / actualEntryPrice) * positionSize * leverage;
+              const actualNetPnL = actualGrossPnL - totalFees;
+              
+              console.log(`✅ Profit taken on trade ${trade.id}: Exit ${exitPrice}, P&L: $${actualNetPnL.toFixed(3)}`);
+              
+              // Update trade record
+              await supabase.from('trades').update({
+                exit_price: exitPrice,
+                profit_loss: actualNetPnL,
+                profit_percentage: (actualNetPnL / positionSize) * 100,
+                status: 'closed',
+                closed_at: new Date().toISOString(),
+              }).eq('id', trade.id);
+              
+              // Create success alert
+              await supabase.from('alerts').insert({
+                user_id: user.id,
+                title: `💰 Adaptive Profit Taken: ${trade.pair}`,
+                message: `Sold at ${exitPrice.toFixed(2)} | Net P&L: $${actualNetPnL.toFixed(3)}`,
+                alert_type: 'profit_taken',
                 data: { 
-                  tradeId: trade.id,
-                  filledLeg: ocoStatus.filledLeg,
-                  exitPrice,
-                  pnl: netPnL,
-                  direction: tradeDirection
+                  tradeId: trade.id, 
+                  exitPrice, 
+                  pnl: actualNetPnL,
+                  profitThresholdUsed: minProfitThreshold,
+                  unrealizedPnLAtTrigger: netUnrealizedPnL
                 }
               });
               
-              // Update bot run P&L if applicable
-              const { data: botRun } = await supabase
-                .from('bot_runs')
-                .select('id, current_pnl, hit_rate, trades_executed')
-                .eq('user_id', user.id)
-                .eq('status', 'running')
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
+              closedCount++;
+              profitsTaken++;
               
-              if (botRun) {
-                const newPnl = (botRun.current_pnl || 0) + netPnL;
-                const wins = Math.round(((botRun.hit_rate || 0) / 100) * (botRun.trades_executed || 0)) + (netPnL > 0 ? 1 : 0);
-                const totalTrades = botRun.trades_executed || 1;
-                const newHitRate = (wins / totalTrades) * 100;
-                
-                await supabase.from('bot_runs').update({
-                  current_pnl: newPnl,
-                  hit_rate: newHitRate,
-                }).eq('id', botRun.id);
-              }
+              // Update bot run P&L
+              await updateBotRunPnL(supabase, user.id, actualNetPnL);
+            } else {
+              console.error(`Failed to execute market sell for trade ${trade.id}`);
             }
           }
+          
         } catch (e) {
-          console.error(`Failed to check OCO for trade ${trade.id}:`, e);
+          console.error(`Failed to check/close trade ${trade.id}:`, e);
         }
       }
       
       return new Response(JSON.stringify({
         message: `Checked ${openTrades.length} open positions`,
-        openPositions: openTrades.length,
+        openPositions: openTrades.length - closedCount,
         closedPositions: closedCount,
+        profitsTaken,
+        profitThreshold: minProfitThreshold,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -470,7 +673,7 @@ serve(async (req) => {
         .eq("user_id", user.id)
         .eq("exchange_name", exchange)
         .eq("is_connected", true)
-        .single();
+        .maybeSingle();
 
       if (!connection) {
         return new Response(JSON.stringify({ error: `No ${exchange} connection found` }), {
@@ -515,7 +718,7 @@ serve(async (req) => {
       .eq("user_id", user.id)
       .eq("exchange_name", exchange)
       .eq("is_connected", true)
-      .single();
+      .maybeSingle();
 
     if (!connection) {
       return new Response(JSON.stringify({ error: `No ${exchange} connection found` }), {
@@ -590,3 +793,29 @@ serve(async (req) => {
     });
   }
 });
+
+// Helper function to update bot run P&L
+async function updateBotRunPnL(supabase: any, userId: string, pnl: number) {
+  const { data: botRun } = await supabase
+    .from('bot_runs')
+    .select('id, current_pnl, hit_rate, trades_executed')
+    .eq('user_id', userId)
+    .eq('status', 'running')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  
+  if (botRun) {
+    const newPnl = (botRun.current_pnl || 0) + pnl;
+    const currentWins = Math.round(((botRun.hit_rate || 0) / 100) * (botRun.trades_executed || 0));
+    const newWins = currentWins + (pnl > 0 ? 1 : 0);
+    const newTotalTrades = (botRun.trades_executed || 0) + 1;
+    const newHitRate = (newWins / newTotalTrades) * 100;
+    
+    await supabase.from('bot_runs').update({
+      current_pnl: newPnl,
+      hit_rate: newHitRate,
+      trades_executed: newTotalTrades,
+    }).eq('id', botRun.id);
+  }
+}
