@@ -846,6 +846,63 @@ async function placeNexoOrder(apiKey: string, apiSecret: string, symbol: string,
   return { orderId: data.orderId, status: "FILLED", avgPrice: parseFloat(data.avgPrice) || 0 };
 }
 
+// ============ RATE LIMIT HELPERS ============
+
+// Jittered delay (200-500ms)
+function getJitteredDelay(): number {
+  return 200 + Math.random() * 300;
+}
+
+// Exponential backoff with jitter
+function getBackoffDelay(attempt: number): number {
+  const baseDelay = Math.min(1000 * Math.pow(2, attempt), 30000);
+  const jitter = baseDelay * 0.2 * (Math.random() - 0.5) * 2;
+  return Math.round(baseDelay + jitter);
+}
+
+// Execute with rate limit handling
+async function executeWithRateLimit<T>(
+  exchange: string,
+  request: () => Promise<T>,
+  maxRetries: number = 3
+): Promise<{ success: boolean; data?: T; rateLimited?: boolean; error?: string }> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // Apply jittered delay before request
+    await new Promise(resolve => setTimeout(resolve, getJitteredDelay()));
+
+    try {
+      const result = await request();
+      return { success: true, data: result };
+    } catch (error: any) {
+      const errorMsg = error?.message || String(error);
+      
+      // Check for 429 rate limit
+      if (error?.status === 429 || errorMsg.includes('429') || errorMsg.includes('rate limit')) {
+        console.warn(`[RateLimit] ${exchange} 429 on attempt ${attempt + 1}/${maxRetries}`);
+        
+        if (attempt < maxRetries - 1) {
+          const backoffMs = getBackoffDelay(attempt);
+          console.log(`[RateLimit] Backing off for ${backoffMs}ms`);
+          await new Promise(resolve => setTimeout(resolve, backoffMs));
+          continue;
+        }
+        
+        return { success: false, rateLimited: true, error: 'Rate limit exceeded' };
+      }
+
+      // For other errors, throw immediately on last attempt
+      if (attempt === maxRetries - 1) {
+        return { success: false, error: errorMsg };
+      }
+      
+      // Retry with backoff for transient errors
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  return { success: false, error: 'Max retries exceeded' };
+}
+
 // ============ MAIN HANDLER ============
 
 serve(async (req) => {
@@ -1284,28 +1341,48 @@ serve(async (req) => {
         console.log(`Order quantity: ${quantity} (raw: ${rawQuantity}, stepSize: ${lotInfo.stepSize}, minQty: ${lotInfo.minQty})`);
         console.log(`Order quantity: ${quantity} (raw: ${rawQuantity}, stepSize: ${lotInfo.stepSize}, minQty: ${lotInfo.minQty})`);
 
-        let entryOrder: { orderId: string; status: string; avgPrice: number; executedQty: string } | null = null;
-
         // Generate clientOrderId for idempotency
         const entryClientOrderId = generateClientOrderId(botId, side);
         console.log(`Using clientOrderId for entry: ${entryClientOrderId}`);
 
-        // Place ENTRY order with clientOrderId
-        if (exchangeName === "binance") {
-          entryOrder = await placeBinanceOrder(apiKey, apiSecret, symbol, side, quantity, entryClientOrderId);
-        } else if (exchangeName === "bybit") {
-          const bybitResult = await placeBybitOrder(apiKey, apiSecret, symbol, side === 'BUY' ? 'Buy' : 'Sell', quantity);
-          entryOrder = { ...bybitResult, executedQty: quantity };
-        } else if (exchangeName === "okx") {
-          const okxResult = await placeOKXOrder(apiKey, apiSecret, passphrase, pair.replace("/", "-"), side.toLowerCase(), quantity);
-          entryOrder = { ...okxResult, executedQty: quantity };
-        } else if (exchangeName === "kraken") {
-          const krakenResult = await placeKrakenOrder(apiKey, apiSecret, symbol, side.toLowerCase(), quantity);
-          entryOrder = { ...krakenResult, executedQty: quantity };
-        } else if (exchangeName === "nexo") {
-          const nexoResult = await placeNexoOrder(apiKey, apiSecret, symbol, side.toLowerCase(), quantity);
-          entryOrder = { ...nexoResult, executedQty: quantity };
+        // Place ENTRY order with clientOrderId and rate limit handling
+        const entryResult = await executeWithRateLimit(exchangeName, async () => {
+          if (exchangeName === "binance") {
+            return await placeBinanceOrder(apiKey, apiSecret, symbol, side, quantity, entryClientOrderId);
+          } else if (exchangeName === "bybit") {
+            const bybitResult = await placeBybitOrder(apiKey, apiSecret, symbol, side === 'BUY' ? 'Buy' : 'Sell', quantity);
+            return { ...bybitResult, executedQty: quantity };
+          } else if (exchangeName === "okx") {
+            const okxResult = await placeOKXOrder(apiKey, apiSecret, passphrase, pair.replace("/", "-"), side.toLowerCase(), quantity);
+            return { ...okxResult, executedQty: quantity };
+          } else if (exchangeName === "kraken") {
+            const krakenResult = await placeKrakenOrder(apiKey, apiSecret, symbol, side.toLowerCase(), quantity);
+            return { ...krakenResult, executedQty: quantity };
+          } else if (exchangeName === "nexo") {
+            const nexoResult = await placeNexoOrder(apiKey, apiSecret, symbol, side.toLowerCase(), quantity);
+            return { ...nexoResult, executedQty: quantity };
+          }
+          throw new Error(`Unsupported exchange: ${exchangeName}`);
+        });
+
+        if (!entryResult.success || !entryResult.data) {
+          if (entryResult.rateLimited) {
+            console.error(`❌ Rate limited on ${exchangeName} - entry order failed`);
+            return new Response(JSON.stringify({
+              success: false,
+              error: "Rate limit exceeded",
+              reason: `${exchangeName} rate limit hit. Bot will retry with adaptive pacing.`,
+              exchange: selectedExchange.exchange_name,
+              rateLimited: true,
+            }), {
+              status: 429,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          throw new Error(entryResult.error || "Entry order failed");
         }
+
+        const entryOrder = entryResult.data;
 
         if (entryOrder) {
           // Use the ACTUAL executed quantity from the entry order for exit

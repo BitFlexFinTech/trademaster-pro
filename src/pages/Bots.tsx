@@ -1187,12 +1187,12 @@ export default function Bots() {
 
       {/* Main Content Grid - Scrollable */}
       <div className={cn(
-        "flex-1 min-h-0 overflow-hidden",
+        "flex-1 min-h-0 overflow-auto",
         isMobile && "hidden"
       )}>
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3 h-full">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3">
           {/* Left Column - Spot and Leverage Bot Cards */}
-          <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-y-auto h-full min-h-0">
+          <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 auto-rows-min">
           <BotCard
             botType="spot"
             existingBot={spotBot}
@@ -1238,7 +1238,7 @@ export default function Bots() {
         </div>
 
         {/* Middle Column - AI Strategy Panel + Audit Dashboard + Analytics Dashboard */}
-        <div className="lg:col-span-4 flex flex-col gap-3 overflow-y-auto h-full min-h-0">
+        <div className="lg:col-span-4 flex flex-col gap-3 auto-rows-min">
           {/* AI Strategy Panel */}
           <div className="min-h-[280px] flex-shrink-0">
             <AIStrategyPanel
@@ -1290,34 +1290,34 @@ export default function Bots() {
             </div>
           )}
           
-          <div className="flex-1 min-h-0">
+          <div className="min-h-[200px]">
             <BotAnalyticsDashboard />
           </div>
-          <div className="flex-1 min-h-0">
+          <div className="min-h-[200px]">
             <BotPerformanceDashboard />
           </div>
-          <div className="h-[140px] flex-shrink-0">
+          <div className="h-[160px]">
             <DailyPnLChart />
           </div>
         </div>
 
         {/* Right Column - Recent Trades & Bot History */}
-        <div className="lg:col-span-3 flex flex-col gap-3 overflow-y-auto h-full min-h-0">
-          <div className="card-terminal p-3 flex flex-col overflow-hidden flex-1">
-            <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2 flex-shrink-0">
+        <div className="lg:col-span-3 flex flex-col gap-3">
+          <div className="card-terminal p-3 flex flex-col min-h-[250px]">
+            <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
               Recent Trades
               <Badge variant="outline" className="text-[8px] ml-auto">Live</Badge>
             </h3>
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 overflow-auto">
               <RecentBotTrades />
             </div>
           </div>
 
-          <div className="card-terminal p-3 flex flex-col overflow-hidden flex-1">
-            <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2 flex-shrink-0">
+          <div className="card-terminal p-3 flex flex-col min-h-[250px]">
+            <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
               Bot History
             </h3>
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 overflow-auto">
               <BotHistory bots={bots} onViewAnalysis={analyzeBot} />
             </div>
           </div>
