@@ -1001,37 +1001,39 @@ serve(async (req) => {
     console.log(`🎯 Direction: ${direction.toUpperCase()} | Confidence: ${directionResult.confidence.toFixed(0)}% | Reason: ${directionResult.reasoning}`);
 
     // ========== CONSECUTIVE LOSS PROTECTION ==========
-    // Check for 3+ consecutive losses on this pair+direction combination
+    // Check for 5+ consecutive losses on this pair+direction combination (relaxed from 3)
     const { data: recentTrades } = await supabase
       .from('trades')
-      .select('profit_loss')
+      .select('profit_loss, status')
       .eq('user_id', user.id)
       .eq('pair', pair)
       .eq('direction', direction)
       .eq('is_sandbox', isSandbox)
       .eq('status', 'closed')
       .order('created_at', { ascending: false })
-      .limit(3);
+      .limit(5);
 
-    if (recentTrades && recentTrades.length >= 3) {
-      const consecutiveLosses = recentTrades.filter((t: { profit_loss: number | null }) => (t.profit_loss || 0) <= 0).length;
+    if (recentTrades && recentTrades.length >= 5) {
+      // Only count real losses (not timeout exits which have near-zero P&L)
+      const realLosses = recentTrades.filter((t: { profit_loss: number | null }) => (t.profit_loss || 0) < -0.05);
+      const consecutiveLosses = realLosses.length;
       
-      if (consecutiveLosses >= 3) {
+      if (consecutiveLosses >= 5) {
         console.log(`⏸️ CONSECUTIVE LOSS PROTECTION: ${pair}:${direction} paused (${consecutiveLosses} consecutive losses)`);
         
-        // Log cooldown event for analytics
+        // Log cooldown event for analytics - reduced to 10 minutes
         await supabase.from('alerts').insert({
           user_id: user.id,
           title: `🛡️ Protection Active: ${pair}`,
-          message: `${direction.toUpperCase()} trades on ${pair} paused after 3 consecutive losses. Will auto-resume after 30 minutes.`,
+          message: `${direction.toUpperCase()} trades on ${pair} paused after 5 consecutive losses. Will auto-resume after 10 minutes.`,
           alert_type: 'consecutive_loss_protection',
-          data: { pair, direction, consecutiveLosses, cooldownMinutes: 30 }
+          data: { pair, direction, consecutiveLosses, cooldownMinutes: 10 }
         });
         
         return new Response(JSON.stringify({ 
           skipped: true, 
           reason: `${pair}:${direction} on cooldown (${consecutiveLosses} consecutive losses)`,
-          cooldownMinutes: 30,
+          cooldownMinutes: 10,
           pair,
           direction
         }), { 
@@ -1404,129 +1406,180 @@ serve(async (req) => {
             console.warn(`⚠️ HIGH ENTRY SLIPPAGE: ${entrySlippage.toFixed(3)}% (limit: ${MAX_SLIPPAGE_PERCENT}%)`);
           }
           
-          // EXIT STRATEGY: Use MARKET orders for GUARANTEED fills (no more stuck limit orders!)
-          // This ensures positions always close back to USDT
+          // EXIT STRATEGY: Use OCO orders for proper TP/SL management
+          // OCO = One-Cancels-Other: TP and SL placed together, when one fills the other cancels
           const exitSide = direction === 'long' ? 'SELL' : 'BUY';
-          const exitClientOrderId = generateClientOrderId(botId, exitSide);
-          let exitOrder: { orderId: string; status: string; avgPrice: number; executedQty: string } | null = null;
           
-          // PHASE 4 FIX: Use MARKET exit orders instead of LIMIT orders
-          // This guarantees immediate fill and conversion back to USDT
-          console.log(`📊 Using MARKET exit for guaranteed fill (${actualExecutedQty} ${symbol} ${exitSide})`);
+          // Calculate Take Profit and Stop Loss prices
+          const TP_PERCENT = 0.005;  // 0.5% take profit
+          const SL_PERCENT = 0.002;  // 0.2% stop loss (tighter for better R:R)
+          
+          const takeProfitPrice = direction === 'long'
+            ? tradeResult.entryPrice * (1 + TP_PERCENT)
+            : tradeResult.entryPrice * (1 - TP_PERCENT);
+          
+          const stopLossPrice = direction === 'long'
+            ? tradeResult.entryPrice * (1 - SL_PERCENT)
+            : tradeResult.entryPrice * (1 + SL_PERCENT);
+          
+          // Stop loss limit price slightly beyond trigger for guaranteed fill
+          const stopLossLimitPrice = direction === 'long'
+            ? stopLossPrice * 0.999  // 0.1% below SL trigger for LONG
+            : stopLossPrice * 1.001; // 0.1% above SL trigger for SHORT
+          
+          console.log(`📊 EXIT STRATEGY: OCO Order - TP: ${takeProfitPrice.toFixed(2)}, SL: ${stopLossPrice.toFixed(2)}`);
+          
+          let ocoOrderResult: { orderListId: string; tpOrderId: string; slOrderId: string; status: string } | null = null;
+          let tradeRecordedAsOpen = false;
           
           if (exchangeName === "binance") {
-            // Try limit order with SHORT timeout, then fallback to market
-            const pricePrecision = await getBinancePricePrecision(symbol);
-            const targetProfit = direction === 'long' 
-              ? tradeResult.entryPrice * (1 + LIMIT_ORDER_PROFIT_TARGET)
-              : tradeResult.entryPrice * (1 - LIMIT_ORDER_PROFIT_TARGET);
-            const limitPrice = targetProfit.toFixed(pricePrecision);
-            
-            console.log(`Attempting LIMIT exit at ${limitPrice} with 10s timeout...`);
-            
             try {
-              const limitOrderResult = await placeBinanceLimitOrder(
-                apiKey, apiSecret, symbol, exitSide, actualExecutedQty, limitPrice, exitClientOrderId
+              // Place OCO order that stays open until TP or SL is hit
+              ocoOrderResult = await placeBinanceOCOOrder(
+                apiKey,
+                apiSecret,
+                symbol,
+                exitSide as 'SELL' | 'BUY',
+                actualExecutedQty,
+                takeProfitPrice,
+                stopLossPrice,
+                stopLossLimitPrice
               );
               
-              // WAIT for limit order to fill (max 10 seconds) - SYNCHRONOUS approach
-              let filled = false;
-              for (let i = 0; i < 5; i++) {
-                await new Promise(r => setTimeout(r, 2000)); // 2 second intervals
+              console.log(`✅ OCO order placed: OrderListId=${ocoOrderResult.orderListId}`);
+              console.log(`   TP Order: ${ocoOrderResult.tpOrderId}, SL Order: ${ocoOrderResult.slOrderId}`);
+              
+              // Record trade as OPEN - the check-trade-status function will monitor and close it
+              const { data: insertedTrade, error: insertError } = await supabase.from("trades").insert({
+                user_id: user.id,
+                pair,
+                direction,
+                entry_price: tradeResult.entryPrice,
+                exit_price: null, // Will be set when OCO fills
+                amount: positionSize,
+                leverage,
+                profit_loss: null, // Will be calculated when closed
+                profit_percentage: null,
+                exchange_name: selectedExchange.exchange_name,
+                is_sandbox: isSandbox,
+                status: "open", // Trade is open, waiting for TP/SL
+              }).select().single();
+              
+              if (insertError) {
+                console.error('Failed to insert open trade:', insertError);
+              } else {
+                tradeRecordedAsOpen = true;
+                console.log(`📝 Trade recorded as OPEN: ${insertedTrade?.id}`);
                 
-                try {
-                  const status = await checkBinanceOrderStatus(apiKey, apiSecret, symbol, limitOrderResult.orderId);
-                  console.log(`Limit order status check ${i + 1}/5: ${status.status}`);
-                  
-                  if (status.status === 'FILLED') {
-                    filled = true;
-                    exitOrder = { 
-                      orderId: limitOrderResult.orderId, 
-                      status: 'FILLED', 
-                      avgPrice: status.avgPrice || parseFloat(limitPrice),
-                      executedQty: status.executedQty 
-                    };
-                    console.log(`✅ Limit order FILLED at ${exitOrder.avgPrice}`);
-                    break;
+                // Store OCO order info for monitoring (create alert for tracking)
+                await supabase.from('alerts').insert({
+                  user_id: user.id,
+                  title: `📈 Position Open: ${pair}`,
+                  message: `${direction.toUpperCase()} ${pair} @ ${tradeResult.entryPrice.toFixed(2)} | TP: ${takeProfitPrice.toFixed(2)} | SL: ${stopLossPrice.toFixed(2)}`,
+                  alert_type: 'position_opened',
+                  data: { 
+                    tradeId: insertedTrade?.id,
+                    orderListId: ocoOrderResult.orderListId,
+                    tpOrderId: ocoOrderResult.tpOrderId,
+                    slOrderId: ocoOrderResult.slOrderId,
+                    symbol,
+                    direction,
+                    entryPrice: tradeResult.entryPrice,
+                    takeProfitPrice,
+                    stopLossPrice,
+                    quantity: actualExecutedQty,
+                    exchange: exchangeName
                   }
-                } catch (checkErr) {
-                  console.warn(`Order status check failed:`, checkErr);
-                }
+                });
               }
               
-              // If limit didn't fill, CANCEL and use MARKET order
-              if (!filled) {
-                console.log(`⏱️ Limit order timed out - cancelling and using MARKET exit`);
-                await cancelBinanceOrder(apiKey, apiSecret, symbol, limitOrderResult.orderId);
-                exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, `${exitClientOrderId}_MKT`, 3);
+              // Return immediately - don't wait for fill
+              // The trade will be closed by check-trade-status polling
+              tradeResult.orderId = ocoOrderResult.orderListId;
+              tradeResult.realTrade = true;
+              tradeResult.exitPrice = 0; // Unknown until filled
+              tradeResult.pnl = 0; // Unknown until filled
+              
+              // Update bot metrics for trade count (P&L will be updated when closed)
+              if (bot) {
+                const newTrades = (bot.trades_executed || 0) + 1;
+                await supabase.from("bot_runs").update({
+                  trades_executed: newTrades,
+                }).eq("id", botId);
               }
               
-            } catch (limitError) {
-              console.warn(`Limit order failed: ${limitError instanceof Error ? limitError.message : limitError}, using market`);
-              exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, `${exitClientOrderId}_MKT`, 3);
-            }
-          } else if (exchangeName === "bybit") {
-            const bybitResult = await placeBybitOrder(apiKey, apiSecret, symbol, exitSide === 'BUY' ? 'Buy' : 'Sell', actualExecutedQty);
-            exitOrder = { ...bybitResult, executedQty: actualExecutedQty };
-          } else if (exchangeName === "okx") {
-            const okxResult = await placeOKXOrder(apiKey, apiSecret, passphrase, pair.replace("/", "-"), exitSide.toLowerCase(), actualExecutedQty);
-            exitOrder = { ...okxResult, executedQty: actualExecutedQty };
-          } else if (exchangeName === "kraken") {
-            const krakenResult = await placeKrakenOrder(apiKey, apiSecret, symbol, exitSide.toLowerCase(), actualExecutedQty);
-            exitOrder = { ...krakenResult, executedQty: actualExecutedQty };
-          } else if (exchangeName === "nexo") {
-            const nexoResult = await placeNexoOrder(apiKey, apiSecret, symbol, exitSide.toLowerCase(), actualExecutedQty);
-            exitOrder = { ...nexoResult, executedQty: actualExecutedQty };
-          }
-          
-          if (exitOrder) {
-            console.log(`Exit order placed: ${exitOrder.orderId}, avg price: ${exitOrder.avgPrice}`);
-            tradeResult.exitPrice = exitOrder.avgPrice || await fetchPrice(pair);
-            
-            // Check slippage on exit
-            const expectedExitPrice = direction === 'long' 
-              ? tradeResult.entryPrice * (1 + LIMIT_ORDER_PROFIT_TARGET)
-              : tradeResult.entryPrice * (1 - LIMIT_ORDER_PROFIT_TARGET);
-            const exitSlippage = Math.abs((tradeResult.exitPrice - expectedExitPrice) / expectedExitPrice) * 100;
-            if (exitSlippage > MAX_SLIPPAGE_PERCENT) {
-              console.warn(`⚠️ EXIT SLIPPAGE: ${exitSlippage.toFixed(3)}% from target`);
-            }
-            
-            // Calculate real P&L WITH FEE DEDUCTION
-            const priceDiff = direction === 'long'
-              ? tradeResult.exitPrice - tradeResult.entryPrice
-              : tradeResult.entryPrice - tradeResult.exitPrice;
-            
-            // Gross P&L before fees
-            const grossPnL = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
-            
-            // Deduct exchange fees (entry + exit)
-            const tradeFeeRate = EXCHANGE_FEES[exchangeName] || 0.001;
-            const entryFee = positionSize * tradeFeeRate;
-            const exitFee = (positionSize + Math.max(0, grossPnL)) * tradeFeeRate;
-            const netPnL = grossPnL - entryFee - exitFee;
-            
-            tradeResult.pnl = netPnL;
-            
-            console.log(`📊 P&L Breakdown: Gross=$${grossPnL.toFixed(4)}, Fees=$${(entryFee + exitFee).toFixed(4)}, Net=$${netPnL.toFixed(4)}`);
-            console.log(`📊 TRADE RESULT: Entry: ${tradeResult.entryPrice}, Exit: ${tradeResult.exitPrice}, P&L: $${tradeResult.pnl.toFixed(2)}`);
-          } else {
-            // Exit failed after retries - try one more time with fresh market order
-            console.error(`EXIT ORDER FAILED - attempting final market exit`);
-            try {
-              exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, `${exitClientOrderId}_FINAL`, 2);
+              return new Response(JSON.stringify({
+                success: true,
+                pair,
+                direction,
+                entryPrice: tradeResult.entryPrice,
+                positionSize,
+                exchange: selectedExchange.exchange_name,
+                leverage,
+                simulated: false,
+                realTrade: true,
+                status: 'open',
+                ocoOrderListId: ocoOrderResult.orderListId,
+                takeProfitPrice,
+                stopLossPrice,
+                message: 'OCO order placed - position will close when TP or SL is hit'
+              }), { 
+                headers: { ...corsHeaders, "Content-Type": "application/json" } 
+              });
+              
+            } catch (ocoError) {
+              console.error('OCO order failed:', ocoError);
+              // Fallback to immediate market exit if OCO fails
+              console.log('⚠️ OCO failed - falling back to market exit');
+              const exitClientOrderId = generateClientOrderId(botId, exitSide);
+              const exitOrder = await placeBinanceOrderWithRetry(apiKey, apiSecret, symbol, exitSide, actualExecutedQty, exitClientOrderId, 3);
+              
               if (exitOrder) {
                 tradeResult.exitPrice = exitOrder.avgPrice || await fetchPrice(pair);
                 const priceDiff = direction === 'long'
                   ? tradeResult.exitPrice - tradeResult.entryPrice
                   : tradeResult.entryPrice - tradeResult.exitPrice;
-                tradeResult.pnl = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
+                const grossPnL = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
+                const tradeFeeRate = EXCHANGE_FEES[exchangeName] || 0.001;
+                tradeResult.pnl = grossPnL - (positionSize * tradeFeeRate * 2);
               }
-            } catch (finalErr) {
-              console.error(`FINAL EXIT FAILED - ORPHANED POSITION for ${actualExecutedQty} ${symbol}`);
-              tradeResult.exitPrice = await fetchPrice(pair);
-              tradeResult.pnl = 0; // Unknown P&L since position still open
             }
+          } else if (exchangeName === "bybit") {
+            // Bybit doesn't support OCO - use market exit
+            const bybitResult = await placeBybitOrder(apiKey, apiSecret, symbol, exitSide === 'BUY' ? 'Buy' : 'Sell', actualExecutedQty);
+            tradeResult.exitPrice = bybitResult.avgPrice || await fetchPrice(pair);
+            const priceDiff = direction === 'long'
+              ? tradeResult.exitPrice - tradeResult.entryPrice
+              : tradeResult.entryPrice - tradeResult.exitPrice;
+            tradeResult.pnl = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
+          } else if (exchangeName === "okx") {
+            const okxResult = await placeOKXOrder(apiKey, apiSecret, passphrase, pair.replace("/", "-"), exitSide.toLowerCase(), actualExecutedQty);
+            tradeResult.exitPrice = okxResult.avgPrice || await fetchPrice(pair);
+            const priceDiff = direction === 'long'
+              ? tradeResult.exitPrice - tradeResult.entryPrice
+              : tradeResult.entryPrice - tradeResult.exitPrice;
+            tradeResult.pnl = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
+          } else if (exchangeName === "kraken") {
+            const krakenResult = await placeKrakenOrder(apiKey, apiSecret, symbol, exitSide.toLowerCase(), actualExecutedQty);
+            tradeResult.exitPrice = krakenResult.avgPrice || await fetchPrice(pair);
+            const priceDiff = direction === 'long'
+              ? tradeResult.exitPrice - tradeResult.entryPrice
+              : tradeResult.entryPrice - tradeResult.exitPrice;
+            tradeResult.pnl = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
+          } else if (exchangeName === "nexo") {
+            const nexoResult = await placeNexoOrder(apiKey, apiSecret, symbol, exitSide.toLowerCase(), actualExecutedQty);
+            tradeResult.exitPrice = nexoResult.avgPrice || await fetchPrice(pair);
+            const priceDiff = direction === 'long'
+              ? tradeResult.exitPrice - tradeResult.entryPrice
+              : tradeResult.entryPrice - tradeResult.exitPrice;
+            tradeResult.pnl = (priceDiff / tradeResult.entryPrice) * positionSize * leverage;
+          }
+          
+          // For non-OCO exits, log P&L
+          if (!tradeRecordedAsOpen) {
+            const tradeFeeRate = EXCHANGE_FEES[exchangeName] || 0.001;
+            const fees = positionSize * tradeFeeRate * 2;
+            console.log(`📊 TRADE RESULT: Entry: ${tradeResult.entryPrice}, Exit: ${tradeResult.exitPrice}, P&L: $${tradeResult.pnl.toFixed(2)} (after $${fees.toFixed(2)} fees)`);
           }
         }
       } catch (exchangeError) {

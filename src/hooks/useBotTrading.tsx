@@ -182,6 +182,60 @@ export function useBotTrading({
     }
   }, [isRunning, botId]);
 
+  // Poll for open position status (OCO orders waiting for TP/SL)
+  useEffect(() => {
+    if (!isRunning || !user || tradingMode === 'demo') return;
+
+    const pollOpenPositions = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('check-trade-status', {
+          body: { checkOpenPositions: true }
+        });
+        
+        if (error) {
+          console.error('Failed to poll open positions:', error);
+          return;
+        }
+        
+        if (data?.closedPositions > 0) {
+          console.log(`📊 ${data.closedPositions} position(s) closed via OCO orders`);
+          toast.success(`${data.closedPositions} Position(s) Closed`, {
+            description: 'Take Profit or Stop Loss triggered',
+          });
+          
+          // Refresh bot metrics from database
+          if (botId) {
+            const { data: botData } = await supabase
+              .from('bot_runs')
+              .select('current_pnl, trades_executed, hit_rate')
+              .eq('id', botId)
+              .single();
+            
+            if (botData) {
+              metricsRef.current = {
+                ...metricsRef.current,
+                currentPnL: botData.current_pnl || 0,
+                tradesExecuted: botData.trades_executed || 0,
+                hitRate: botData.hit_rate || 0,
+              };
+              onMetricsUpdate(metricsRef.current);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Open position poll error:', err);
+      }
+    };
+
+    // Poll every 10 seconds for OCO order fills
+    const pollInterval = setInterval(pollOpenPositions, 10000);
+    
+    // Initial poll
+    pollOpenPositions();
+
+    return () => clearInterval(pollInterval);
+  }, [isRunning, user, tradingMode, botId, onMetricsUpdate]);
+
   // Main trading loop
   useEffect(() => {
     if (!isRunning || !botId || !user) {
