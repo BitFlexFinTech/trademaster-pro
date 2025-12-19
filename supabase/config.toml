@@ -80,3 +80,6 @@ verify_jwt = true
 
 [functions.daily-analysis]
 verify_jwt = true
+
+[functions.validate-trading-environment]
+verify_jwt = true

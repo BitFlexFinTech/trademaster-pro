@@ -1,10 +1,14 @@
 /**
- * Bot Trading Hook - Complete 5-Phase Profit Lock Fix
+ * Bot Trading Hook - Complete 8-Phase First Principles Implementation
  * 
- * Phase 1: Demo Mode uses real price monitoring via profitLockStrategy
- * Phase 2: Live Mode polls for order fills and handles stop losses
- * Phase 3: Integrates with useTradeStatusPoller for centralized polling
- * Phase 5: Real stop loss monitoring with price updates
+ * Phase 1: Rate-limit remediation with jittered sleep & adaptive pacing
+ * Phase 2: Continuous watchdog with heartbeat monitoring
+ * Phase 3: Real-data enforcement (no mock data in live mode)
+ * Phase 4: Profit-focused strategy enforcement (≥$0.10 net)
+ * Phase 5: Long/Short trading logic with proper exits
+ * Phase 6: Remediation catalog with structured logging
+ * Phase 7: Demo Mode uses real price monitoring via profitLockStrategy
+ * Phase 8: Live Mode polls for order fills and handles stop losses
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -17,6 +21,9 @@ import { generateSignalScore, meetsHitRateCriteria, calculateWinProbability } fr
 import { demoDataStore } from '@/lib/demoDataStore';
 import { hitRateTracker } from '@/lib/sandbox/hitRateTracker';
 import { profitLockStrategy } from '@/lib/profitLockStrategy';
+import { tradingWatchdog } from '@/lib/tradingWatchdog';
+import { rateLimitHandler } from '@/lib/rateLimitHandler';
+import { remediationCatalog } from '@/lib/remediationCatalog';
 import { toast } from 'sonner';
 
 const EXCHANGE_CONFIGS = [
@@ -127,7 +134,7 @@ export function useBotTrading({
     return priceData?.price || null;
   }, []);
 
-  // Reset metrics when bot starts
+  // Reset metrics and start watchdog when bot starts
   useEffect(() => {
     if (isRunning && botId) {
       isCancelledRef.current = false;
@@ -145,8 +152,33 @@ export function useBotTrading({
       tradeTimestampsRef.current = [];
       avgHoldTimeRef.current = [];
       profitLockStrategy.reset();
+      
+      // Start watchdog monitoring
+      tradingWatchdog.registerModule(`bot-${botId}`);
+      tradingWatchdog.start({
+        onRestart: (moduleName) => {
+          console.log(`[Watchdog] Restarting module: ${moduleName}`);
+          toast.warning('Trading Module Restarted', {
+            description: 'Bot recovered from stall automatically',
+          });
+        },
+        onConnectionLost: (exchange) => {
+          console.warn(`[Watchdog] Connection lost to ${exchange}`);
+          remediationCatalog.logIssue({
+            issue: 'connection_lost',
+            exchange,
+            symbol: 'N/A',
+            direction: 'long',
+            originalParams: { positionSize: 0, entryPrice: 0, targetTP: 0, targetSL: 0 },
+          });
+        },
+      });
     } else {
       isCancelledRef.current = true;
+      if (botId) {
+        tradingWatchdog.unregisterModule(`bot-${botId}`);
+      }
+      tradingWatchdog.stop();
     }
   }, [isRunning, botId]);
 
@@ -189,8 +221,13 @@ export function useBotTrading({
         return;
       }
 
-      // REMOVED: profitLockStrategy.canTrade() check - was blocking trades
-      // Bot should trade continuously without pause
+      // Send heartbeat to watchdog
+      if (botId) {
+        tradingWatchdog.heartbeat(`bot-${botId}`);
+      }
+
+      // Apply rate limit delay with jitter
+      await rateLimitHandler.waitBeforeRequest(activeExchanges[exchangeIdx % activeExchanges.length] || 'default');
 
       isExecutingRef.current = true;
 
@@ -349,10 +386,29 @@ export function useBotTrading({
               if (error) {
                 console.error('Live trade failed:', error);
                 exchangeErrors.set(currentExchange, (exchangeErrors.get(currentExchange) || 0) + 1);
+                
+                // Check for rate limit errors
+                if (error.message?.includes('429') || error.status === 429) {
+                  rateLimitHandler.record429(currentExchange);
+                  remediationCatalog.logIssue({
+                    issue: 'rate_limit_429',
+                    exchange: currentExchange,
+                    symbol: pair,
+                    direction,
+                    originalParams: { positionSize, entryPrice: currentPrice, targetTP: 0, targetSL: 0 },
+                    errorMessage: error.message,
+                  });
+                } else {
+                  tradingWatchdog.reportError(`bot-${botId}`, error.message || 'Trade failed');
+                }
+                
                 profitLockStrategy.recordError();
                 return;
               }
 
+              // Record success for rate limiting
+              rateLimitHandler.recordSuccess(currentExchange);
+              tradingWatchdog.reportSuccess(`bot-${botId}`);
               profitLockStrategy.recordSuccess();
               exchangeErrors.set(currentExchange, 0);
 
