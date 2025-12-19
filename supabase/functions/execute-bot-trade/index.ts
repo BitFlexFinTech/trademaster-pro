@@ -221,7 +221,7 @@ const MAX_POSITION_SIZE_CAP = 500;     // Cap based on $230 equity * 2
 const DAILY_LOSS_LIMIT = -6.90;        // 3% of $230 = $6.90
 const MAX_SLIPPAGE_PERCENT = 0.15;     // 0.15% max slippage (tighter for micro-scalping)
 const PROFIT_LOCK_TIMEOUT_MS = 30000;  // 30 second timeout
-const LIMIT_ORDER_PROFIT_TARGET = 0.003; // 0.3% profit target (lower for micro-scalping)
+const LIMIT_ORDER_PROFIT_TARGET = 0.005; // 0.5% profit target (increased for fee coverage)
 
 // ============ FEE CONSTANTS FOR ACCURATE P&L ============
 const EXCHANGE_FEES: Record<string, number> = {
@@ -233,7 +233,11 @@ const EXCHANGE_FEES: Record<string, number> = {
   kucoin: 0.001,     // 0.1%
   hyperliquid: 0.0002, // 0.02%
 };
-const MIN_NET_PROFIT = 0.25; // Minimum $0.25 net profit (GREENBACK target min)
+
+// Dynamic MIN_NET_PROFIT calculation - 0.3% of position or $0.10 minimum
+function calculateMinNetProfit(positionSize: number): number {
+  return Math.max(0.10, positionSize * 0.003);
+}
 
 // Helper: Calculate position size based on 1% risk
 function calculateGreenbackPositionSize(
@@ -1066,21 +1070,20 @@ serve(async (req) => {
       console.error("Unexpected error fetching portfolio holdings for position sizing:", e);
     }
 
-    // Dynamic position sizing based on actual balance (10% max risk per trade)
-    const MAX_RISK_PERCENT = 0.10; // 10% of balance per trade
+    // Use user's configured position size (maxPositionSize) instead of 10% of balance
     const ABSOLUTE_MIN_POSITION = 30; // Never below $30
+    const userConfiguredSize = maxPositionSize || DEFAULT_POSITION_SIZE;
     
     if (mode === 'spot') {
-      // Calculate position as 10% of balance, minimum $30
-      const balanceBasedPosition = availableBalance > 0 ? availableBalance * MAX_RISK_PERCENT : ABSOLUTE_MIN_POSITION;
-      positionSize = Math.max(ABSOLUTE_MIN_POSITION, balanceBasedPosition);
+      // Use user's configured amount, with minimum of $30
+      positionSize = Math.max(ABSOLUTE_MIN_POSITION, userConfiguredSize);
       
-      // Cap at 20% of available balance for safety
+      // Cap at 50% of available balance for safety (if balance is known)
       if (availableBalance > 0) {
-        positionSize = Math.min(positionSize, availableBalance * 0.20);
+        positionSize = Math.min(positionSize, availableBalance * 0.50);
       }
       
-      console.log(`SPOT mode: Dynamic position size: $${positionSize.toFixed(2)} (balance: $${availableBalance.toFixed(2)}, 10% risk)`);
+      console.log(`SPOT mode: Using user-configured position size: $${positionSize.toFixed(2)} (requested: $${userConfiguredSize}, balance: $${availableBalance.toFixed(2)})`);
     }
 
     if (!isSandbox) {
@@ -1267,31 +1270,34 @@ serve(async (req) => {
     }
 
     // ============ PRE-TRADE PROFITABILITY CHECK ============
-    // Don't enter trade unless expected profit > fees + $0.10 minimum
+    // Dynamic MIN_NET_PROFIT: 0.3% of position or $0.10 minimum
     const feeRate = EXCHANGE_FEES[exchangeName] || 0.001;
     const roundTripFees = positionSize * feeRate * 2; // Entry + Exit fees
-    const minPriceMove = (roundTripFees + MIN_NET_PROFIT) / positionSize;
+    const dynamicMinProfit = calculateMinNetProfit(positionSize);
+    const minPriceMove = (roundTripFees + dynamicMinProfit) / positionSize;
     const minPriceMovePercent = minPriceMove * 100;
-    const expectedPriceMove = LIMIT_ORDER_PROFIT_TARGET;
+    const expectedPriceMove = LIMIT_ORDER_PROFIT_TARGET; // 0.5%
+
+    console.log(`📊 Profitability Check: Position $${positionSize.toFixed(2)}, Fees $${roundTripFees.toFixed(4)}, Min Profit $${dynamicMinProfit.toFixed(2)}`);
+    console.log(`   Required move: ${minPriceMovePercent.toFixed(3)}%, Expected move: ${(expectedPriceMove * 100).toFixed(3)}%`);
 
     if (expectedPriceMove < minPriceMove) {
       console.log(`⏭️ SKIP TRADE: Expected move ${(expectedPriceMove * 100).toFixed(3)}% < required ${minPriceMovePercent.toFixed(3)}%`);
-      console.log(`   Position: $${positionSize}, Fees: $${roundTripFees.toFixed(4)}, Min profit: $${MIN_NET_PROFIT}`);
-      console.log(`   Would need ${minPriceMovePercent.toFixed(3)}% move to be profitable`);
       
       return new Response(JSON.stringify({
         skipped: true,
-        reason: `Trade skipped: fees ($${roundTripFees.toFixed(2)}) + min profit ($${MIN_NET_PROFIT}) exceed expected return`,
+        reason: `Trade skipped: fees ($${roundTripFees.toFixed(2)}) + min profit ($${dynamicMinProfit.toFixed(2)}) exceed expected return`,
         requiredMove: `${minPriceMovePercent.toFixed(3)}%`,
         expectedMove: `${(expectedPriceMove * 100).toFixed(3)}%`,
-        suggestion: `Increase position size to $${Math.ceil((roundTripFees + MIN_NET_PROFIT) / LIMIT_ORDER_PROFIT_TARGET)} or reduce fees`
+        positionSize: positionSize,
+        suggestion: `Increase position size to $${Math.ceil((roundTripFees + dynamicMinProfit) / LIMIT_ORDER_PROFIT_TARGET)} or reduce fees`
       }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
 
-    console.log(`✅ PROFITABILITY CHECK PASSED: Expected ${(expectedPriceMove * 100).toFixed(3)}% > required ${minPriceMovePercent.toFixed(3)}%`);
+    console.log(`✅ PROFITABILITY CHECK PASSED: Expected ${(expectedPriceMove * 100).toFixed(3)}% >= required ${minPriceMovePercent.toFixed(3)}%`);
 
     if (canExecuteRealTrade) {
       console.log(`✅ REAL TRADE MODE ACTIVATED for ${exchangeName.toUpperCase()}`);
