@@ -1196,6 +1196,35 @@ serve(async (req) => {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } 
       });
     }
+    
+    // ========== BUG-005 FIX: PER-PAIR COOLDOWN ==========
+    // Check for recent trades on this pair to prevent rapid duplicate entries
+    const PAIR_COOLDOWN_SECONDS = 60; // 60 second cooldown per pair
+    const { data: recentPairTrades } = await supabase
+      .from('trades')
+      .select('created_at')
+      .eq('user_id', user.id)
+      .eq('pair', pair)
+      .eq('is_sandbox', isSandbox)
+      .gte('created_at', new Date(Date.now() - PAIR_COOLDOWN_SECONDS * 1000).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1);
+    
+    if (recentPairTrades && recentPairTrades.length > 0) {
+      const lastTradeTime = new Date(recentPairTrades[0].created_at).getTime();
+      const secondsSinceLastTrade = (Date.now() - lastTradeTime) / 1000;
+      
+      console.log(`⏳ PAIR COOLDOWN: ${pair} traded ${secondsSinceLastTrade.toFixed(0)}s ago - skipping`);
+      return new Response(JSON.stringify({ 
+        skipped: true, 
+        reason: `${pair} on ${PAIR_COOLDOWN_SECONDS}s cooldown (${secondsSinceLastTrade.toFixed(0)}s since last trade)`,
+        pair,
+        cooldownSeconds: PAIR_COOLDOWN_SECONDS
+      }), { 
+        status: 200, 
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      });
+    }
 
     // SMART DIRECTION SELECTION - Uses historical win rates instead of random
     const directionResult = await selectSmartDirection(supabase, user.id, pair, mode);

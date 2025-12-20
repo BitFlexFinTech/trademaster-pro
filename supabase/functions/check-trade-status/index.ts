@@ -1163,7 +1163,18 @@ serve(async (req) => {
                 });
                 
                 if (parseFloat(sellQty) < parseFloat(lotInfo.minQty)) {
-                  console.log(`⚠️ Stale position quantity ${sellQty} below min ${lotInfo.minQty} - cannot sell`);
+                  // BUG-004 FIX: Dust position - close trade even if can't sell
+                  console.log(`⚠️ Stale dust position ${sellQty} < min ${lotInfo.minQty} - marking as closed`);
+                  
+                  await supabase.from('trades').update({
+                    status: 'closed',
+                    exit_price: stalePriceCheck || actualEntryPrice,
+                    profit_loss: 0,
+                    closed_at: new Date().toISOString(),
+                  }).eq('id', trade.id);
+                  
+                  closedCount++;
+                  stalePositionsClosed++;
                   continue;
                 }
                 
@@ -1363,12 +1374,20 @@ serve(async (req) => {
               continue;
             }
             
-            // Cancel the OCO order first (if exists)
+            // FIXED BUG-003: Check OCO status before attempting cancel
+            // Only cancel if OCO is still active (EXECUTING status)
             if (orderListId) {
               await enforceRateLimit(exchangeName);
-              const cancelled = await cancelBinanceOCO(apiKey, apiSecret, tradingSymbol, orderListId);
-              if (!cancelled) {
-                console.log(`Failed to cancel OCO, trying market sell anyway`);
+              const ocoStatus = await checkBinanceOCOStatus(apiKey, apiSecret, orderListId);
+              
+              // Only attempt cancel if OCO is still active
+              if (ocoStatus.status === 'EXECUTING' || ocoStatus.status === 'NEW') {
+                const cancelled = await cancelBinanceOCO(apiKey, apiSecret, tradingSymbol, orderListId);
+                if (!cancelled) {
+                  console.log(`Failed to cancel OCO, trying market sell anyway`);
+                }
+              } else {
+                console.log(`OCO ${orderListId} already ${ocoStatus.status} - skipping cancel`);
               }
             }
             
@@ -1399,8 +1418,38 @@ serve(async (req) => {
                 : undefined
             });
             
+            // FIXED BUG-004: Handle dust amounts - close trade even if can't sell
             if (parseFloat(sellQty) < parseFloat(lotInfo.minQty)) {
-              console.log(`⚠️ Profit-take quantity ${sellQty} below min ${lotInfo.minQty} - skipping`);
+              console.log(`⚠️ Profit-take quantity ${sellQty} below min ${lotInfo.minQty} - marking as dust close`);
+              
+              // Dust amount: can't sell but mark trade as closed
+              await supabase.from('trades').update({
+                status: 'closed',
+                exit_price: currentPrice,
+                profit_loss: netUnrealizedPnL,
+                profit_percentage: (netUnrealizedPnL / positionSize) * 100,
+                closed_at: new Date().toISOString(),
+              }).eq('id', trade.id);
+              
+              await logProfitAudit(supabase, {
+                user_id: user.id,
+                trade_id: trade.id,
+                action: 'dust_close',
+                symbol: tradingSymbol,
+                exchange: exchangeName,
+                entry_price: actualEntryPrice,
+                current_price: currentPrice,
+                quantity: availableQty,
+                gross_pnl: grossUnrealizedPnL,
+                net_pnl: netUnrealizedPnL,
+                success: true,
+                error_message: `Dust amount ${sellQty} below min ${lotInfo.minQty} - closed with estimated P&L`,
+                balance_available: availableQty
+              });
+              
+              closedCount++;
+              if (netUnrealizedPnL > 0) profitsTaken++;
+              await updateBotRunPnL(supabase, user.id, netUnrealizedPnL);
               continue;
             }
             

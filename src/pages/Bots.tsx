@@ -468,8 +468,9 @@ export default function Bots() {
             warning: b.isStale,
           }));
         
-        if (import.meta.env.DEV) {
-          console.log('[BOTS] USDT Float (TOTAL VALUE):', floatData);
+        // BUG-008 FIX: Throttled logging - only in dev mode
+        if (import.meta.env.DEV && floatData.length > 0 && Math.random() < 0.1) {
+          console.log('[BOTS] USDT Float:', floatData);
         }
         
         setUsdtFloat(floatData);
