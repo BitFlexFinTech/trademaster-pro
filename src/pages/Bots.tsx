@@ -51,7 +51,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AuditReport } from '@/lib/selfAuditReporter';
 import { DashboardCharts } from '@/lib/dashboardGenerator';
 import { toast } from 'sonner';
-import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
+import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS, EXCHANGE_MINIMUMS, getExchangeMinimum } from '@/lib/exchangeConfig';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface UsdtFloat {
@@ -215,16 +215,7 @@ export default function Bots() {
   
   const [botConfig, setBotConfig] = useState(loadSavedBotConfig);
   
-  // Exchange minimum trade amounts
-  const EXCHANGE_MINIMUMS: Record<string, number> = {
-    Binance: 10,
-    Bybit: 10,
-    OKX: 10,
-    Kraken: 10,
-    Nexo: 10,
-    KuCoin: 10,
-    Hyperliquid: 10,
-  };
+  // Import centralized exchange minimums from config
 
   // CRITICAL: Sync bot config from database on mount and subscribe to realtime updates
   useEffect(() => {
@@ -239,7 +230,9 @@ export default function Bots() {
         .single();
       
       if (data && !error) {
-        console.log('[BOT CONFIG] Loaded from database:', data);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[BOT CONFIG] Loaded from database:', data);
+        }
         setBotConfig(prev => {
           const newConfig = {
             ...prev,
@@ -269,7 +262,9 @@ export default function Bots() {
         table: 'bot_config',
         filter: `user_id=eq.${user.id}`,
       }, (payload) => {
-        console.log('[BOT CONFIG] Postgres change received:', payload);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[BOT CONFIG] Postgres change received:', payload);
+        }
         const newConfig = payload.new as any;
         if (newConfig) {
           setBotConfig(prev => {
@@ -294,7 +289,9 @@ export default function Bots() {
       })
       // CRITICAL FIX: Also listen for broadcast events for immediate sync
       .on('broadcast', { event: 'config_changed' }, (payload) => {
-        console.log('[BOT CONFIG] Broadcast received:', payload);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[BOT CONFIG] Broadcast received:', payload);
+        }
         const data = payload.payload as any;
         if (data) {
           setBotConfig(prev => {
