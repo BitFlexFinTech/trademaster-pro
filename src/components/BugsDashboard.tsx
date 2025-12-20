@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Bug, Search, Zap, CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Bug, Search, Zap, CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw, Trash2, DollarSign } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useBalanceReconciliation } from '@/hooks/useBalanceReconciliation';
 
 interface BugEntry {
   id: string;
@@ -54,6 +55,16 @@ export default function BugsDashboard() {
   const [filter, setFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
   const [problemInput, setProblemInput] = useState('');
   const [isInvestigating, setIsInvestigating] = useState(false);
+
+  // Balance reconciliation hook
+  const { 
+    reconciliation, 
+    orphanTrades,
+    loading: reconciliationLoading, 
+    cleaningUp, 
+    fetchReconciliation, 
+    cleanupOrphanTrades 
+  } = useBalanceReconciliation();
 
   // Fetch audit logs to detect issues
   const fetchAuditLogs = async () => {
@@ -316,6 +327,128 @@ export default function BugsDashboard() {
               )}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Balance Reconciliation Section */}
+      <Card className="border-orange-500/30 bg-orange-500/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-orange-400" />
+            Balance Reconciliation
+            {reconciliation?.hasSignificantMismatch && (
+              <Badge variant="destructive" className="ml-2">Mismatch Detected</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {reconciliationLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              Checking balances...
+            </div>
+          ) : reconciliation ? (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-card rounded-lg p-3 border">
+                  <div className="text-sm text-muted-foreground">Expected Value</div>
+                  <div className="text-xl font-bold">${reconciliation.totalExpectedValue.toFixed(2)}</div>
+                </div>
+                <div className="bg-card rounded-lg p-3 border">
+                  <div className="text-sm text-muted-foreground">Actual Value</div>
+                  <div className="text-xl font-bold">${reconciliation.totalActualValue.toFixed(2)}</div>
+                </div>
+                <div className={`rounded-lg p-3 border ${reconciliation.hasSignificantMismatch ? 'bg-destructive/10 border-destructive/30' : 'bg-card'}`}>
+                  <div className="text-sm text-muted-foreground">Discrepancy</div>
+                  <div className={`text-xl font-bold ${reconciliation.hasSignificantMismatch ? 'text-destructive' : ''}`}>
+                    {reconciliation.discrepancyPercent.toFixed(1)}%
+                  </div>
+                </div>
+                <div className={`rounded-lg p-3 border ${reconciliation.orphanTradeCount > 0 ? 'bg-orange-500/10 border-orange-500/30' : 'bg-card'}`}>
+                  <div className="text-sm text-muted-foreground">Orphan Trades</div>
+                  <div className={`text-xl font-bold ${reconciliation.orphanTradeCount > 0 ? 'text-orange-400' : ''}`}>
+                    {reconciliation.orphanTradeCount}
+                  </div>
+                </div>
+              </div>
+
+              {/* Position Discrepancies */}
+              {reconciliation.discrepancies.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm">Position Breakdown</h4>
+                  <div className="space-y-2">
+                    {reconciliation.discrepancies.map((d) => (
+                      <div key={d.asset} className="flex items-center justify-between bg-card/50 rounded p-2 text-sm">
+                        <span className="font-medium">{d.asset}</span>
+                        <div className="flex items-center gap-4">
+                          <span>Expected: {d.expectedQty.toFixed(6)} (${d.expectedValue.toFixed(2)})</span>
+                          <span>Actual: {d.actualQty.toFixed(6)} (${d.actualValue.toFixed(2)})</span>
+                          <span className={d.discrepancyPercent > 50 ? 'text-destructive' : 'text-muted-foreground'}>
+                            {d.discrepancyPercent.toFixed(1)}% off
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Orphan Trades List */}
+              {orphanTrades.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm text-orange-400">Orphan Trades (No Exchange Position)</h4>
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                    {orphanTrades.map((trade) => (
+                      <div key={trade.id} className="flex items-center justify-between bg-orange-500/10 rounded p-2 text-sm border border-orange-500/20">
+                        <div>
+                          <span className="font-medium">{trade.pair}</span>
+                          <span className="text-muted-foreground ml-2">${trade.amount.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-muted-foreground">Entry: ${trade.entryPrice.toFixed(4)}</span>
+                          <span className="text-muted-foreground">Current: ${trade.currentPrice.toFixed(4)}</span>
+                          <span className={trade.estimatedPnL >= 0 ? 'text-green-400' : 'text-destructive'}>
+                            Est. P&L: ${trade.estimatedPnL.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchReconciliation}
+                  disabled={reconciliationLoading}
+                >
+                  <RefreshCw className={`w-4 h-4 mr-1 ${reconciliationLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+                
+                {reconciliation.orphanTradeCount > 0 && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={cleanupOrphanTrades}
+                    disabled={cleaningUp}
+                  >
+                    {cleaningUp ? (
+                      <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4 mr-1" />
+                    )}
+                    {cleaningUp ? 'Cleaning up...' : `Cleanup ${reconciliation.orphanTradeCount} Orphan Trades`}
+                  </Button>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="text-muted-foreground">No reconciliation data available. Click refresh to check.</p>
+          )}
         </CardContent>
       </Card>
 

@@ -46,7 +46,7 @@ const navItems = [
   { to: '/charts', icon: LineChart, label: 'Charts' },
   { to: '/news', icon: Newspaper, label: 'News' },
   { to: '/research', icon: BookOpen, label: 'Research' },
-  { to: '/bugs-dashboard', icon: Bug, label: '🐛 Bugs' },
+  { to: '/bugs-dashboard', icon: Bug, label: '🐛BUGS🐛', isBugs: true },
 ];
 
 const bottomNavItems = [
@@ -102,11 +102,15 @@ export function Sidebar() {
                 to={item.to}
                 className={cn(
                   'flex items-center gap-3 px-3 py-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors',
-                  collapsed && 'justify-center px-2'
+                  collapsed && 'justify-center px-2',
+                  (item as any).isBugs && 'text-red-400 hover:text-red-300 hover:bg-red-500/10 font-semibold'
                 )}
-                activeClassName="bg-sidebar-accent text-sidebar-accent-foreground"
+                activeClassName={cn(
+                  'bg-sidebar-accent text-sidebar-accent-foreground',
+                  (item as any).isBugs && 'bg-red-500/20 text-red-300'
+                )}
               >
-                <item.icon className="w-5 h-5 flex-shrink-0" />
+                <item.icon className={cn('w-5 h-5 flex-shrink-0', (item as any).isBugs && 'text-red-400')} />
                 {!collapsed && <span className="text-sm">{item.label}</span>}
               </NavLink>
             </li>
