@@ -924,7 +924,7 @@ export default function Bots() {
   };
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full flex flex-col overflow-y-auto">
       {/* Emergency Kill Banner - Sticky at top */}
       <EmergencyKillBanner
         currentPnL={currentPnL}
@@ -1448,9 +1448,9 @@ export default function Bots() {
       {/* Profit Engine Status Panel - collapsed by default */}
       <ProfitEnginePanel defaultCollapsed={true} className="mb-2 flex-shrink-0" />
 
-      {/* Main Content Grid - Scrollable */}
+      {/* Main Content Grid - Bot Cards */}
       <div className={cn(
-        "flex-1 min-h-0 overflow-auto",
+        "flex-1 min-h-[500px]",
         isMobile && "hidden"
       )}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3">
