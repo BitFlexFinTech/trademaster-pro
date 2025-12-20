@@ -924,7 +924,7 @@ export default function Bots() {
   };
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto">
+    <div className="h-full flex flex-col min-h-0">
       {/* Emergency Kill Banner - Sticky at top */}
       <EmergencyKillBanner
         currentPnL={currentPnL}
@@ -943,605 +943,608 @@ export default function Bots() {
       {/* Balance Reconciliation Banner */}
       <BalanceReconciliationBanner />
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3 flex-shrink-0">
-        <div className="flex items-center gap-2 md:gap-3">
-          <Bot className="w-5 h-5 text-primary" />
-          <h1 className="text-base md:text-lg font-bold text-foreground">Trading Bots</h1>
-          <span className="live-indicator text-xs hidden sm:inline">{activeBotCount} Active</span>
-          <BotSettingsDrawer
-            settings={botConfig}
-            onSettingsChange={setBotConfig}
-            disabled={!!spotBot || !!leverageBot}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-6 text-xs gap-1 hidden md:flex"
-            onClick={() => setShowComparison(true)}
-          >
-            <BarChart3 className="w-3 h-3" />
-            Compare Bots
-          </Button>
-          {/* Export Trades CSV */}
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-6 text-xs gap-1 hidden md:flex"
-            onClick={handleExportTrades}
-            disabled={exportingTrades}
-          >
-            {exportingTrades ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <Download className="w-3 h-3" />
-            )}
-            Export CSV
-          </Button>
-          {/* KILL SWITCH - Emergency Stop */}
-          {(spotBot || leverageBot) && (
-            <Button
-              size="sm"
-              variant="destructive"
-              className="h-6 text-xs gap-1 hidden md:flex bg-red-600 hover:bg-red-700 animate-pulse"
-              onClick={handleKillSwitch}
-              disabled={killingAll}
-            >
-              {killingAll ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Power className="w-3 h-3" />
-              )}
-              KILL SWITCH
-            </Button>
-          )}
-          {/* Sync Positions Button - Shows open position count */}
-          {tradingMode === 'live' && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant={openPositionCount > 0 ? 'default' : 'outline'}
-                    className={cn(
-                      "h-6 text-xs gap-1 hidden md:flex",
-                      openPositionCount > 0 && "bg-primary hover:bg-primary/90"
-                    )}
-                    onClick={handleSyncPositions}
-                    disabled={syncingNow}
-                  >
-                    {syncingNow ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Zap className="w-3 h-3" />
-                    )}
-                    Sync{openPositionCount > 0 && ` (${openPositionCount})`}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Check open positions and take profits</p>
-                  {openPositionCount > 0 && (
-                    <p className="text-xs text-muted-foreground">{openPositionCount} open position(s)</p>
-                  )}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-          {/* Close All Positions - Live Mode Only */}
-          {tradingMode === 'live' && !spotBot && !leverageBot && (
-            <Button
-              size="sm"
-              variant="destructive"
-              className="h-6 text-xs gap-1 hidden md:flex"
-              onClick={handleCloseAllPositions}
-              disabled={closingPositions}
-            >
-              {closingPositions ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <XCircle className="w-3 h-3" />
-              )}
-              Close All Positions
-            </Button>
-          )}
-          {/* Mobile drawer trigger */}
-          {isMobile && (
-            <BotsMobileDrawer
-              spotBot={spotBot}
-              leverageBot={leverageBot}
-              bots={bots}
-              prices={prices}
-              startBot={startBot}
-              stopBot={handleStopBot}
-              updateBotPnl={updateBotPnl}
-              analyzeBot={analyzeBot}
-              suggestedUSDT={suggestedUSDT}
-              usdtFloat={usdtFloat}
-              dailyStopLoss={botConfig.dailyStopLoss}
-              perTradeStopLoss={botConfig.perTradeStopLoss}
-              onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
-            />
-          )}
-        </div>
-
-        {/* Demo/Live Toggle */}
-        <div className="flex items-center gap-2">
-          {/* WebSocket Connection Status */}
-          <div className={cn(
-            "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px]",
-            wsConnected ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"
-          )}>
-            {wsConnected ? (
-              <>
-                <Wifi className="w-3 h-3" />
-                <span className="hidden sm:inline">Live</span>
-              </>
-            ) : (
-              <>
-                <WifiOff className="w-3 h-3" />
-                <span className="hidden sm:inline">Offline</span>
-              </>
-            )}
-          </div>
-          <Badge variant={tradingMode === 'demo' ? 'secondary' : 'destructive'} className="text-[10px]">
-            {tradingMode === 'demo' ? 'DEMO MODE' : 'LIVE TRADING'}
-          </Badge>
-          {/* Live Mode Sync Info */}
-          {tradingMode === 'live' && lastSyncTime && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-muted-foreground">
-                Last sync: {lastSyncTime.toLocaleTimeString()}
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  triggerSync();
-                  toast.success('Syncing exchange balances...');
-                }}
-                className="h-5 w-5 p-0"
-              >
-                <RefreshCw className="w-3 h-3" />
-              </Button>
-            </div>
-          )}
-          <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-1">
-            <Button
-              size="sm"
-              variant={tradingMode === 'demo' ? 'default' : 'ghost'}
-              onClick={() => setTradingMode('demo')}
-              className="h-6 text-xs px-3"
-              disabled={!!spotBot || !!leverageBot}
-            >
-              Demo
-            </Button>
-            <Button
-              size="sm"
-              variant={tradingMode === 'live' ? 'destructive' : 'ghost'}
-              onClick={() => setTradingMode('live')}
-              className="h-6 text-xs px-3"
-              disabled={!!spotBot || !!leverageBot}
-            >
-              Live
-            </Button>
-          </div>
-          {tradingMode === 'demo' && (
-            <span className="text-xs text-muted-foreground font-mono">
-              Virtual: ${virtualBalance.toFixed(2)}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Exchange Re-Connection Warning - Live Mode Only */}
-      {tradingMode === 'live' && needsReconnection.length > 0 && (
-        <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 mb-3 flex-shrink-0">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-destructive">
-                {needsReconnection.length} exchange{needsReconnection.length > 1 ? 's' : ''} need{needsReconnection.length === 1 ? 's' : ''} re-connection
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {needsReconnection.map(e => e.name).join(', ')} - API credentials missing or expired.
-                Live trading will not work until re-connected.
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 text-xs border-destructive/50 text-destructive hover:bg-destructive/10"
-              onClick={() => navigate('/settings')}
-            >
-              Fix in Settings
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* No Valid Credentials Warning - Live Mode Only */}
-      {tradingMode === 'live' && hasConnections && !hasValidCredentials && needsReconnection.length === 0 && (
-        <div className="bg-warning/10 border border-warning/30 rounded-lg p-3 mb-3 flex-shrink-0">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-warning">No exchanges ready for live trading</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Connect at least one exchange with valid API credentials to enable live trading.
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 text-xs"
-              onClick={() => navigate('/settings')}
-            >
-              Connect Exchange
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Balance Requirement Banner - Live Mode Only */}
-      {tradingMode === 'live' && hasValidCredentials && exchangeBalanceRequirements.length > 0 && (
-        <BalanceRequirementBanner 
-          balances={exchangeBalanceRequirements}
-          onRefresh={handleRefreshBalances}
-          isRefreshing={isRefreshingBalances}
-        />
-      )}
-
-      {/* Portfolio Value by Exchange - Collapsible */}
-      <Collapsible open={usdtFloatOpen} onOpenChange={setUsdtFloatOpen} className="card-terminal p-3 mb-3 flex-shrink-0">
-        <CollapsibleTrigger asChild>
-          <div className="flex items-center justify-between cursor-pointer hover:bg-secondary/30 -m-3 p-3 rounded">
-            <h3 className="text-xs font-semibold text-foreground flex items-center gap-2">
-              <DollarSign className="w-3 h-3 text-muted-foreground" />
-              {tradingMode === 'demo' ? 'Virtual USDT Allocation' : 'Portfolio Value by Exchange'}
-            </h3>
-            <div className="flex items-center gap-2">
-              {/* Refresh Balance Button - Live Mode Only */}
-              {tradingMode === 'live' && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-5 w-5 p-0"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    fetchExchangeBalances();
-                    toast.success('Refreshing portfolio values...');
-                  }}
-                >
-                  <RefreshCw className="w-3 h-3" />
-                </Button>
-              )}
-              {/* USDT Cap Indicator */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-muted-foreground">
-                  ${suggestedUSDT.toLocaleString()} / ${MAX_USDT_ALLOCATION.toLocaleString()}
-                </span>
-                <div className="w-16 h-1.5 bg-secondary rounded-full overflow-hidden">
-                  <div 
-                    className={cn(
-                      "h-full transition-all rounded-full",
-                      suggestedUSDT >= MAX_USDT_ALLOCATION ? "bg-destructive" : 
-                      suggestedUSDT >= MAX_USDT_ALLOCATION * 0.8 ? "bg-warning" : "bg-primary"
-                    )}
-                    style={{ width: `${Math.min((suggestedUSDT / MAX_USDT_ALLOCATION) * 100, 100)}%` }}
-                  />
-                </div>
-                {suggestedUSDT >= MAX_USDT_ALLOCATION && (
-                  <Badge variant="destructive" className="text-[8px] h-4">AT CAP</Badge>
-                )}
-              </div>
-              {usdtFloatOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </div>
-          </div>
-        </CollapsibleTrigger>
-
-        <CollapsibleContent className="mt-3">
-          {loadingFloat ? (
-            <div className="flex items-center justify-center py-2">
-              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-              {tradingMode === 'demo' ? (
-                activeExchanges.slice(0, 5).map((config) => {
-                  const allocation = EXCHANGE_ALLOCATION_PERCENTAGES[config.confidence];
-                  const amount = Math.round(suggestedUSDT * allocation);
-                  const baseBalance = baseBalancePerExchange[config.name] || DEFAULT_BASE_BALANCE;
-                  const availableFloat = Math.max(0, amount - baseBalance);
-                  return (
-                    <TooltipProvider key={config.name}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="flex flex-col p-2 rounded bg-secondary/50 transition-all duration-500">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[10px] text-foreground font-medium">{config.name}</span>
-                              <Lock className="w-3 h-3 text-muted-foreground" />
-                            </div>
-                            <div className="flex justify-between text-[9px]">
-                              <span className="text-muted-foreground">Available:</span>
-                              <span className={cn("font-mono font-bold", availableFloat > 0 ? "text-primary" : "text-muted-foreground")}>
-                                ${availableFloat.toLocaleString()}
-                              </span>
-                            </div>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p className="text-xs">Base ${baseBalance} locked</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  );
-                })
-              ) : (
-                usdtFloat.length === 0 ? (
-                  <div className="col-span-5 text-center py-2 text-muted-foreground text-xs">
-                    No exchanges with balance. Connect exchanges in Settings.
-                  </div>
-                ) : (
-                  usdtFloat.slice(0, 5).map((item) => (
-                    <TooltipProvider key={item.exchange}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className={cn(
-                            "flex flex-col p-2 rounded bg-secondary/50",
-                            item.warning && "border border-warning/50"
-                          )}>
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[10px] text-foreground font-medium">{item.exchange}</span>
-                              {item.warning ? (
-                                <AlertTriangle className="w-3 h-3 text-warning" />
-                              ) : (
-                                <Unlock className="w-3 h-3 text-primary" />
-                              )}
-                            </div>
-                            <div className="flex justify-between text-[9px]">
-                              <span className="text-muted-foreground">Total Value:</span>
-                              <span className="font-mono font-bold text-primary">
-                                ${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </span>
-                            </div>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p className="text-xs">Total portfolio value (all assets × prices)</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ))
-                )
-              )}
-            </div>
-          )}
-
-          {/* Total Vaulted Profits Display */}
-          {Object.values(profitVault).reduce((sum, v) => sum + v, 0) > 0 && (
-            <div className="flex justify-between items-center text-[10px] border-t border-border/50 pt-2 mt-2">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Lock className="h-3 w-3 text-primary" />
-                Total Vaulted:
-              </span>
-              <span className="font-mono text-primary font-bold">
-                ${Object.values(profitVault).reduce((sum, v) => sum + v, 0).toFixed(2)}
-              </span>
-            </div>
-          )}
-        </CollapsibleContent>
-      </Collapsible>
-
-      {/* AI Recommendation - Collapsible (default collapsed) */}
-      <Collapsible open={aiRecommendationOpen} onOpenChange={setAiRecommendationOpen} className="card-terminal p-3 mb-3 flex-shrink-0">
-        <CollapsibleTrigger asChild>
-          <div className="flex items-center justify-between cursor-pointer hover:bg-secondary/30 -m-3 p-3 rounded">
-            <div className="flex items-center gap-2">
-              <Brain className="w-4 h-4 text-primary" />
-              <span className="text-xs font-medium text-foreground">AI Daily Target Recommendation</span>
-              {aiTargetRecommendation && (
-                <Badge variant="outline" className="text-[8px] h-4 border-primary text-primary">
-                  ${aiTargetRecommendation.dailyTarget}/day
-                </Badge>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
+      <div className="flex-1 min-h-0 flex flex-col gap-3">
+        {/* Top Panels: scroll if too tall (prevents bot cards from being pushed off-screen) */}
+        <div className="max-h-[45vh] overflow-y-auto pr-1">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2 md:gap-3">
+              <Bot className="w-5 h-5 text-primary" />
+              <h1 className="text-base md:text-lg font-bold text-foreground">Trading Bots</h1>
+              <span className="live-indicator text-xs hidden sm:inline">{activeBotCount} Active</span>
+              <BotSettingsDrawer
+                settings={botConfig}
+                onSettingsChange={setBotConfig}
+                disabled={!!spotBot || !!leverageBot}
+              />
               <Button
                 size="sm"
                 variant="outline"
-                className="h-6 text-xs gap-1"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const floatData = usdtFloat.map(f => ({
-                    exchange: f.exchange,
-                    amount: f.amount,
-                    baseBalance: 0,
-                    availableFloat: f.amount,
-                  }));
-                  fetchAITargetRecommendation({
-                    usdtFloat: floatData,
-                    historicalHitRate: combinedHitRate,
-                    averageProfitPerTrade: botConfig.profitPerTrade,
-                    tradingHoursPerDay: 8,
-                    riskTolerance: 'moderate',
-                  });
-                  setAiRecommendationOpen(true);
-                }}
-                disabled={aiTargetLoading || usdtFloat.length === 0}
+                className="h-6 text-xs gap-1 hidden md:flex"
+                onClick={() => setShowComparison(true)}
               >
-                {aiTargetLoading ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <Sparkles className="w-3 h-3" />
-                )}
-                Get
+                <BarChart3 className="w-3 h-3" />
+                Compare Bots
               </Button>
-              {aiRecommendationOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </div>
-          </div>
-        </CollapsibleTrigger>
-
-        <CollapsibleContent className="mt-3">
-          {aiTargetRecommendation ? (
-            <div className="p-2 rounded bg-primary/10 border border-primary/20">
-              <div className="grid grid-cols-3 gap-2 mb-2">
-                <div className="text-center">
-                  <div className="text-[10px] text-muted-foreground">Daily Target</div>
-                  <div className="text-sm font-bold text-primary">${aiTargetRecommendation.dailyTarget}</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-[10px] text-muted-foreground">Profit/Trade</div>
-                  <div className="text-sm font-bold text-primary">${aiTargetRecommendation.profitPerTrade.toFixed(2)}</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-[10px] text-muted-foreground">Confidence</div>
-                  <div className={cn(
-                    "text-sm font-bold",
-                    aiTargetRecommendation.confidence >= 80 ? "text-primary" :
-                    aiTargetRecommendation.confidence >= 60 ? "text-warning" : "text-destructive"
-                  )}>
-                    {aiTargetRecommendation.confidence}%
-                  </div>
-                </div>
-              </div>
-              <p className="text-[10px] text-muted-foreground mb-2 line-clamp-2">
-                {aiTargetRecommendation.reasoning}
-              </p>
+              {/* Export Trades CSV */}
               <Button
                 size="sm"
-                className="w-full h-6 text-xs gap-1"
-                onClick={() => {
-                  applyAITargetRecommendation((target, profit) => {
-                    setBotConfig(prev => ({
-                      ...prev,
-                      dailyTarget: target,
-                      profitPerTrade: profit,
-                    }));
-                  });
-                }}
+                variant="outline"
+                className="h-6 text-xs gap-1 hidden md:flex"
+                onClick={handleExportTrades}
+                disabled={exportingTrades}
               >
-                <Target className="w-3 h-3" />
-                Apply Recommendation
+                {exportingTrades ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Download className="w-3 h-3" />
+                )}
+                Export CSV
               </Button>
+              {/* KILL SWITCH - Emergency Stop */}
+              {(spotBot || leverageBot) && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-6 text-xs gap-1 hidden md:flex bg-red-600 hover:bg-red-700 animate-pulse"
+                  onClick={handleKillSwitch}
+                  disabled={killingAll}
+                >
+                  {killingAll ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Power className="w-3 h-3" />
+                  )}
+                  KILL SWITCH
+                </Button>
+              )}
+              {/* Sync Positions Button - Shows open position count */}
+              {tradingMode === 'live' && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant={openPositionCount > 0 ? 'default' : 'outline'}
+                        className={cn(
+                          "h-6 text-xs gap-1 hidden md:flex",
+                          openPositionCount > 0 && "bg-primary hover:bg-primary/90"
+                        )}
+                        onClick={handleSyncPositions}
+                        disabled={syncingNow}
+                      >
+                        {syncingNow ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Zap className="w-3 h-3" />
+                        )}
+                        Sync{openPositionCount > 0 && ` (${openPositionCount})`}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Check open positions and take profits</p>
+                      {openPositionCount > 0 && (
+                        <p className="text-xs text-muted-foreground">{openPositionCount} open position(s)</p>
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+              {/* Close All Positions - Live Mode Only */}
+              {tradingMode === 'live' && !spotBot && !leverageBot && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-6 text-xs gap-1 hidden md:flex"
+                  onClick={handleCloseAllPositions}
+                  disabled={closingPositions}
+                >
+                  {closingPositions ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <XCircle className="w-3 h-3" />
+                  )}
+                  Close All Positions
+                </Button>
+              )}
+              {/* Mobile drawer trigger */}
+              {isMobile && (
+                <BotsMobileDrawer
+                  spotBot={spotBot}
+                  leverageBot={leverageBot}
+                  bots={bots}
+                  prices={prices}
+                  startBot={startBot}
+                  stopBot={handleStopBot}
+                  updateBotPnl={updateBotPnl}
+                  analyzeBot={analyzeBot}
+                  suggestedUSDT={suggestedUSDT}
+                  usdtFloat={usdtFloat}
+                  dailyStopLoss={botConfig.dailyStopLoss}
+                  perTradeStopLoss={botConfig.perTradeStopLoss}
+                  onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+                />
+              )}
             </div>
-          ) : (
-            <p className="text-xs text-muted-foreground text-center py-2">
-              Click "Get" to fetch AI recommendation based on your current balance.
-            </p>
+
+            {/* Demo/Live Toggle */}
+            <div className="flex items-center gap-2">
+              {/* WebSocket Connection Status */}
+              <div className={cn(
+                "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px]",
+                wsConnected ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"
+              )}>
+                {wsConnected ? (
+                  <>
+                    <Wifi className="w-3 h-3" />
+                    <span className="hidden sm:inline">Live</span>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="w-3 h-3" />
+                    <span className="hidden sm:inline">Offline</span>
+                  </>
+                )}
+              </div>
+              <Badge variant={tradingMode === 'demo' ? 'secondary' : 'destructive'} className="text-[10px]">
+                {tradingMode === 'demo' ? 'DEMO MODE' : 'LIVE TRADING'}
+              </Badge>
+              {/* Live Mode Sync Info */}
+              {tradingMode === 'live' && lastSyncTime && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted-foreground">
+                    Last sync: {lastSyncTime.toLocaleTimeString()}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      triggerSync();
+                      toast.success('Syncing exchange balances...');
+                    }}
+                    className="h-5 w-5 p-0"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                  </Button>
+                </div>
+              )}
+              <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-1">
+                <Button
+                  size="sm"
+                  variant={tradingMode === 'demo' ? 'default' : 'ghost'}
+                  onClick={() => setTradingMode('demo')}
+                  className="h-6 text-xs px-3"
+                  disabled={!!spotBot || !!leverageBot}
+                >
+                  Demo
+                </Button>
+                <Button
+                  size="sm"
+                  variant={tradingMode === 'live' ? 'destructive' : 'ghost'}
+                  onClick={() => setTradingMode('live')}
+                  className="h-6 text-xs px-3"
+                  disabled={!!spotBot || !!leverageBot}
+                >
+                  Live
+                </Button>
+              </div>
+              {tradingMode === 'demo' && (
+                <span className="text-xs text-muted-foreground font-mono">
+                  Virtual: ${virtualBalance.toFixed(2)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Exchange Re-Connection Warning - Live Mode Only */}
+          {tradingMode === 'live' && needsReconnection.length > 0 && (
+            <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 mb-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-destructive">
+                    {needsReconnection.length} exchange{needsReconnection.length > 1 ? 's' : ''} need{needsReconnection.length === 1 ? 's' : ''} re-connection
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {needsReconnection.map(e => e.name).join(', ')} - API credentials missing or expired.
+                    Live trading will not work until re-connected.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-xs border-destructive/50 text-destructive hover:bg-destructive/10"
+                  onClick={() => navigate('/settings')}
+                >
+                  Fix in Settings
+                </Button>
+              </div>
+            </div>
           )}
-        </CollapsibleContent>
-      </Collapsible>
 
-      {/* AI Recommendations Panel - Full 9 Fields */}
-      <AIRecommendationsPanel
-        botConfig={botConfig}
-        onApplyField={(field, value) => {
-          setBotConfig(prev => ({ ...prev, [field]: value }));
-        }}
-        onApplyAll={() => {
-          // Refetch config from DB since applyRecommendation will have updated it
-          refetch();
-        }}
-        className="mb-2 flex-shrink-0"
-      />
+          {/* No Valid Credentials Warning - Live Mode Only */}
+          {tradingMode === 'live' && hasConnections && !hasValidCredentials && needsReconnection.length === 0 && (
+            <div className="bg-warning/10 border border-warning/30 rounded-lg p-3 mb-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-warning">No exchanges ready for live trading</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Connect at least one exchange with valid API credentials to enable live trading.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-xs"
+                  onClick={() => navigate('/settings')}
+                >
+                  Connect Exchange
+                </Button>
+              </div>
+            </div>
+          )}
 
-      {/* Profit Engine Status Panel - collapsed by default */}
-      <ProfitEnginePanel defaultCollapsed={true} className="mb-2 flex-shrink-0" />
+          {/* Balance Requirement Banner - Live Mode Only */}
+          {tradingMode === 'live' && hasValidCredentials && exchangeBalanceRequirements.length > 0 && (
+            <BalanceRequirementBanner 
+              balances={exchangeBalanceRequirements}
+              onRefresh={handleRefreshBalances}
+              isRefreshing={isRefreshingBalances}
+            />
+          )}
 
-      {/* Main Content Grid - Bot Cards */}
-      <div className={cn(
-        "flex-1 min-h-[500px]",
-        isMobile && "hidden"
-      )}>
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3">
-          {/* Left Column - Spot and Leverage Bot Cards */}
-          <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 auto-rows-min">
-          <BotCard
-            botType="spot"
-            existingBot={spotBot}
-            prices={prices}
-            onStartBot={startBot}
-            onStopBot={(botId) => handleStopBot(botId, 'GreenBack Spot')}
-            onUpdateBotPnl={updateBotPnl}
-            suggestedUSDT={suggestedUSDT}
-            usdtFloat={usdtFloat}
-            dailyStopLoss={botConfig.dailyStopLoss}
-            perTradeStopLoss={botConfig.perTradeStopLoss}
-            amountPerTrade={botConfig.amountPerTrade}
-            tradeIntervalMs={botConfig.tradeIntervalMs}
-            autoSpeedAdjust={botConfig.autoSpeedAdjust}
-            onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
-            isAnyBotRunning={!!spotBot || !!leverageBot}
-            onAuditGenerated={(report, charts) => {
-              setAuditReport(report);
-              setDashboards(charts);
+          {/* Portfolio Value by Exchange - Collapsible */}
+          <Collapsible open={usdtFloatOpen} onOpenChange={setUsdtFloatOpen} className="card-terminal p-3 mb-3">
+            <CollapsibleTrigger asChild>
+              <div className="flex items-center justify-between cursor-pointer hover:bg-secondary/30 -m-3 p-3 rounded">
+                <h3 className="text-xs font-semibold text-foreground flex items-center gap-2">
+                  <DollarSign className="w-3 h-3 text-muted-foreground" />
+                  {tradingMode === 'demo' ? 'Virtual USDT Allocation' : 'Portfolio Value by Exchange'}
+                </h3>
+                <div className="flex items-center gap-2">
+                  {/* Refresh Balance Button - Live Mode Only */}
+                  {tradingMode === 'live' && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-5 w-5 p-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fetchExchangeBalances();
+                        toast.success('Refreshing portfolio values...');
+                      }}
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                    </Button>
+                  )}
+                  {/* USDT Cap Indicator */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-muted-foreground">
+                      ${suggestedUSDT.toLocaleString()} / ${MAX_USDT_ALLOCATION.toLocaleString()}
+                    </span>
+                    <div className="w-16 h-1.5 bg-secondary rounded-full overflow-hidden">
+                      <div 
+                        className={cn(
+                          "h-full transition-all rounded-full",
+                          suggestedUSDT >= MAX_USDT_ALLOCATION ? "bg-destructive" : 
+                          suggestedUSDT >= MAX_USDT_ALLOCATION * 0.8 ? "bg-warning" : "bg-primary"
+                        )}
+                        style={{ width: `${Math.min((suggestedUSDT / MAX_USDT_ALLOCATION) * 100, 100)}%` }}
+                      />
+                    </div>
+                    {suggestedUSDT >= MAX_USDT_ALLOCATION && (
+                      <Badge variant="destructive" className="text-[8px] h-4">AT CAP</Badge>
+                    )}
+                  </div>
+                  {usdtFloatOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </div>
+              </div>
+            </CollapsibleTrigger>
+
+            <CollapsibleContent className="mt-3">
+              {loadingFloat ? (
+                <div className="flex items-center justify-center py-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                  {tradingMode === 'demo' ? (
+                    activeExchanges.slice(0, 5).map((config) => {
+                      const allocation = EXCHANGE_ALLOCATION_PERCENTAGES[config.confidence];
+                      const amount = Math.round(suggestedUSDT * allocation);
+                      const baseBalance = baseBalancePerExchange[config.name] || DEFAULT_BASE_BALANCE;
+                      const availableFloat = Math.max(0, amount - baseBalance);
+                      return (
+                        <TooltipProvider key={config.name}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="flex flex-col p-2 rounded bg-secondary/50 transition-all duration-500">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-[10px] text-foreground font-medium">{config.name}</span>
+                                  <Lock className="w-3 h-3 text-muted-foreground" />
+                                </div>
+                                <div className="flex justify-between text-[9px]">
+                                  <span className="text-muted-foreground">Available:</span>
+                                  <span className={cn("font-mono font-bold", availableFloat > 0 ? "text-primary" : "text-muted-foreground")}>
+                                    ${availableFloat.toLocaleString()}
+                                  </span>
+                                </div>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">Base ${baseBalance} locked</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      );
+                    })
+                  ) : (
+                    usdtFloat.length === 0 ? (
+                      <div className="col-span-5 text-center py-2 text-muted-foreground text-xs">
+                        No exchanges with balance. Connect exchanges in Settings.
+                      </div>
+                    ) : (
+                      usdtFloat.slice(0, 5).map((item) => (
+                        <TooltipProvider key={item.exchange}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className={cn(
+                                "flex flex-col p-2 rounded bg-secondary/50",
+                                item.warning && "border border-warning/50"
+                              )}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-[10px] text-foreground font-medium">{item.exchange}</span>
+                                  {item.warning ? (
+                                    <AlertTriangle className="w-3 h-3 text-warning" />
+                                  ) : (
+                                    <Unlock className="w-3 h-3 text-primary" />
+                                  )}
+                                </div>
+                                <div className="flex justify-between text-[9px]">
+                                  <span className="text-muted-foreground">Total Value:</span>
+                                  <span className="font-mono font-bold text-primary">
+                                    ${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                </div>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">Total portfolio value (all assets × prices)</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ))
+                    )
+                  )}
+                </div>
+              )}
+
+              {/* Total Vaulted Profits Display */}
+              {Object.values(profitVault).reduce((sum, v) => sum + v, 0) > 0 && (
+                <div className="flex justify-between items-center text-[10px] border-t border-border/50 pt-2 mt-2">
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <Lock className="h-3 w-3 text-primary" />
+                    Total Vaulted:
+                  </span>
+                  <span className="font-mono text-primary font-bold">
+                    ${Object.values(profitVault).reduce((sum, v) => sum + v, 0).toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* AI Recommendation - Collapsible (default collapsed) */}
+          <Collapsible open={aiRecommendationOpen} onOpenChange={setAiRecommendationOpen} className="card-terminal p-3 mb-3">
+            <CollapsibleTrigger asChild>
+              <div className="flex items-center justify-between cursor-pointer hover:bg-secondary/30 -m-3 p-3 rounded">
+                <div className="flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-primary" />
+                  <span className="text-xs font-medium text-foreground">AI Daily Target Recommendation</span>
+                  {aiTargetRecommendation && (
+                    <Badge variant="outline" className="text-[8px] h-4 border-primary text-primary">
+                      ${aiTargetRecommendation.dailyTarget}/day
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-xs gap-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const floatData = usdtFloat.map(f => ({
+                        exchange: f.exchange,
+                        amount: f.amount,
+                        baseBalance: 0,
+                        availableFloat: f.amount,
+                      }));
+                      fetchAITargetRecommendation({
+                        usdtFloat: floatData,
+                        historicalHitRate: combinedHitRate,
+                        averageProfitPerTrade: botConfig.profitPerTrade,
+                        tradingHoursPerDay: 8,
+                        riskTolerance: 'moderate',
+                      });
+                      setAiRecommendationOpen(true);
+                    }}
+                    disabled={aiTargetLoading || usdtFloat.length === 0}
+                  >
+                    {aiTargetLoading ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3 h-3" />
+                    )}
+                    Get
+                  </Button>
+                  {aiRecommendationOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </div>
+              </div>
+            </CollapsibleTrigger>
+
+            <CollapsibleContent className="mt-3">
+              {aiTargetRecommendation ? (
+                <div className="p-2 rounded bg-primary/10 border border-primary/20">
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    <div className="text-center">
+                      <div className="text-[10px] text-muted-foreground">Daily Target</div>
+                      <div className="text-sm font-bold text-primary">${aiTargetRecommendation.dailyTarget}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[10px] text-muted-foreground">Profit/Trade</div>
+                      <div className="text-sm font-bold text-primary">${aiTargetRecommendation.profitPerTrade.toFixed(2)}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[10px] text-muted-foreground">Confidence</div>
+                      <div className={cn(
+                        "text-sm font-bold",
+                        aiTargetRecommendation.confidence >= 80 ? "text-primary" :
+                        aiTargetRecommendation.confidence >= 60 ? "text-warning" : "text-destructive"
+                      )}>
+                        {aiTargetRecommendation.confidence}%
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mb-2 line-clamp-2">
+                    {aiTargetRecommendation.reasoning}
+                  </p>
+                  <Button
+                    size="sm"
+                    className="w-full h-6 text-xs gap-1"
+                    onClick={() => {
+                      applyAITargetRecommendation((target, profit) => {
+                        setBotConfig(prev => ({
+                          ...prev,
+                          dailyTarget: target,
+                          profitPerTrade: profit,
+                        }));
+                      });
+                    }}
+                  >
+                    <Target className="w-3 h-3" />
+                    Apply Recommendation
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center py-2">
+                  Click "Get" to fetch AI recommendation based on your current balance.
+                </p>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* AI Recommendations Panel - Full 9 Fields */}
+          <AIRecommendationsPanel
+            botConfig={botConfig}
+            onApplyField={(field, value) => {
+              setBotConfig(prev => ({ ...prev, [field]: value }));
             }}
-          />
-          <BotCard
-            botType="leverage"
-            existingBot={leverageBot}
-            prices={prices}
-            onStartBot={startBot}
-            onStopBot={(botId) => handleStopBot(botId, 'GreenBack Leverage')}
-            onUpdateBotPnl={updateBotPnl}
-            suggestedUSDT={suggestedUSDT}
-            usdtFloat={usdtFloat}
-            dailyStopLoss={botConfig.dailyStopLoss}
-            perTradeStopLoss={botConfig.perTradeStopLoss}
-            amountPerTrade={botConfig.amountPerTrade}
-            tradeIntervalMs={botConfig.tradeIntervalMs}
-            autoSpeedAdjust={botConfig.autoSpeedAdjust}
-            onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
-            isAnyBotRunning={!!spotBot || !!leverageBot}
-            onAuditGenerated={(report, charts) => {
-              setAuditReport(report);
-              setDashboards(charts);
+            onApplyAll={() => {
+              // Refetch config from DB since applyRecommendation will have updated it
+              refetch();
             }}
+            className="mb-2"
           />
+
+          {/* Profit Engine Status Panel - collapsed by default */}
+          <ProfitEnginePanel defaultCollapsed={true} className="mb-2" />
         </div>
 
-        {/* Middle Column - Live P&L Dashboard + Recent Trades */}
-        <div className="lg:col-span-4 flex flex-col gap-2">
-          {/* Live P&L Dashboard */}
-          <LivePnLDashboard />
-          
-          {/* Link to full analytics page */}
-          <Button asChild variant="outline" className="h-8 gap-2">
-            <Link to="/bot-analytics">
-              <Brain className="w-4 h-4" />
-              View Full Analytics Dashboard
-            </Link>
-          </Button>
-          
-          {/* Recent Trades */}
-          <div className="card-terminal p-3 flex flex-col flex-1 min-h-[200px]">
-            <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
-              Recent Trades
-              <Badge variant="outline" className="text-[8px] ml-auto">Live</Badge>
-            </h3>
-            <div className="flex-1 overflow-auto">
-              <RecentBotTrades />
+        {/* Bot Cards: guaranteed visible + independently scrollable */}
+        <section className="flex-1 min-h-[50vh] overflow-y-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3">
+            {/* Left Column - Spot and Leverage Bot Cards */}
+            <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 auto-rows-min">
+              <BotCard
+                botType="spot"
+                existingBot={spotBot}
+                prices={prices}
+                onStartBot={startBot}
+                onStopBot={(botId) => handleStopBot(botId, 'GreenBack Spot')}
+                onUpdateBotPnl={updateBotPnl}
+                suggestedUSDT={suggestedUSDT}
+                usdtFloat={usdtFloat}
+                dailyStopLoss={botConfig.dailyStopLoss}
+                perTradeStopLoss={botConfig.perTradeStopLoss}
+                amountPerTrade={botConfig.amountPerTrade}
+                tradeIntervalMs={botConfig.tradeIntervalMs}
+                autoSpeedAdjust={botConfig.autoSpeedAdjust}
+                onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+                isAnyBotRunning={!!spotBot || !!leverageBot}
+                onAuditGenerated={(report, charts) => {
+                  setAuditReport(report);
+                  setDashboards(charts);
+                }}
+              />
+              <BotCard
+                botType="leverage"
+                existingBot={leverageBot}
+                prices={prices}
+                onStartBot={startBot}
+                onStopBot={(botId) => handleStopBot(botId, 'GreenBack Leverage')}
+                onUpdateBotPnl={updateBotPnl}
+                suggestedUSDT={suggestedUSDT}
+                usdtFloat={usdtFloat}
+                dailyStopLoss={botConfig.dailyStopLoss}
+                perTradeStopLoss={botConfig.perTradeStopLoss}
+                amountPerTrade={botConfig.amountPerTrade}
+                tradeIntervalMs={botConfig.tradeIntervalMs}
+                autoSpeedAdjust={botConfig.autoSpeedAdjust}
+                onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+                isAnyBotRunning={!!spotBot || !!leverageBot}
+                onAuditGenerated={(report, charts) => {
+                  setAuditReport(report);
+                  setDashboards(charts);
+                }}
+              />
+            </div>
+
+            {/* Middle Column - Live P&L Dashboard + Recent Trades */}
+            <div className="lg:col-span-4 flex flex-col gap-2">
+              {/* Live P&L Dashboard */}
+              <LivePnLDashboard />
+
+              {/* Link to full analytics page */}
+              <Button asChild variant="outline" className="h-8 gap-2">
+                <Link to="/bot-analytics">
+                  <Brain className="w-4 h-4" />
+                  View Full Analytics Dashboard
+                </Link>
+              </Button>
+
+              {/* Recent Trades */}
+              <div className="card-terminal p-3 flex flex-col flex-1 min-h-[200px]">
+                <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
+                  Recent Trades
+                  <Badge variant="outline" className="text-[8px] ml-auto">Live</Badge>
+                </h3>
+                <div className="flex-1 overflow-auto">
+                  <RecentBotTrades />
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column - Profit History + Bot History */}
+            <div className="lg:col-span-3 flex flex-col gap-2">
+              {/* Profit Withdrawal History Chart */}
+              <ProfitWithdrawalChart />
+
+              {/* Bot History */}
+              <div className="card-terminal p-3 flex flex-col flex-1 min-h-[200px]">
+                <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
+                  Bot History
+                </h3>
+                <div className="flex-1 overflow-auto">
+                  <BotHistory bots={bots} onViewAnalysis={analyzeBot} />
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-
-        {/* Right Column - Profit History + Bot History */}
-        <div className="lg:col-span-3 flex flex-col gap-2">
-          {/* Profit Withdrawal History Chart */}
-          <ProfitWithdrawalChart />
-          
-          {/* Bot History */}
-          <div className="card-terminal p-3 flex flex-col flex-1 min-h-[200px]">
-            <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
-              Bot History
-            </h3>
-            <div className="flex-1 overflow-auto">
-              <BotHistory bots={bots} onViewAnalysis={analyzeBot} />
-            </div>
-          </div>
-        </div>
-        </div>
+        </section>
       </div>
+
       {/* Analysis Modal */}
       <BotAnalysisModal
         open={showAnalysisModal}
