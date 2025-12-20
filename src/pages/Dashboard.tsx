@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { PortfolioCard } from '@/components/dashboard/PortfolioCard';
-import { OpportunitiesCard } from '@/components/dashboard/OpportunitiesCard';
+import { BotStrategyAICard } from '@/components/dashboard/BotStrategyAICard';
 import { BotSummaryCard } from '@/components/dashboard/BotSummaryCard';
 import { AiSummaryCard } from '@/components/dashboard/AiSummaryCard';
 import { VideoHighlights } from '@/components/dashboard/VideoHighlights';
@@ -10,7 +10,7 @@ import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useNotifications } from '@/hooks/useNotifications';
 
 export default function Dashboard() {
-  const { opportunities, loading, refreshData } = useRealtimePrices();
+  const { refreshData } = useRealtimePrices();
   const { requestPushPermission } = useNotifications();
 
   useEffect(() => {
@@ -29,7 +29,7 @@ export default function Dashboard() {
           <PortfolioCard />
         </div>
         <div className="lg:col-span-2 h-[140px] overflow-hidden">
-          <OpportunitiesCard opportunities={opportunities} loading={loading} />
+          <BotStrategyAICard />
         </div>
         <div className="lg:col-span-2 h-[140px] overflow-hidden">
           <BotSummaryCard />

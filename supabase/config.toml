@@ -89,3 +89,6 @@ verify_jwt = true
 
 [functions.daily-reconciliation]
 verify_jwt = false
+
+[functions.analyze-strategy]
+verify_jwt = true
