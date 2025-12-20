@@ -68,7 +68,7 @@ export function useDailyTargetRecommendation(): UseDailyTargetRecommendationRetu
     if (!user) return;
 
     const channel = supabase
-      .channel('bot-config-realtime')
+      .channel('bot-config-sync')
       .on(
         'postgres_changes',
         {

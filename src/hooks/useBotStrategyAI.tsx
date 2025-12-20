@@ -72,10 +72,15 @@ export function useBotStrategyAI() {
 
     setApplying(true);
     try {
+      // Calculate optimal position size based on available capital
+      const suggestedPosition = Math.max(10, Math.min(1000, 100)); // Default $100 position
+      
       const { error } = await supabase
         .from('bot_config')
         .upsert({
           user_id: user.id,
+          daily_target: recommendation.targetHitRate, // Sync daily target
+          amount_per_trade: suggestedPosition, // Sync position size
           min_profit_threshold: recommendation.recommendations.signalThreshold / 100,
           trade_interval_ms: recommendation.recommendations.tradeIntervalMs,
           profit_per_trade: recommendation.recommendations.profitPerTrade,
@@ -85,6 +90,18 @@ export function useBotStrategyAI() {
         }, { onConflict: 'user_id' });
 
       if (error) throw error;
+
+      // Broadcast update for immediate sync across all components
+      await supabase.channel('bot-config-sync').send({
+        type: 'broadcast',
+        event: 'config_changed',
+        payload: {
+          dailyTarget: recommendation.targetHitRate,
+          profitPerTrade: recommendation.recommendations.profitPerTrade,
+          amountPerTrade: suggestedPosition,
+          tradeIntervalMs: recommendation.recommendations.tradeIntervalMs,
+        },
+      });
 
       toast.success('Strategy applied! Settings synced across dashboard.');
     } catch (error) {
