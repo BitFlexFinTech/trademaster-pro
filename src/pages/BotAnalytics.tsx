@@ -12,8 +12,10 @@ import { DailyPnLChart } from '@/components/bots/DailyPnLChart';
 import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
 import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboard';
 import { TradeDistributionChart } from '@/components/bots/TradeDistributionChart';
+import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
+import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft } from 'lucide-react';
+import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -128,22 +130,26 @@ export default function BotAnalytics() {
 
       {/* Tabs */}
       <Tabs defaultValue="strategy" className="flex-1 min-h-0 flex flex-col">
-        <TabsList className="grid w-full grid-cols-4 flex-shrink-0">
+        <TabsList className="grid w-full grid-cols-5 flex-shrink-0">
           <TabsTrigger value="strategy" className="text-xs gap-1">
             <Brain className="w-3 h-3" />
             Strategy
           </TabsTrigger>
           <TabsTrigger value="risk" className="text-xs gap-1">
             <Shield className="w-3 h-3" />
-            Risk & Session
+            Risk
           </TabsTrigger>
           <TabsTrigger value="performance" className="text-xs gap-1">
             <BarChart3 className="w-3 h-3" />
             Performance
           </TabsTrigger>
+          <TabsTrigger value="profits" className="text-xs gap-1">
+            <Wallet className="w-3 h-3" />
+            Profits
+          </TabsTrigger>
           <TabsTrigger value="spreads" className="text-xs gap-1">
             <TrendingUp className="w-3 h-3" />
-            Spreads & PnL
+            Spreads
           </TabsTrigger>
         </TabsList>
 
@@ -187,6 +193,13 @@ export default function BotAnalytics() {
               <BotPerformanceDashboard />
             </div>
             {/* TradeDistributionChart removed - requires data prop */}
+          </TabsContent>
+
+          <TabsContent value="profits" className="m-0 space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <LivePnLDashboard />
+              <ProfitWithdrawalChart />
+            </div>
           </TabsContent>
 
           <TabsContent value="spreads" className="m-0 space-y-4">
