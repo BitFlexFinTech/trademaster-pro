@@ -1102,10 +1102,21 @@ serve(async (req) => {
                   const currentPrice = await getBinancePrice(tradingSymbol);
                   console.log(`🔄 OCO ALL_DONE with no fill + zero balance - marking trade ${trade.id} as closed`);
                   
+                  // Estimate P&L using current price (better than recording $0.00)
+                  const exitPrice = currentPrice || actualEntryPrice;
+                  const priceDiff = tradeDirection === 'long'
+                    ? exitPrice - actualEntryPrice
+                    : actualEntryPrice - exitPrice;
+
+                  const grossPnL = (priceDiff / actualEntryPrice) * positionSize * leverage;
+                  const fees = positionSize * feeRate * 2;
+                  const estimatedNetPnL = grossPnL - fees;
+
                   await supabase.from('trades').update({
                     status: 'closed',
-                    exit_price: currentPrice || actualEntryPrice,
-                    profit_loss: 0, // Unknown P&L since we don't know actual exit
+                    exit_price: exitPrice,
+                    profit_loss: estimatedNetPnL,
+                    profit_percentage: (estimatedNetPnL / positionSize) * 100,
                     closed_at: new Date().toISOString(),
                   }).eq('id', trade.id);
                   
@@ -1348,12 +1359,23 @@ serve(async (req) => {
                 if (ocoStatus.status === 'ALL_DONE' || ocoStatus.status === 'CANCELLED' || ocoStatus.status === 'EXPIRED') {
                   console.log(`🔄 Zero balance + OCO ${ocoStatus.status} - marking trade ${trade.id} as closed`);
                   
-                  await supabase.from('trades').update({
-                    status: 'closed',
-                    exit_price: currentPrice,
-                    profit_loss: 0, // Unknown since closed elsewhere
-                    closed_at: new Date().toISOString(),
-                  }).eq('id', trade.id);
+                   // Estimate P&L using current price (better than recording $0.00)
+                   const exitPrice = currentPrice;
+                   const priceDiff = tradeDirection === 'long'
+                     ? exitPrice - actualEntryPrice
+                     : actualEntryPrice - exitPrice;
+
+                   const grossPnL = (priceDiff / actualEntryPrice) * positionSize * leverage;
+                   const fees = positionSize * feeRate * 2;
+                   const estimatedNetPnL = grossPnL - fees;
+
+                   await supabase.from('trades').update({
+                     status: 'closed',
+                     exit_price: exitPrice,
+                     profit_loss: estimatedNetPnL,
+                     profit_percentage: (estimatedNetPnL / positionSize) * 100,
+                     closed_at: new Date().toISOString(),
+                   }).eq('id', trade.id);
                   
                   await logProfitAudit(supabase, {
                     user_id: user.id,
