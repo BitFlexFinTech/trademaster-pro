@@ -1167,13 +1167,15 @@ serve(async (req) => {
       });
     }
 
-    // Get connected exchanges with API keys
-    const { data: connections } = await supabase
+    // Get connected exchanges with API keys (case-insensitive match)
+    const { data: allConnections } = await supabase
       .from("exchange_connections")
       .select("*")
       .eq("user_id", user.id)
-      .eq("is_connected", true)
-      .in("exchange_name", exchanges);
+      .eq("is_connected", true);
+
+    const exchangesLower = new Set(exchanges.map((e) => e.toLowerCase()));
+    const connections = (allConnections || []).filter((c: any) => exchangesLower.has(String(c.exchange_name || '').toLowerCase()));
 
     if (!connections || connections.length === 0) {
       return new Response(JSON.stringify({ 
