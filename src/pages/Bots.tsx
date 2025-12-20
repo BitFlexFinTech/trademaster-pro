@@ -36,6 +36,7 @@ import { RealTimeProfitDashboard } from '@/components/bots/RealTimeProfitDashboa
 import { RiskManagementPanel } from '@/components/bots/RiskManagementPanel';
 import { SpreadMonitor } from '@/components/bots/SpreadMonitor';
 import { SessionDashboard } from '@/components/bots/SessionDashboard';
+import { BalanceRequirementBanner } from '@/components/bots/BalanceRequirementBanner';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { AuditReport } from '@/lib/selfAuditReporter';
@@ -98,6 +99,7 @@ export default function Bots() {
   const [exportingTrades, setExportingTrades] = useState(false);
   const [editingBaseBalance, setEditingBaseBalance] = useState<string | null>(null);
   const [tempBaseBalance, setTempBaseBalance] = useState<number>(DEFAULT_BASE_BALANCE);
+  const [isRefreshingBalances, setIsRefreshingBalances] = useState(false);
   
   // Audit Dashboard state
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
@@ -491,6 +493,37 @@ export default function Bots() {
   }, [user, suggestedUSDT, activeExchanges, tradingMode, exchangeBalances]);
 
   const activeBotCount = bots.filter(b => b.status === 'running').length;
+
+  // Compute exchange balance requirements for the banner
+  const exchangeBalanceRequirements = useMemo(() => {
+    const minOrderSizes: Record<string, number> = {
+      Binance: 5,
+      Bybit: 5,
+      OKX: 1,
+      Kraken: 5,
+      Nexo: 10,
+      KuCoin: 1,
+    };
+    
+    return exchangeBalances.map(b => ({
+      exchange: b.exchange,
+      freeUSDT: b.usdtBalance || 0,
+      minRequired: minOrderSizes[b.exchange] || 5,
+      hasCredentials: true, // If it's in exchangeBalances, it has credentials
+      canTrade: (b.usdtBalance || 0) >= (minOrderSizes[b.exchange] || 5) * 1.1,
+    }));
+  }, [exchangeBalances]);
+
+  // Handler to refresh balances
+  const handleRefreshBalances = useCallback(async () => {
+    setIsRefreshingBalances(true);
+    try {
+      await fetchExchangeBalances();
+      await triggerSync();
+    } finally {
+      setIsRefreshingBalances(false);
+    }
+  }, [fetchExchangeBalances, triggerSync]);
 
   // Handle applying recommendations from analysis - persists to database
   const handleApplyRecommendation = async (type: string, value: any) => {
@@ -944,6 +977,15 @@ export default function Bots() {
             </Button>
           </div>
         </div>
+      )}
+
+      {/* Balance Requirement Banner - Live Mode Only */}
+      {tradingMode === 'live' && hasValidCredentials && exchangeBalanceRequirements.length > 0 && (
+        <BalanceRequirementBanner 
+          balances={exchangeBalanceRequirements}
+          onRefresh={handleRefreshBalances}
+          isRefreshing={isRefreshingBalances}
+        />
       )}
 
       {/* Portfolio Value by Exchange - Collapsible */}
