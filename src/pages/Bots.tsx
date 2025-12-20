@@ -40,6 +40,8 @@ import { SessionDashboard } from '@/components/bots/SessionDashboard';
 import { BalanceRequirementBanner } from '@/components/bots/BalanceRequirementBanner';
 import { ProfitEnginePanel } from '@/components/bots/ProfitEnginePanel';
 import { StuckTradesBanner } from '@/components/bots/StuckTradesBanner';
+import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
+import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
 import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
 import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
@@ -1498,10 +1500,13 @@ export default function Bots() {
           />
         </div>
 
-        {/* Middle Column - Link to Analytics + Recent Trades */}
+        {/* Middle Column - Live P&L Dashboard + Recent Trades */}
         <div className="lg:col-span-4 flex flex-col gap-2">
+          {/* Live P&L Dashboard */}
+          <LivePnLDashboard />
+          
           {/* Link to full analytics page */}
-          <Button asChild variant="outline" className="h-10 gap-2">
+          <Button asChild variant="outline" className="h-8 gap-2">
             <Link to="/bot-analytics">
               <Brain className="w-4 h-4" />
               View Full Analytics Dashboard
@@ -1509,7 +1514,7 @@ export default function Bots() {
           </Button>
           
           {/* Recent Trades */}
-          <div className="card-terminal p-3 flex flex-col flex-1 min-h-[300px]">
+          <div className="card-terminal p-3 flex flex-col flex-1 min-h-[200px]">
             <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
               Recent Trades
               <Badge variant="outline" className="text-[8px] ml-auto">Live</Badge>
@@ -1520,9 +1525,13 @@ export default function Bots() {
           </div>
         </div>
 
-        {/* Right Column - Bot History */}
+        {/* Right Column - Profit History + Bot History */}
         <div className="lg:col-span-3 flex flex-col gap-2">
-          <div className="card-terminal p-3 flex flex-col flex-1 min-h-[300px]">
+          {/* Profit Withdrawal History Chart */}
+          <ProfitWithdrawalChart />
+          
+          {/* Bot History */}
+          <div className="card-terminal p-3 flex flex-col flex-1 min-h-[200px]">
             <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
               Bot History
             </h3>
