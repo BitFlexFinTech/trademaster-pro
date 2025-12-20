@@ -177,8 +177,8 @@ export function useDailyTargetRecommendation(): UseDailyTargetRecommendationRetu
 
       if (upsertError) throw upsertError;
 
-      // 2. Broadcast via Realtime channel for immediate sync
-      await supabase.channel('bot-config-updates').send({
+      // 2. Broadcast via Realtime channel for immediate sync - MUST use same channel name as Bots.tsx listener
+      await supabase.channel('bot-config-sync').send({
         type: 'broadcast',
         event: 'config_changed',
         payload: {
@@ -186,6 +186,7 @@ export function useDailyTargetRecommendation(): UseDailyTargetRecommendationRetu
           profitPerTrade: recommendation.profitPerTrade,
           amountPerTrade: suggestedPosition,
           tradeIntervalMs: intervalMs,
+          perTradeStopLoss: recommendation.profitPerTrade * 0.2,
         },
       });
 

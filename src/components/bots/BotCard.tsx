@@ -91,11 +91,25 @@ export function BotCard({
     enabled: isRunning && tradingMode === 'demo',
   });
 
-  // Core trading config
+  // Core trading config - use botConfig props as source of truth, only override with existingBot if running
   const [dailyTarget, setDailyTarget] = useState(existingBot?.dailyTarget || 100);
   const [profitPerTrade, setProfitPerTrade] = useState(Math.max(existingBot?.profitPerTrade || 0.50, MIN_NET_PROFIT));
   const [localAmountPerTrade, setLocalAmountPerTrade] = useState(amountPerTrade);
   const [localTradeIntervalMs, setLocalTradeIntervalMs] = useState(tradeIntervalMs);
+
+  // CRITICAL FIX: Sync local state when parent props change (from realtime updates)
+  useEffect(() => {
+    // Don't override if bot is running with its own target
+    if (!isRunning && amountPerTrade !== localAmountPerTrade) {
+      setLocalAmountPerTrade(amountPerTrade);
+    }
+  }, [amountPerTrade, isRunning]);
+
+  useEffect(() => {
+    if (!isRunning && tradeIntervalMs !== localTradeIntervalMs) {
+      setLocalTradeIntervalMs(tradeIntervalMs);
+    }
+  }, [tradeIntervalMs, isRunning]);
   const [minEdgeRequired, setMinEdgeRequired] = useState(0.3); // 0.3% minimum edge above fees
   
   const [leverages, setLeverages] = useState<Record<string, number>>({
@@ -1084,6 +1098,31 @@ export function BotCard({
         }
         notifyDailyProgress(newPnl, dailyTarget, botName);
         onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
+
+        // ===== AUTO-WITHDRAW PROFITS WHEN DAILY TARGET REACHED =====
+        if (newPnl >= dailyTarget && dailyTarget > 0) {
+          console.log(`🎉 DAILY TARGET REACHED! PnL: $${newPnl.toFixed(2)} >= Target: $${dailyTarget}`);
+          
+          // Trigger auto-withdraw (fire and forget - don't block trading)
+          supabase.functions.invoke('auto-withdraw-profits', {
+            body: {
+              botId: existingBot.id,
+              currentPnL: newPnl,
+              dailyTarget,
+            }
+          }).then(({ data, error }) => {
+            if (error) {
+              console.error('[AUTO-WITHDRAW] Failed:', error);
+            } else if (data?.success) {
+              toast.success('🎉 Daily Target Reached!', {
+                description: `$${data.profitWithdrawn?.toFixed(2)} profits secured automatically`,
+                duration: 10000,
+              });
+            }
+          }).catch(err => {
+            console.error('[AUTO-WITHDRAW] Error:', err);
+          });
+        }
 
         return {
           ...prev,

@@ -18,16 +18,27 @@ export interface StrategyRecommendation {
   exchangeLimit: number;
   limitingExchange: string;
   recommendations: {
-    signalThreshold: number;
-    tradeIntervalMs: number;
+    // All 9 fields for complete sync
+    tradingStrategy: 'profit' | 'signal';
+    dailyTarget: number;
     profitPerTrade: number;
+    amountPerTrade: number;
+    tradeIntervalMs: number;
+    dailyStopLoss: number;
     stopLoss: number;
+    signalThreshold: number;
+    minEdge: number;
     focusPairs: string[];
   };
   summary: string;
   confidence: number;
   analyzedAt: string;
   hitRateHistory?: HitRateHistoryPoint[];
+  metrics?: {
+    totalCapital: number;
+    estimatedDailyTrades: number;
+    tradesPerHour: number;
+  };
 }
 
 export function useBotStrategyAI() {
@@ -72,20 +83,29 @@ export function useBotStrategyAI() {
 
     setApplying(true);
     try {
-      // Calculate optimal position size based on available capital
-      const suggestedPosition = Math.max(10, Math.min(1000, 100)); // Default $100 position
+      const rec = recommendation.recommendations;
       
+      // COMPLETE UPSERT WITH ALL 9 FIELDS
       const { error } = await supabase
         .from('bot_config')
         .upsert({
           user_id: user.id,
-          daily_target: recommendation.targetHitRate, // Sync daily target
-          amount_per_trade: suggestedPosition, // Sync position size
-          min_profit_threshold: recommendation.recommendations.signalThreshold / 100,
-          trade_interval_ms: recommendation.recommendations.tradeIntervalMs,
-          profit_per_trade: recommendation.recommendations.profitPerTrade,
-          per_trade_stop_loss: recommendation.recommendations.stopLoss,
-          focus_pairs: recommendation.recommendations.focusPairs,
+          // Field 1: Daily Target (from recommendation or targetHitRate)
+          daily_target: rec.dailyTarget ?? recommendation.targetHitRate,
+          // Field 2: Profit Per Trade
+          profit_per_trade: rec.profitPerTrade,
+          // Field 3: Amount Per Trade (Position Size)
+          amount_per_trade: rec.amountPerTrade,
+          // Field 4: Trade Speed (Interval)
+          trade_interval_ms: rec.tradeIntervalMs,
+          // Field 5: Daily Stop Loss
+          daily_stop_loss: rec.dailyStopLoss,
+          // Field 6: Stop Loss Per Trade
+          per_trade_stop_loss: rec.stopLoss,
+          // Field 7: Min Edge (Min Profit Threshold)
+          min_profit_threshold: rec.minEdge / 100, // Convert % to decimal
+          // Field 8: Focus Pairs
+          focus_pairs: rec.focusPairs,
           updated_at: new Date().toISOString()
         }, { onConflict: 'user_id' });
 
@@ -96,14 +116,22 @@ export function useBotStrategyAI() {
         type: 'broadcast',
         event: 'config_changed',
         payload: {
-          dailyTarget: recommendation.targetHitRate,
-          profitPerTrade: recommendation.recommendations.profitPerTrade,
-          amountPerTrade: suggestedPosition,
-          tradeIntervalMs: recommendation.recommendations.tradeIntervalMs,
+          // ALL 9 FIELDS for complete sync
+          tradingStrategy: rec.tradingStrategy,
+          dailyTarget: rec.dailyTarget ?? recommendation.targetHitRate,
+          profitPerTrade: rec.profitPerTrade,
+          amountPerTrade: rec.amountPerTrade,
+          tradeIntervalMs: rec.tradeIntervalMs,
+          dailyStopLoss: rec.dailyStopLoss,
+          perTradeStopLoss: rec.stopLoss,
+          minProfitThreshold: rec.minEdge / 100,
+          focusPairs: rec.focusPairs,
         },
       });
 
-      toast.success('Strategy applied! Settings synced across dashboard.');
+      toast.success('🎯 All 9 settings synced across dashboard!', {
+        description: `Daily: $${rec.dailyTarget}, Profit: $${rec.profitPerTrade}, Amount: $${rec.amountPerTrade}`,
+      });
     } catch (error) {
       console.error('Failed to apply recommendation:', error);
       toast.error('Failed to apply recommendation');
