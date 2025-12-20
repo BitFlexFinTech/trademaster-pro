@@ -146,6 +146,7 @@ export type Database = {
       bot_config: {
         Row: {
           amount_per_trade: number
+          auto_withdraw_on_target: boolean | null
           created_at: string | null
           daily_stop_loss: number
           daily_target: number
@@ -161,6 +162,7 @@ export type Database = {
         }
         Insert: {
           amount_per_trade?: number
+          auto_withdraw_on_target?: boolean | null
           created_at?: string | null
           daily_stop_loss?: number
           daily_target?: number
@@ -176,6 +178,7 @@ export type Database = {
         }
         Update: {
           amount_per_trade?: number
+          auto_withdraw_on_target?: boolean | null
           created_at?: string | null
           daily_stop_loss?: number
           daily_target?: number

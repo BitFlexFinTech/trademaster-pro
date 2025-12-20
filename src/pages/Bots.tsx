@@ -253,7 +253,7 @@ export default function Bots() {
     
     fetchDbConfig();
     
-    // Subscribe to realtime updates for bot_config changes
+    // Subscribe to realtime updates for bot_config changes (postgres changes + broadcast)
     const channel = supabase
       .channel('bot-config-sync')
       .on('postgres_changes', {
@@ -262,7 +262,7 @@ export default function Bots() {
         table: 'bot_config',
         filter: `user_id=eq.${user.id}`,
       }, (payload) => {
-        console.log('[BOT CONFIG] Realtime update received:', payload);
+        console.log('[BOT CONFIG] Postgres change received:', payload);
         const newConfig = payload.new as any;
         if (newConfig) {
           setBotConfig(prev => {
@@ -272,6 +272,7 @@ export default function Bots() {
               profitPerTrade: newConfig.profit_per_trade ?? prev.profitPerTrade,
               amountPerTrade: newConfig.amount_per_trade ?? prev.amountPerTrade,
               tradeIntervalMs: newConfig.trade_interval_ms ?? prev.tradeIntervalMs,
+              dailyStopLoss: newConfig.daily_stop_loss ?? prev.dailyStopLoss,
               perTradeStopLoss: newConfig.per_trade_stop_loss ?? prev.perTradeStopLoss,
               minProfitThreshold: newConfig.min_profit_threshold ?? prev.minProfitThreshold,
               focusPairs: newConfig.focus_pairs || prev.focusPairs,
@@ -279,8 +280,30 @@ export default function Bots() {
             localStorage.setItem('greenback-bot-settings', JSON.stringify(updatedConfig));
             return updatedConfig;
           });
-          toast.success('🎯 Bot config synced from AI recommendation!', {
+          toast.success('🎯 Bot config synced!', {
             description: `Daily: $${newConfig.daily_target}, Profit: $${newConfig.profit_per_trade?.toFixed(2)}`,
+          });
+        }
+      })
+      // CRITICAL FIX: Also listen for broadcast events for immediate sync
+      .on('broadcast', { event: 'config_changed' }, (payload) => {
+        console.log('[BOT CONFIG] Broadcast received:', payload);
+        const data = payload.payload as any;
+        if (data) {
+          setBotConfig(prev => {
+            const updatedConfig = {
+              ...prev,
+              dailyTarget: data.dailyTarget ?? prev.dailyTarget,
+              profitPerTrade: data.profitPerTrade ?? prev.profitPerTrade,
+              amountPerTrade: data.amountPerTrade ?? prev.amountPerTrade,
+              tradeIntervalMs: data.tradeIntervalMs ?? prev.tradeIntervalMs,
+              dailyStopLoss: data.dailyStopLoss ?? prev.dailyStopLoss,
+              perTradeStopLoss: data.perTradeStopLoss ?? prev.perTradeStopLoss,
+              minProfitThreshold: data.minProfitThreshold ?? prev.minProfitThreshold,
+              focusPairs: data.focusPairs || prev.focusPairs,
+            };
+            localStorage.setItem('greenback-bot-settings', JSON.stringify(updatedConfig));
+            return updatedConfig;
           });
         }
       })
