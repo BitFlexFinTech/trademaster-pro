@@ -83,3 +83,6 @@ verify_jwt = true
 
 [functions.validate-trading-environment]
 verify_jwt = true
+
+[functions.reconcile-balances]
+verify_jwt = true

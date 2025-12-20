@@ -40,6 +40,7 @@ import { SessionDashboard } from '@/components/bots/SessionDashboard';
 import { BalanceRequirementBanner } from '@/components/bots/BalanceRequirementBanner';
 import { ProfitEnginePanel } from '@/components/bots/ProfitEnginePanel';
 import { StuckTradesBanner } from '@/components/bots/StuckTradesBanner';
+import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { AuditReport } from '@/lib/selfAuditReporter';
@@ -836,6 +837,9 @@ export default function Bots() {
 
       {/* Stuck Trades Banner */}
       <StuckTradesBanner />
+
+      {/* Balance Reconciliation Banner */}
+      <BalanceReconciliationBanner />
 
       {/* Header */}
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
