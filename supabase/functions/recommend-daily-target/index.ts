@@ -18,6 +18,60 @@ interface RecommendationRequest {
   averageProfitPerTrade: number;
   tradingHoursPerDay: number;
   riskTolerance: 'conservative' | 'moderate' | 'aggressive';
+  connectedExchanges?: string[];
+}
+
+// Exchange-specific rate limits for trade speed calculation
+const EXCHANGE_RATE_LIMITS: Record<string, { requestsPerMinute: number; ordersPerSecond: number; safetyFactor: number }> = {
+  Binance: { requestsPerMinute: 1200, ordersPerSecond: 10, safetyFactor: 0.5 },
+  OKX: { requestsPerMinute: 300, ordersPerSecond: 2, safetyFactor: 0.4 },
+  Bybit: { requestsPerMinute: 600, ordersPerSecond: 5, safetyFactor: 0.5 },
+  Kraken: { requestsPerMinute: 60, ordersPerSecond: 1, safetyFactor: 0.3 },
+  KuCoin: { requestsPerMinute: 180, ordersPerSecond: 2, safetyFactor: 0.4 },
+  Nexo: { requestsPerMinute: 60, ordersPerSecond: 1, safetyFactor: 0.3 },
+  Hyperliquid: { requestsPerMinute: 1000, ordersPerSecond: 8, safetyFactor: 0.5 },
+};
+
+// Calculate safe trade interval based on connected exchanges' rate limits
+function calculateSafeTradeInterval(exchanges: string[]): { intervalMs: number; reasoning: string; limitingExchange: string } {
+  if (exchanges.length === 0) {
+    return { 
+      intervalMs: 60000, // 1 minute default
+      reasoning: 'No exchanges connected - using conservative default of 60 seconds',
+      limitingExchange: 'None'
+    };
+  }
+
+  let minOrdersPerSecond = Infinity;
+  let limitingExchange = '';
+
+  for (const exchange of exchanges) {
+    const limits = EXCHANGE_RATE_LIMITS[exchange];
+    if (limits) {
+      const safeOrdersPerSecond = limits.ordersPerSecond * limits.safetyFactor;
+      if (safeOrdersPerSecond < minOrdersPerSecond) {
+        minOrdersPerSecond = safeOrdersPerSecond;
+        limitingExchange = exchange;
+      }
+    }
+  }
+
+  // If no matching exchange found, use conservative default
+  if (minOrdersPerSecond === Infinity) {
+    return {
+      intervalMs: 60000,
+      reasoning: 'Unknown exchanges - using conservative default of 60 seconds',
+      limitingExchange: 'Unknown'
+    };
+  }
+
+  // Calculate interval in milliseconds
+  // We want to stay well under the rate limit
+  const intervalMs = Math.max(3000, Math.ceil(1000 / minOrdersPerSecond));
+  
+  const reasoning = `Based on ${limitingExchange}'s rate limits (${EXCHANGE_RATE_LIMITS[limitingExchange].ordersPerSecond} orders/sec), using ${(EXCHANGE_RATE_LIMITS[limitingExchange].safetyFactor * 100).toFixed(0)}% capacity = ${intervalMs}ms between trades`;
+
+  return { intervalMs, reasoning, limitingExchange };
 }
 
 serve(async (req) => {
@@ -27,11 +81,17 @@ serve(async (req) => {
 
   try {
     const body: RecommendationRequest = await req.json();
-    const { usdtFloat, historicalHitRate, averageProfitPerTrade, tradingHoursPerDay, riskTolerance } = body;
+    const { usdtFloat, historicalHitRate, averageProfitPerTrade, tradingHoursPerDay, riskTolerance, connectedExchanges } = body;
 
     // Calculate total available capital
     const totalAvailable = usdtFloat.reduce((sum, f) => sum + f.availableFloat, 0);
     const totalCapital = usdtFloat.reduce((sum, f) => sum + f.amount, 0);
+
+    // Determine connected exchanges from usdtFloat if not provided
+    const exchanges = connectedExchanges || usdtFloat.map(f => f.exchange);
+
+    // Calculate rate limit-aware trade speed
+    const tradeSpeedCalc = calculateSafeTradeInterval(exchanges);
 
     // Risk multipliers based on tolerance
     const riskMultipliers = {
@@ -43,13 +103,11 @@ serve(async (req) => {
     const risk = riskMultipliers[riskTolerance] || riskMultipliers.moderate;
 
     // Calculate recommended daily target
-    // Formula: (Available Capital * Expected Win Rate * Avg Profit) / Risk Buffer
     const effectiveHitRate = Math.min(historicalHitRate, 95) / 100;
     const avgProfit = averageProfitPerTrade || 0.50;
     
-    // Trades per day estimate: based on trading hours and average trade duration
-    const avgTradeTime = 5; // minutes
-    const tradesPerHour = 60 / avgTradeTime;
+    // Trades per day estimate based on rate-limited interval
+    const tradesPerHour = 3600000 / tradeSpeedCalc.intervalMs;
     const estimatedTradesPerDay = Math.floor(tradesPerHour * (tradingHoursPerDay || 8));
     
     // Expected profit calculation
@@ -78,11 +136,17 @@ serve(async (req) => {
     // Calculate per-exchange targets
     const perExchangeTargets = usdtFloat.map(f => {
       const proportion = f.availableFloat / Math.max(totalAvailable, 1);
+      const exchangeLimits = EXCHANGE_RATE_LIMITS[f.exchange];
       return {
         exchange: f.exchange,
         dailyTarget: Math.round(recommendedDailyTarget * proportion * 100) / 100,
         recommendedProfitPerTrade: avgProfit,
         maxTrades: Math.floor(estimatedTradesPerDay * proportion),
+        rateLimitInfo: exchangeLimits ? {
+          maxOrdersPerSecond: exchangeLimits.ordersPerSecond,
+          safeOrdersPerSecond: exchangeLimits.ordersPerSecond * exchangeLimits.safetyFactor,
+          recommendedIntervalMs: Math.ceil(1000 / (exchangeLimits.ordersPerSecond * exchangeLimits.safetyFactor)),
+        } : null,
       };
     });
 
@@ -103,7 +167,7 @@ serve(async (req) => {
             messages: [
               {
                 role: 'system',
-                content: 'You are a quantitative trading AI advisor. Provide concise, actionable reasoning for daily target recommendations.'
+                content: 'You are a quantitative trading AI advisor. Provide concise, actionable reasoning for daily target recommendations. Include trade speed rationale.'
               },
               {
                 role: 'user',
@@ -113,11 +177,13 @@ serve(async (req) => {
 - Average profit per trade: $${avgProfit.toFixed(2)}
 - Risk tolerance: ${riskTolerance}
 - Recommended daily target: $${recommendedDailyTarget}
+- Trade interval: ${tradeSpeedCalc.intervalMs}ms (${tradeSpeedCalc.reasoning})
+- Limiting exchange: ${tradeSpeedCalc.limitingExchange}
 
-Provide a 2-3 sentence explanation for why this daily target is appropriate.`
+Provide a 2-3 sentence explanation for why this daily target and trade speed are appropriate.`
               }
             ],
-            max_tokens: 150,
+            max_tokens: 200,
           }),
         });
 
@@ -132,7 +198,7 @@ Provide a 2-3 sentence explanation for why this daily target is appropriate.`
 
     // Fallback reasoning if AI fails
     if (!aiReasoning) {
-      aiReasoning = `Based on $${totalAvailable.toFixed(0)} available capital and ${historicalHitRate.toFixed(0)}% historical hit rate, a daily target of $${recommendedDailyTarget} represents a ${riskTolerance} approach with ${confidence}% confidence.`;
+      aiReasoning = `Based on $${totalAvailable.toFixed(0)} available capital and ${historicalHitRate.toFixed(0)}% historical hit rate, a daily target of $${recommendedDailyTarget} is recommended. Trade speed is set to ${tradeSpeedCalc.intervalMs}ms intervals to stay within ${tradeSpeedCalc.limitingExchange}'s rate limits with safety margin.`;
     }
 
     const response = {
@@ -145,12 +211,18 @@ Provide a 2-3 sentence explanation for why this daily target is appropriate.`
         riskTolerance,
         reasoning: aiReasoning,
         perExchangeTargets,
+        tradeSpeed: {
+          recommendedIntervalMs: tradeSpeedCalc.intervalMs,
+          limitingExchange: tradeSpeedCalc.limitingExchange,
+          speedReasoning: tradeSpeedCalc.reasoning,
+        },
         metrics: {
           totalCapital,
           totalAvailable,
           effectiveHitRate: effectiveHitRate * 100,
           expectedProfitPerTrade,
           maxDrawdown: totalAvailable * (risk.maxDrawdownPercent / 100),
+          tradesPerHour,
         },
       },
     };

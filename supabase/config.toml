@@ -86,3 +86,6 @@ verify_jwt = true
 
 [functions.reconcile-balances]
 verify_jwt = true
+
+[functions.daily-reconciliation]
+verify_jwt = false

@@ -11,6 +11,7 @@ import { EXCHANGE_CONFIGS, TOP_PAIRS } from '@/lib/exchangeConfig';
 import { cn } from '@/lib/utils';
 
 export interface BotSettings {
+  dailyTarget: number;
   dailyStopLoss: number;
   perTradeStopLoss: number;
   profitPerTrade: number;
@@ -20,7 +21,7 @@ export interface BotSettings {
   focusPairs: string[];
   leverageDefaults: Record<string, number>;
   autoSpeedAdjust: boolean;
-  minProfitThreshold: number; // 0.0005 = 0.05% profit threshold for adaptive profit-taking
+  minProfitThreshold: number;
 }
 
 interface BotSettingsDrawerProps {
