@@ -322,7 +322,7 @@ const MAX_POSITION_SIZE_CAP = 500;     // Cap based on $230 equity * 2
 const DAILY_LOSS_LIMIT = -6.90;        // 3% of $230 = $6.90
 const MAX_SLIPPAGE_PERCENT = 0.15;     // 0.15% max slippage (tighter for micro-scalping)
 const PROFIT_LOCK_TIMEOUT_MS = 30000;  // 30 second timeout
-const LIMIT_ORDER_PROFIT_TARGET = 0.007; // 0.7% profit target (increased for fee coverage)
+const LIMIT_ORDER_PROFIT_TARGET = 0.015; // 1.5% profit target (realistic for scalping with fees)
 
 // ============ FEE CONSTANTS FOR ACCURATE P&L ============
 const EXCHANGE_FEES: Record<string, number> = {
@@ -382,8 +382,14 @@ const EXCHANGE_MIN_ORDER: Record<string, number> = {
   hyperliquid: 10,  // $10 min
 };
 
-// Dynamic MIN_NET_PROFIT calculation - 0.2% of position or $0.05 minimum
+// Dynamic MIN_NET_PROFIT calculation - scales properly for small positions
+// For positions <$25: use 0.2% of position (no minimum floor that would require impossible moves)
+// For positions >=$25: use $0.05 minimum or 0.2% whichever is higher
 function calculateMinNetProfit(positionSize: number): number {
+  if (positionSize < 25) {
+    // Small positions: just use percentage, no minimum floor
+    return positionSize * 0.002; // 0.2% of position
+  }
   return Math.max(0.05, positionSize * 0.002);
 }
 
@@ -1558,8 +1564,12 @@ serve(async (req) => {
     console.log(`📊 Profitability Check: Position $${positionSize.toFixed(2)}, Fees $${roundTripFees.toFixed(4)}, Min Profit $${dynamicMinProfit.toFixed(2)}`);
     console.log(`   Required move: ${minPriceMovePercent.toFixed(3)}%, Expected move: ${(expectedPriceMove * 100).toFixed(3)}%`);
 
-    if (expectedPriceMove < minPriceMove) {
-      console.log(`⏭️ SKIP TRADE: Expected move ${(expectedPriceMove * 100).toFixed(3)}% < required ${minPriceMovePercent.toFixed(3)}%`);
+    // Add margin tolerance for SPOT mode (0.3% tolerance for near-misses)
+    const marginTolerance = mode === 'spot' ? 0.003 : 0.001; // 0.3% for spot, 0.1% for leverage
+    const effectiveExpectedMove = expectedPriceMove + marginTolerance;
+    
+    if (effectiveExpectedMove < minPriceMove) {
+      console.log(`⏭️ SKIP TRADE: Expected move ${(expectedPriceMove * 100).toFixed(3)}% + margin ${(marginTolerance * 100).toFixed(1)}% = ${(effectiveExpectedMove * 100).toFixed(3)}% < required ${minPriceMovePercent.toFixed(3)}%`);
       
       return new Response(JSON.stringify({
         skipped: true,
@@ -1574,7 +1584,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`✅ PROFITABILITY CHECK PASSED: Expected ${(expectedPriceMove * 100).toFixed(3)}% >= required ${minPriceMovePercent.toFixed(3)}%`);
+    console.log(`✅ PROFITABILITY CHECK PASSED: Expected ${(expectedPriceMove * 100).toFixed(3)}% + margin ${(marginTolerance * 100).toFixed(1)}% >= required ${minPriceMovePercent.toFixed(3)}%`);
 
     if (canExecuteRealTrade) {
       console.log(`✅ REAL TRADE MODE ACTIVATED for ${exchangeName.toUpperCase()}`);
