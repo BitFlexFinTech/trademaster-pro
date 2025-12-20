@@ -1054,42 +1054,77 @@ serve(async (req) => {
             const ocoStatus = await checkBinanceOCOStatus(apiKey, apiSecret, orderListId);
             console.log(`OCO ${orderListId} for trade ${trade.id}: ${ocoStatus.status}, filled: ${ocoStatus.filledLeg}`);
             
-            if (ocoStatus.status === 'ALL_DONE' && ocoStatus.filledLeg !== 'NONE') {
-              // Position closed via OCO - update trade
-              const exitPrice = ocoStatus.avgPrice;
-              
-              const priceDiff = tradeDirection === 'long'
-                ? exitPrice - actualEntryPrice
-                : actualEntryPrice - exitPrice;
-              
-              const grossPnL = (priceDiff / actualEntryPrice) * positionSize * leverage;
-              const fees = positionSize * feeRate * 2;
-              const netPnL = grossPnL - fees;
-              
-              console.log(`Trade ${trade.id} closed via OCO ${ocoStatus.filledLeg}: Exit ${exitPrice}, P&L: $${netPnL.toFixed(2)}`);
-              
-              await supabase.from('trades').update({
-                exit_price: exitPrice,
-                profit_loss: netPnL,
-                profit_percentage: (netPnL / positionSize) * 100,
-                status: 'closed',
-                closed_at: new Date().toISOString(),
-              }).eq('id', trade.id);
-              
-              await supabase.from('alerts').insert({
-                user_id: user.id,
-                title: `${ocoStatus.filledLeg === 'TP' ? '✅ Take Profit' : '🛑 Stop Loss'}: ${trade.pair}`,
-                message: `${tradeDirection.toUpperCase()} closed at ${exitPrice.toFixed(2)} | P&L: $${netPnL.toFixed(2)}`,
-                alert_type: 'position_closed',
-                data: { tradeId: trade.id, filledLeg: ocoStatus.filledLeg, exitPrice, pnl: netPnL }
-              });
-              
-              closedCount++;
-              if (netPnL > 0) profitsTaken++;
-              
-              // Update bot run P&L
-              await updateBotRunPnL(supabase, user.id, netPnL);
-              continue;
+            if (ocoStatus.status === 'ALL_DONE') {
+              if (ocoStatus.filledLeg !== 'NONE') {
+                // Position closed via OCO - update trade
+                const exitPrice = ocoStatus.avgPrice;
+                
+                const priceDiff = tradeDirection === 'long'
+                  ? exitPrice - actualEntryPrice
+                  : actualEntryPrice - exitPrice;
+                
+                const grossPnL = (priceDiff / actualEntryPrice) * positionSize * leverage;
+                const fees = positionSize * feeRate * 2;
+                const netPnL = grossPnL - fees;
+                
+                console.log(`Trade ${trade.id} closed via OCO ${ocoStatus.filledLeg}: Exit ${exitPrice}, P&L: $${netPnL.toFixed(2)}`);
+                
+                await supabase.from('trades').update({
+                  exit_price: exitPrice,
+                  profit_loss: netPnL,
+                  profit_percentage: (netPnL / positionSize) * 100,
+                  status: 'closed',
+                  closed_at: new Date().toISOString(),
+                }).eq('id', trade.id);
+                
+                await supabase.from('alerts').insert({
+                  user_id: user.id,
+                  title: `${ocoStatus.filledLeg === 'TP' ? '✅ Take Profit' : '🛑 Stop Loss'}: ${trade.pair}`,
+                  message: `${tradeDirection.toUpperCase()} closed at ${exitPrice.toFixed(2)} | P&L: $${netPnL.toFixed(2)}`,
+                  alert_type: 'position_closed',
+                  data: { tradeId: trade.id, filledLeg: ocoStatus.filledLeg, exitPrice, pnl: netPnL }
+                });
+                
+                closedCount++;
+                if (netPnL > 0) profitsTaken++;
+                
+                // Update bot run P&L
+                await updateBotRunPnL(supabase, user.id, netPnL);
+                continue;
+              } else {
+                // OCO ALL_DONE but no leg filled - check if balance is zero (position closed elsewhere)
+                console.log(`🔍 OCO ALL_DONE with no fill - checking ${baseAsset} balance...`);
+                await enforceRateLimit(exchangeName);
+                const balance = await getBinanceBalance(apiKey, apiSecret, baseAsset);
+                
+                if (balance.free <= 0 && balance.locked <= 0) {
+                  // Position was closed elsewhere - mark trade as closed
+                  const currentPrice = await getBinancePrice(tradingSymbol);
+                  console.log(`🔄 OCO ALL_DONE with no fill + zero balance - marking trade ${trade.id} as closed`);
+                  
+                  await supabase.from('trades').update({
+                    status: 'closed',
+                    exit_price: currentPrice || actualEntryPrice,
+                    profit_loss: 0, // Unknown P&L since we don't know actual exit
+                    closed_at: new Date().toISOString(),
+                  }).eq('id', trade.id);
+                  
+                  await logProfitAudit(supabase, {
+                    user_id: user.id,
+                    trade_id: trade.id,
+                    action: 'auto_close_zero_balance',
+                    symbol: tradingSymbol,
+                    exchange: exchangeName,
+                    success: true,
+                    error_message: 'OCO ALL_DONE with no fill, zero balance - assumed closed elsewhere',
+                    balance_available: 0,
+                    oco_status: 'ALL_DONE_NO_FILL'
+                  });
+                  
+                  closedCount++;
+                  continue;
+                }
+              }
             }
             
             // ============ STALE POSITION FORCE-CLOSE ============
@@ -1294,7 +1329,37 @@ serve(async (req) => {
             const availableQty = balance.free + balance.locked;
             
             if (availableQty <= 0) {
-              console.log(`No ${baseAsset} balance available to sell`);
+              console.log(`No ${baseAsset} balance available to sell - checking if trade should be closed...`);
+              
+              // Check if OCO exists and is done/cancelled - trade likely closed elsewhere
+              if (orderListId) {
+                const ocoStatus = await checkBinanceOCOStatus(apiKey, apiSecret, orderListId);
+                if (ocoStatus.status === 'ALL_DONE' || ocoStatus.status === 'CANCELLED' || ocoStatus.status === 'EXPIRED') {
+                  console.log(`🔄 Zero balance + OCO ${ocoStatus.status} - marking trade ${trade.id} as closed`);
+                  
+                  await supabase.from('trades').update({
+                    status: 'closed',
+                    exit_price: currentPrice,
+                    profit_loss: 0, // Unknown since closed elsewhere
+                    closed_at: new Date().toISOString(),
+                  }).eq('id', trade.id);
+                  
+                  await logProfitAudit(supabase, {
+                    user_id: user.id,
+                    trade_id: trade.id,
+                    action: 'auto_close_zero_balance',
+                    symbol: tradingSymbol,
+                    exchange: exchangeName,
+                    current_price: currentPrice,
+                    success: true,
+                    error_message: `Zero balance + OCO ${ocoStatus.status} - trade closed elsewhere`,
+                    balance_available: 0,
+                    oco_status: ocoStatus.status
+                  });
+                  
+                  closedCount++;
+                }
+              }
               continue;
             }
             
