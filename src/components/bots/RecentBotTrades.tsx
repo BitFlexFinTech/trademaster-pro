@@ -121,25 +121,37 @@ export function RecentBotTrades() {
     };
   }, [trades]);
 
-  // Fetch trades function
+  // Fetch trades function with error handling
   const fetchTrades = async () => {
     if (!user) {
       setLoading(false);
       return;
     }
 
-    const { data } = await supabase
-      .from('trades')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('is_sandbox', mode === 'demo')
-      .order('created_at', { ascending: false })
-      .limit(20);
+    try {
+      const { data, error } = await supabase
+        .from('trades')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_sandbox', mode === 'demo')
+        .order('created_at', { ascending: false })
+        .limit(20);
 
-    if (data) {
-      setTrades(data as BotTrade[]);
+      if (error) {
+        console.error('Failed to fetch trades:', error);
+        toast.error('Failed to load trades', { description: error.message });
+        return;
+      }
+
+      if (data) {
+        setTrades(data as BotTrade[]);
+      }
+    } catch (err) {
+      console.error('Error fetching trades:', err);
+      toast.error('Failed to load trades');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // Fetch initial trades

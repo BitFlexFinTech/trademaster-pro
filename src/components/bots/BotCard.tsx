@@ -192,7 +192,9 @@ export function BotCard({
   // Listen to FULL RESET trigger - reset ALL state (manual demo reset only)
   useEffect(() => {
     if (resetTrigger > 0) {
-      console.log('[BotCard] Full reset triggered - clearing all state');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[BotCard] Full reset triggered - clearing all state');
+      }
       setMetrics({
         currentPnL: 0,
         tradesExecuted: 0,
@@ -216,7 +218,9 @@ export function BotCard({
   // Listen to DAILY RESET trigger - 24-hour P&L reset ONLY
   useEffect(() => {
     if (dailyResetTrigger > 0) {
-      console.log('[BotCard] 24-hour daily reset triggered - resetting P&L');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[BotCard] 24-hour daily reset triggered - resetting P&L');
+      }
       setMetrics({
         currentPnL: 0,
         tradesExecuted: 0,
@@ -233,7 +237,9 @@ export function BotCard({
   // Listen to SYNC trigger - refresh data WITHOUT P&L reset
   useEffect(() => {
     if (syncTrigger > 0) {
-      console.log('[BotCard] Sync triggered - refreshing data (P&L preserved)');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[BotCard] Sync triggered - refreshing data (P&L preserved)');
+      }
       // Just clear stale price data, do NOT reset P&L or metrics
       lastPricesRef.current = {};
       priceHistoryRef.current.clear();
@@ -339,7 +345,9 @@ export function BotCard({
     // FIXED: If existingBot is temporarily undefined but we previously had a running bot,
     // DON'T clear state - it's just a data refetch flash
     if (!existingBot && prevBotStatusRef.current === 'running') {
-      console.log('⏳ existingBot temporarily undefined during refetch, preserving state');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('⏳ existingBot temporarily undefined during refetch, preserving state');
+      }
       return; // Don't clear state during refetch
     }
 
@@ -350,11 +358,15 @@ export function BotCard({
       isCancelledRef.current = false;
       abortControllerRef.current = new AbortController();
       prevBotStatusRef.current = 'running'; // Track that we're running
-      console.log(`✅ Starting trading loop for ${botName}`);
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`✅ Starting trading loop for ${botName}`);
+      }
     } else {
       // Bot should NOT be running - but only log/clear if it was actually running before
       if (prevBotStatusRef.current === 'running' || existingBot?.status === 'stopped') {
-        console.log(`🛑 Bot stopped (isRunning=${isRunning}, existingBot=${!!existingBot})`);
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`🛑 Bot stopped (isRunning=${isRunning}, existingBot=${!!existingBot})`);
+        }
         prevBotStatusRef.current = existingBot?.status || 'stopped';
       }
       setActiveExchange(null);
@@ -364,7 +376,9 @@ export function BotCard({
 
     // ===== LIVE MODE: Execute real trades via edge function =====
     if (tradingMode === 'live') {
-      console.log(`🔴 LIVE MODE: Executing real trades via edge function every ${localTradeIntervalMs}ms`);
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🔴 LIVE MODE: Executing real trades via edge function every ${localTradeIntervalMs}ms`);
+      }
       
       const exchangeCooldowns = new Map<string, number>();
       let consecutiveErrors = 0;
@@ -373,7 +387,9 @@ export function BotCard({
       const executeLiveTrade = async () => {
         // CRITICAL: Check stop flags FIRST
         if (isCancelledRef.current || isStoppingRef.current) {
-          console.log('🛑 Stop flag detected in live trade, exiting');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🛑 Stop flag detected in live trade, exiting');
+          }
           if (intervalRef.current) {
             clearInterval(intervalRef.current);
             intervalRef.current = null;
@@ -383,7 +399,9 @@ export function BotCard({
         
         // CRITICAL: Prevent concurrent executions - wait if already executing
         if (isExecutingRef.current) {
-          console.log('⏳ Previous trade still executing, skipping this cycle');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('⏳ Previous trade still executing, skipping this cycle');
+          }
           return;
         }
         
@@ -399,11 +417,15 @@ export function BotCard({
             });
           
           if (availableExchanges.length === 0) {
-            console.log('⏳ All exchanges on cooldown, waiting...');
+            if (process.env.NODE_ENV === 'development') {
+              console.log('⏳ All exchanges on cooldown, waiting...');
+            }
             return;
           }
           
-          console.log('📤 Calling execute-bot-trade edge function...');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('📤 Calling execute-bot-trade edge function...');
+          }
           
           let data, error;
           try {

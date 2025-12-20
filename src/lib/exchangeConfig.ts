@@ -24,6 +24,22 @@ export const EXCHANGE_CONFIGS: ExchangeConfig[] = [
 
 export const TOP_PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'DOT', 'LINK'];
 
+// Centralized minimum trade amounts per exchange (in USDT)
+export const EXCHANGE_MINIMUMS: Record<string, number> = {
+  Binance: 10,
+  Bybit: 10,
+  OKX: 10,
+  Kraken: 10,
+  Nexo: 10,
+  KuCoin: 10,
+  Hyperliquid: 10,
+};
+
+// Helper function to get minimum trade amount for an exchange
+export function getExchangeMinimum(exchange: string): number {
+  return EXCHANGE_MINIMUMS[exchange] ?? 10; // Default to 10 if not found
+}
+
 // Helper function to calculate allocation for an exchange
 export function getExchangeAllocation(config: ExchangeConfig, totalAmount: number): number {
   const percentage = EXCHANGE_ALLOCATION_PERCENTAGES[config.confidence];
