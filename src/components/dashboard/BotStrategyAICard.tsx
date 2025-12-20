@@ -1,9 +1,11 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Bot, RefreshCw, Zap, Target, TrendingUp } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { Bot, RefreshCw, Zap, Target } from 'lucide-react';
 import { useBotStrategyAI } from '@/hooks/useBotStrategyAI';
 import { cn } from '@/lib/utils';
+import { LineChart, Line, ResponsiveContainer, ReferenceLine, YAxis } from 'recharts';
 
 export function BotStrategyAICard() {
   const {
@@ -21,10 +23,10 @@ export function BotStrategyAICard() {
     return 'text-red-500';
   };
 
-  const getHitRateBg = (rate: number) => {
-    if (rate >= 95) return 'bg-green-500/10';
-    if (rate >= 90) return 'bg-yellow-500/10';
-    return 'bg-red-500/10';
+  const getProgressColor = (rate: number) => {
+    if (rate >= 95) return 'bg-green-500';
+    if (rate >= 90) return 'bg-yellow-500';
+    return 'bg-red-500';
   };
 
   if (loading && !recommendation) {
@@ -36,7 +38,7 @@ export function BotStrategyAICard() {
             <Skeleton className="h-4 w-16" />
           </div>
           <Skeleton className="h-6 w-full mb-2" />
-          <Skeleton className="h-4 w-3/4 mb-2" />
+          <Skeleton className="h-12 w-full mb-2" />
           <Skeleton className="h-8 w-20" />
         </CardContent>
       </Card>
@@ -48,6 +50,17 @@ export function BotStrategyAICard() {
   const tradeSpeed = recommendation?.recommendedTradeSpeed ?? 0;
   const exchangeLimit = recommendation?.exchangeLimit ?? 10;
   const limitingExchange = recommendation?.limitingExchange ?? 'N/A';
+  const hitRateHistory = recommendation?.hitRateHistory ?? [];
+
+  // Progress toward 95% target (capped at 100%)
+  const progressPercent = Math.min(100, (hitRate / targetRate) * 100);
+
+  // Format chart data - show only last 12 hours for compact view
+  const chartData = hitRateHistory.slice(-12).map((point, index) => ({
+    index,
+    hitRate: point.hitRate,
+    trades: point.totalTrades
+  }));
 
   return (
     <Card className="h-full bg-card border-border overflow-hidden">
@@ -72,37 +85,74 @@ export function BotStrategyAICard() {
           </div>
         </div>
 
-        {/* Hit Rate Display */}
-        <div className={cn("rounded-md p-2 mb-2", getHitRateBg(hitRate))}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <Target className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Hit Rate</span>
-            </div>
+        {/* Progress Bar Section */}
+        <div className="mb-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className={cn("text-sm font-bold", getHitRateColor(hitRate))}>
+              {hitRate.toFixed(1)}%
+            </span>
             <div className="flex items-center gap-1">
-              <span className={cn("text-sm font-bold", getHitRateColor(hitRate))}>
-                {hitRate.toFixed(1)}%
-              </span>
-              <TrendingUp className="h-3 w-3 text-muted-foreground" />
+              <Target className="h-3 w-3 text-muted-foreground" />
               <span className="text-xs text-muted-foreground">{targetRate}%</span>
             </div>
           </div>
+          <div className="relative">
+            <Progress 
+              value={progressPercent} 
+              className="h-2 bg-muted"
+            />
+            <div 
+              className={cn(
+                "absolute inset-0 h-2 rounded-full transition-all",
+                getProgressColor(hitRate)
+              )}
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <div className="flex justify-end mt-0.5">
+            <span className="text-[10px] text-muted-foreground">
+              {progressPercent.toFixed(0)}% of target
+            </span>
+          </div>
         </div>
 
+        {/* 24h Trend Sparkline */}
+        {chartData.length > 0 && (
+          <div className="mb-2">
+            <span className="text-[10px] text-muted-foreground">12h Trend</span>
+            <div className="h-10 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+                  <YAxis domain={[0, 100]} hide />
+                  <ReferenceLine y={95} stroke="hsl(var(--muted-foreground))" strokeDasharray="2 2" strokeOpacity={0.5} />
+                  <Line 
+                    type="monotone" 
+                    dataKey="hitRate" 
+                    stroke="hsl(var(--primary))" 
+                    strokeWidth={1.5}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* Trade Speed */}
-        <div className="flex items-center justify-between text-xs mb-2">
+        <div className="flex items-center justify-between text-xs mb-1">
           <div className="flex items-center gap-1">
             <Zap className="h-3 w-3 text-yellow-500" />
             <span className="text-muted-foreground">Speed:</span>
           </div>
           <span className="text-foreground font-medium">
-            {tradeSpeed}/sec <span className="text-muted-foreground">({limitingExchange}: {exchangeLimit}/sec)</span>
+            {tradeSpeed}/sec <span className="text-muted-foreground text-[10px]">({limitingExchange}: {exchangeLimit}/sec)</span>
           </span>
         </div>
 
         {/* Recommendation Summary */}
         {recommendation?.summary && (
-          <p className="text-[10px] text-muted-foreground line-clamp-2 mb-2 flex-1">
+          <p className="text-[10px] text-muted-foreground line-clamp-1 mb-2 flex-1">
             ⚡ {recommendation.summary}
           </p>
         )}

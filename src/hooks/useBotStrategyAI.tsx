@@ -4,6 +4,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { useConnectedExchanges } from '@/hooks/useConnectedExchanges';
 import { toast } from 'sonner';
 
+export interface HitRateHistoryPoint {
+  hour: string;
+  hitRate: number;
+  totalTrades: number;
+}
+
 export interface StrategyRecommendation {
   currentHitRate: number;
   targetHitRate: number;
@@ -21,6 +27,7 @@ export interface StrategyRecommendation {
   summary: string;
   confidence: number;
   analyzedAt: string;
+  hitRateHistory?: HitRateHistoryPoint[];
 }
 
 export function useBotStrategyAI() {
