@@ -108,8 +108,8 @@ export default function Bots() {
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
   const [dashboards, setDashboards] = useState<DashboardCharts | null>(null);
   
-  // Collapsible sections state
-  const [usdtFloatOpen, setUsdtFloatOpen] = useState(true);
+  // Collapsible sections state - collapsed by default per user request
+  const [usdtFloatOpen, setUsdtFloatOpen] = useState(false);
   const [aiRecommendationOpen, setAiRecommendationOpen] = useState(false);
   
   // AI Daily Target Recommendation
@@ -1325,8 +1325,8 @@ export default function Bots() {
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Profit Engine Status Panel */}
-      <ProfitEnginePanel />
+      {/* Profit Engine Status Panel - collapsed by default */}
+      <ProfitEnginePanel defaultCollapsed={true} className="mb-2 flex-shrink-0" />
 
       {/* Main Content Grid - Scrollable */}
       <div className={cn(
@@ -1380,73 +1380,18 @@ export default function Bots() {
           />
         </div>
 
-        {/* Middle Column - AI Strategy Panel + Audit Dashboard + Analytics Dashboard */}
-        <div className="lg:col-span-4 flex flex-col gap-3 auto-rows-min">
-          {/* AI Strategy Panel */}
-          <div className="min-h-[280px] flex-shrink-0">
-            <AIStrategyPanel
-              metrics={strategyMetrics}
-              recommendations={recommendations}
-              onApplyRecommendation={handleAIRecommendation}
-              onDismissRecommendation={dismissRecommendation}
-              onUndoRecommendation={handleUndoRecommendation}
-              recentlyApplied={recentlyApplied}
-              isRunning={!!activeBot}
-              className="h-full"
-            />
-          </div>
+        {/* Middle Column - Link to Analytics + Recent Trades */}
+        <div className="lg:col-span-4 flex flex-col gap-2">
+          {/* Link to full analytics page */}
+          <Button asChild variant="outline" className="h-10 gap-2">
+            <Link to="/bot-analytics">
+              <Brain className="w-4 h-4" />
+              View Full Analytics Dashboard
+            </Link>
+          </Button>
           
-          {/* Real-Time Profit Dashboard */}
-          <RealTimeProfitDashboard className="flex-shrink-0" />
-          
-          {/* Session Controls Dashboard */}
-          <SessionDashboard />
-          
-          {/* Spread Monitor */}
-          <SpreadMonitor />
-          
-          {/* Risk Management Panel */}
-          <RiskManagementPanel
-            currentDrawdown={portfolioMetrics.drawdownPercent}
-            maxDrawdown={15}
-            currentRiskPercent={positionSizing.riskPercent}
-            recommendedSize={positionSizing.recommendedSize}
-            baseSize={botConfig.amountPerTrade}
-            adjustedForDrawdown={positionSizing.adjustedForDrawdown}
-            reductionReasons={positionReductionReasons}
-            alertLevel={drawdownAlertLevel}
-            availableBalance={portfolioMetrics.availableBalance}
-            isRunning={!!activeBot}
-            onPauseTrading={handlePauseAllBots}
-            onReduceRisk={handleReduceRisk}
-            className="flex-shrink-0"
-          />
-          {/* Audit Dashboard Panel */}
-          {(auditReport || dashboards) && (
-            <div className="flex-shrink-0">
-              <AuditDashboardPanel
-                auditReport={auditReport}
-                dashboards={dashboards}
-                totalVaultedProfits={Object.values(profitVault).reduce((a, b) => a + b, 0)}
-                sessionStartBalance={{}}
-              />
-            </div>
-          )}
-          
-          <div className="min-h-[200px]">
-            <BotAnalyticsDashboard />
-          </div>
-          <div className="min-h-[200px]">
-            <BotPerformanceDashboard />
-          </div>
-          <div className="h-[160px]">
-            <DailyPnLChart />
-          </div>
-        </div>
-
-        {/* Right Column - Recent Trades & Bot History */}
-        <div className="lg:col-span-3 flex flex-col gap-3">
-          <div className="card-terminal p-3 flex flex-col min-h-[250px]">
+          {/* Recent Trades */}
+          <div className="card-terminal p-3 flex flex-col flex-1 min-h-[300px]">
             <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
               Recent Trades
               <Badge variant="outline" className="text-[8px] ml-auto">Live</Badge>
@@ -1455,8 +1400,11 @@ export default function Bots() {
               <RecentBotTrades />
             </div>
           </div>
+        </div>
 
-          <div className="card-terminal p-3 flex flex-col min-h-[250px]">
+        {/* Right Column - Bot History */}
+        <div className="lg:col-span-3 flex flex-col gap-2">
+          <div className="card-terminal p-3 flex flex-col flex-1 min-h-[300px]">
             <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
               Bot History
             </h3>
