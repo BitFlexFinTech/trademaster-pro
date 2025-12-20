@@ -32,6 +32,7 @@ import Portfolio from "./pages/Portfolio";
 import Notifications from "./pages/Notifications";
 import Arbitrage from "./pages/Arbitrage";
 import PairPerformance from "./pages/PairPerformance";
+import BugsDashboardPage from "./pages/BugsDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -75,6 +76,7 @@ const App = () => (
                     <Route path="/notifications" element={<Notifications />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/demo-account" element={<DemoAccount />} />
+                    <Route path="/bugs-dashboard" element={<BugsDashboardPage />} />
                     <Route path="/admin" element={<Admin />} />
                   </Route>
                   <Route path="*" element={<NotFound />} />

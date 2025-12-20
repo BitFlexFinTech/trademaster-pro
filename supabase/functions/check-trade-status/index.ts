@@ -1501,6 +1501,27 @@ serve(async (req) => {
                 closed_at: new Date().toISOString(),
               }).eq('id', trade.id);
               
+              // ✅ SUCCESS AUDIT LOG - Critical for tracking successful profit-takes
+              await logProfitAudit(supabase, {
+                user_id: user.id,
+                trade_id: trade.id,
+                action: 'profit_take_success',
+                symbol: tradingSymbol,
+                exchange: exchangeName,
+                entry_price: actualEntryPrice,
+                current_price: exitPrice,
+                quantity: availableQty,
+                gross_pnl: actualGrossPnL,
+                fees: totalFees,
+                net_pnl: actualNetPnL,
+                lot_size_used: lotInfo.stepSize,
+                quantity_sent: sellQty,
+                success: true,
+                credential_found: true,
+                oco_status: orderListId ? 'CANCELLED' : undefined,
+                balance_available: availableQty,
+              });
+              
               // Create success alert
               await supabase.from('alerts').insert({
                 user_id: user.id,
@@ -1523,6 +1544,26 @@ serve(async (req) => {
               await updateBotRunPnL(supabase, user.id, actualNetPnL);
             } else {
               console.error(`Failed to execute market sell for trade ${trade.id}`);
+              
+              // Log the failure with detailed info
+              await logProfitAudit(supabase, {
+                user_id: user.id,
+                trade_id: trade.id,
+                action: 'profit_take_failed',
+                symbol: tradingSymbol,
+                exchange: exchangeName,
+                entry_price: actualEntryPrice,
+                current_price: currentPrice,
+                quantity: availableQty,
+                gross_pnl: grossUnrealizedPnL,
+                net_pnl: netUnrealizedPnL,
+                lot_size_used: lotInfo.stepSize,
+                quantity_sent: sellQty,
+                success: false,
+                error_message: 'Market sell order failed - possibly insufficient balance',
+                credential_found: true,
+                balance_available: availableQty,
+              });
             }
           }
           
