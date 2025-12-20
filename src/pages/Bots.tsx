@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { BotHistory } from '@/components/bots/BotHistory';
 import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
 import { BotCard } from '@/components/bots/BotCard';
+import { BotCardSkeleton } from '@/components/bots/BotCardSkeleton';
 import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
 import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboard';
 import { DailyPnLChart } from '@/components/bots/DailyPnLChart';
@@ -1453,52 +1454,72 @@ export default function Bots() {
         </div>
 
         {/* Bot Cards: guaranteed visible + independently scrollable */}
-        <section className="flex-1 min-h-[50vh] overflow-y-auto">
+        <section 
+          className="flex-1 min-h-[50vh] overflow-y-auto"
+          ref={(el) => {
+            // Debug logging for layout issues in development
+            if (el && process.env.NODE_ENV === 'development') {
+              const height = el.getBoundingClientRect().height;
+              if (height < 100) {
+                console.warn('[BOTS LAYOUT] Bot cards section has insufficient height:', height, 'px');
+              }
+            }
+          }}
+        >
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3">
             {/* Left Column - Spot and Leverage Bot Cards */}
             <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 auto-rows-min">
-              <BotCard
-                botType="spot"
-                existingBot={spotBot}
-                prices={prices}
-                onStartBot={startBot}
-                onStopBot={(botId) => handleStopBot(botId, 'GreenBack Spot')}
-                onUpdateBotPnl={updateBotPnl}
-                suggestedUSDT={suggestedUSDT}
-                usdtFloat={usdtFloat}
-                dailyStopLoss={botConfig.dailyStopLoss}
-                perTradeStopLoss={botConfig.perTradeStopLoss}
-                amountPerTrade={botConfig.amountPerTrade}
-                tradeIntervalMs={botConfig.tradeIntervalMs}
-                autoSpeedAdjust={botConfig.autoSpeedAdjust}
-                onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
-                isAnyBotRunning={!!spotBot || !!leverageBot}
-                onAuditGenerated={(report, charts) => {
-                  setAuditReport(report);
-                  setDashboards(charts);
-                }}
-              />
-              <BotCard
-                botType="leverage"
-                existingBot={leverageBot}
-                prices={prices}
-                onStartBot={startBot}
-                onStopBot={(botId) => handleStopBot(botId, 'GreenBack Leverage')}
-                onUpdateBotPnl={updateBotPnl}
-                suggestedUSDT={suggestedUSDT}
-                usdtFloat={usdtFloat}
-                dailyStopLoss={botConfig.dailyStopLoss}
-                perTradeStopLoss={botConfig.perTradeStopLoss}
-                amountPerTrade={botConfig.amountPerTrade}
-                tradeIntervalMs={botConfig.tradeIntervalMs}
-                autoSpeedAdjust={botConfig.autoSpeedAdjust}
-                onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
-                isAnyBotRunning={!!spotBot || !!leverageBot}
-                onAuditGenerated={(report, charts) => {
-                  setAuditReport(report);
-                  setDashboards(charts);
-                }}
-              />
+              {loading ? (
+                <>
+                  <BotCardSkeleton />
+                  <BotCardSkeleton />
+                </>
+              ) : (
+                <>
+                  <BotCard
+                    botType="spot"
+                    existingBot={spotBot}
+                    prices={prices}
+                    onStartBot={startBot}
+                    onStopBot={(botId) => handleStopBot(botId, 'GreenBack Spot')}
+                    onUpdateBotPnl={updateBotPnl}
+                    suggestedUSDT={suggestedUSDT}
+                    usdtFloat={usdtFloat}
+                    dailyStopLoss={botConfig.dailyStopLoss}
+                    perTradeStopLoss={botConfig.perTradeStopLoss}
+                    amountPerTrade={botConfig.amountPerTrade}
+                    tradeIntervalMs={botConfig.tradeIntervalMs}
+                    autoSpeedAdjust={botConfig.autoSpeedAdjust}
+                    onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+                    isAnyBotRunning={!!spotBot || !!leverageBot}
+                    onAuditGenerated={(report, charts) => {
+                      setAuditReport(report);
+                      setDashboards(charts);
+                    }}
+                  />
+                  <BotCard
+                    botType="leverage"
+                    existingBot={leverageBot}
+                    prices={prices}
+                    onStartBot={startBot}
+                    onStopBot={(botId) => handleStopBot(botId, 'GreenBack Leverage')}
+                    onUpdateBotPnl={updateBotPnl}
+                    suggestedUSDT={suggestedUSDT}
+                    usdtFloat={usdtFloat}
+                    dailyStopLoss={botConfig.dailyStopLoss}
+                    perTradeStopLoss={botConfig.perTradeStopLoss}
+                    amountPerTrade={botConfig.amountPerTrade}
+                    tradeIntervalMs={botConfig.tradeIntervalMs}
+                    autoSpeedAdjust={botConfig.autoSpeedAdjust}
+                    onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+                    isAnyBotRunning={!!spotBot || !!leverageBot}
+                    onAuditGenerated={(report, charts) => {
+                      setAuditReport(report);
+                      setDashboards(charts);
+                    }}
+                  />
+                </>
+              )}
             </div>
 
             {/* Middle Column - Live P&L Dashboard + Recent Trades */}
