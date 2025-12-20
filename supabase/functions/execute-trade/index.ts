@@ -377,7 +377,7 @@ serve(async (req) => {
         .from("exchange_connections")
         .select("exchange_name, encrypted_api_key, encrypted_api_secret, encrypted_passphrase, encryption_iv")
         .eq("user_id", user.id)
-        .eq("exchange_name", tradeReq.exchangeName)
+        .ilike("exchange_name", tradeReq.exchangeName)
         .eq("is_connected", true)
         .maybeSingle();
 

@@ -527,16 +527,23 @@ serve(async (req) => {
         
         const alertData = (alert?.data || {}) as any;
         const { orderListId, symbol: alertSymbol, direction, entryPrice, exchange: alertExchange, quantity } = alertData;
-        const exchangeName = (alertExchange || trade.exchange_name || 'binance').toLowerCase();
+        const exchangeNameRaw = (alertExchange || trade.exchange_name || 'binance');
+        const exchangeName = exchangeNameRaw.toLowerCase();
         
-        // Get exchange credentials
-        const { data: connection } = await supabase
+        // Get exchange credentials (case-insensitive match)
+        console.log(`🔐 Credential lookup: user=${user.id} exchange="${exchangeNameRaw}" (normalized="${exchangeName}")`);
+        const { data: connection, error: connectionError } = await supabase
           .from("exchange_connections")
           .select("*")
           .eq("user_id", user.id)
-          .eq("exchange_name", exchangeName)
+          .ilike("exchange_name", exchangeName)
           .eq("is_connected", true)
           .maybeSingle();
+
+        if (connectionError) {
+          console.error(`Credential lookup error for ${exchangeName}:`, connectionError);
+        }
+        console.log(`🔐 Credential lookup result: found=${!!connection} stored_exchange="${connection?.exchange_name}"`);
         
         if (!connection || !connection.encrypted_api_key) {
           console.log(`No credentials for ${exchangeName}`);
@@ -651,25 +658,18 @@ serve(async (req) => {
                   continue;
                 }
               } else {
-                // No balance but trade is still open - mark as closed with 0 P&L
-                console.log(`⏰ STALE POSITION: No ${baseAsset} balance, marking trade ${trade.id} as closed`);
-                
-                await supabase.from('trades').update({
-                  status: 'closed',
-                  profit_loss: 0,
-                  closed_at: new Date().toISOString(),
-                }).eq('id', trade.id);
-                
+                // No balance: do NOT auto-close at $0.00 (this causes false “profit taken”/closure).
+                // Instead, alert + keep trade open so the next poll can re-check OCO / balances.
+                console.log(`⏰ STALE POSITION: No ${baseAsset} balance for trade ${trade.id}; leaving OPEN for re-check`);
+
                 await supabase.from('alerts').insert({
                   user_id: user.id,
-                  title: `⏰ Stale Position Cleaned Up: ${trade.pair}`,
-                  message: `Position was open for ${tradeAgeHours.toFixed(1)} hours with no balance. Marked as closed.`,
-                  alert_type: 'stale_position_closed',
+                  title: `⚠️ Stale Position Needs Review: ${trade.pair}`,
+                  message: `Trade is ${tradeAgeHours.toFixed(1)}h old but ${baseAsset} balance is 0. Keeping trade open to avoid $0 closure.`,
+                  alert_type: 'stale_position_needs_review',
                   data: { tradeId: trade.id, ageHours: tradeAgeHours, reason: 'no_balance' }
                 });
-                
-                closedCount++;
-                stalePositionsClosed++;
+
                 continue;
               }
             }
@@ -845,7 +845,7 @@ serve(async (req) => {
         .from("exchange_connections")
         .select("*")
         .eq("user_id", user.id)
-        .eq("exchange_name", exchange)
+        .ilike("exchange_name", exchange)
         .eq("is_connected", true)
         .maybeSingle();
 
@@ -890,7 +890,7 @@ serve(async (req) => {
       .from("exchange_connections")
       .select("*")
       .eq("user_id", user.id)
-      .eq("exchange_name", exchange)
+      .ilike("exchange_name", exchange)
       .eq("is_connected", true)
       .maybeSingle();
 
