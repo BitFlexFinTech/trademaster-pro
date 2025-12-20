@@ -335,6 +335,42 @@ const EXCHANGE_FEES: Record<string, number> = {
   hyperliquid: 0.0002, // 0.02%
 };
 
+// ============ EXCHANGE RATE LIMITS - Prevents API Bans ============
+// Based on official API documentation for each exchange
+const EXCHANGE_RATE_LIMITS: Record<string, { minDelayMs: number; maxCallsPerMinute: number }> = {
+  binance: { minDelayMs: 100, maxCallsPerMinute: 1200 },   // 10 requests/sec, very lenient
+  bybit: { minDelayMs: 200, maxCallsPerMinute: 120 },      // 2 requests/sec, stricter
+  okx: { minDelayMs: 500, maxCallsPerMinute: 60 },         // 1 request/sec, conservative
+  kraken: { minDelayMs: 1000, maxCallsPerMinute: 15 },     // Very strict rate limits
+  nexo: { minDelayMs: 500, maxCallsPerMinute: 60 },        // Estimate
+  kucoin: { minDelayMs: 200, maxCallsPerMinute: 60 },      // Moderate
+  hyperliquid: { minDelayMs: 100, maxCallsPerMinute: 100 },// Fast
+};
+
+// Track last request time per exchange for rate limiting
+const lastRequestTime: Record<string, number> = {};
+
+// Get exchange-aware delay with jitter
+async function getExchangeAwareDelay(exchange: string): Promise<void> {
+  const exchangeLower = exchange.toLowerCase();
+  const limits = EXCHANGE_RATE_LIMITS[exchangeLower] || { minDelayMs: 500 };
+  const now = Date.now();
+  const lastRequest = lastRequestTime[exchangeLower] || 0;
+  const timeSinceLastRequest = now - lastRequest;
+  
+  // Calculate required delay
+  const jitter = Math.random() * 50; // Add 0-50ms jitter
+  const requiredDelay = limits.minDelayMs + jitter;
+  
+  if (timeSinceLastRequest < requiredDelay) {
+    const waitTime = requiredDelay - timeSinceLastRequest;
+    console.log(`⏱️ Rate limiting ${exchange}: waiting ${waitTime.toFixed(0)}ms`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  
+  lastRequestTime[exchangeLower] = Date.now();
+}
+
 // ============ MINIMUM ORDER SIZE PER EXCHANGE ============
 const EXCHANGE_MIN_ORDER: Record<string, number> = {
   binance: 5,       // $5 min notional (dynamic via API)
@@ -409,19 +445,71 @@ interface BotTradeRequest {
   stopLossPercent?: number; // 0.2 = 20% of profit (80% lower)
 }
 
+// Get market momentum from 1h price change
+async function getMarketMomentum(pair: string): Promise<number> {
+  try {
+    const symbol = pair.replace('/', '');
+    const response = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`);
+    if (!response.ok) return 0;
+    const data = await response.json();
+    // Return 1-hour price change as percentage (approximated from 24h data)
+    return parseFloat(data.priceChangePercent) / 100 || 0;
+  } catch (e) {
+    console.error(`Failed to get momentum for ${pair}:`, e);
+    return 0;
+  }
+}
+
+// Get user's holdings of a specific asset
+async function getUserHoldings(
+  supabase: any,
+  userId: string,
+  asset: string
+): Promise<number> {
+  const { data } = await supabase
+    .from('portfolio_holdings')
+    .select('quantity')
+    .eq('user_id', userId)
+    .eq('asset_symbol', asset)
+    .maybeSingle();
+  
+  return data?.quantity || 0;
+}
+
 // Smart direction selection based on historical win rates
 async function selectSmartDirection(
   supabase: any,
   userId: string,
   pair: string,
-  mode: 'spot' | 'leverage'
+  mode: 'spot' | 'leverage',
+  currentPrice?: number
 ): Promise<{ direction: 'long' | 'short'; confidence: number; reasoning: string }> {
-  // SPOT MODE: Only LONG trades, but check if pair is safe
+  // SPOT MODE: Can SHORT if user holds the asset AND market is bearish
   if (mode === 'spot') {
+    const baseAsset = pair.split('/')[0]; // e.g., "BTC" from "BTC/USDT"
+    const heldQuantity = await getUserHoldings(supabase, userId, baseAsset);
+    const holdingsValue = heldQuantity * (currentPrice || 0);
+    
+    // Check if user holds enough to short (more than $10 worth)
+    if (holdingsValue > 10) {
+      const momentum = await getMarketMomentum(pair);
+      console.log(`📊 SPOT ${pair}: Holdings $${holdingsValue.toFixed(2)}, Momentum ${(momentum * 100).toFixed(2)}%`);
+      
+      // If bearish momentum (< -0.5%), go SHORT by selling held assets
+      if (momentum < -0.005) {
+        return { 
+          direction: 'short', 
+          confidence: 65, 
+          reasoning: `SPOT SHORT: Selling ${baseAsset} ($${holdingsValue.toFixed(2)}), bearish momentum ${(momentum * 100).toFixed(2)}%` 
+        };
+      }
+    }
+    
+    // Default to LONG if no holdings or bullish/neutral
     if (!SPOT_SAFE_PAIRS.has(pair)) {
       return { direction: 'long', confidence: 40, reasoning: `SPOT: ${pair} not in safe list` };
     }
-    return { direction: 'long', confidence: 60, reasoning: `SPOT: LONG only on ${pair}` };
+    return { direction: 'long', confidence: 60, reasoning: `SPOT: LONG on ${pair}` };
   }
 
   // LEVERAGE MODE: Smart direction selection
