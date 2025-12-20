@@ -707,7 +707,6 @@ serve(async (req) => {
       let closedCount = 0;
       let profitsTaken = 0;
       let stalePositionsClosed = 0;
-      const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
       const now = Date.now();
       
       for (const trade of openTrades) {
@@ -821,8 +820,15 @@ serve(async (req) => {
               const availableQty = balance.free;
               
               if (availableQty > 0) {
+                const lotInfo = await getBinanceLotSize(tradingSymbol);
+                const sellQty = roundToStepSize(availableQty, lotInfo.stepSize);
+                
+                if (parseFloat(sellQty) < parseFloat(lotInfo.minQty)) {
+                  console.log(`⚠️ Stale position quantity ${sellQty} below min ${lotInfo.minQty} - cannot sell`);
+                  continue;
+                }
+                
                 await enforceRateLimit(exchangeName);
-                const sellQty = availableQty.toFixed(5);
                 const sellResult = await placeBinanceMarketSell(apiKey, apiSecret, tradingSymbol, sellQty);
                 
                 if (sellResult.success) {
@@ -884,8 +890,15 @@ serve(async (req) => {
             const balance = await getBinanceBalance(apiKey, apiSecret, baseAsset);
             
             if (balance.free > 0) {
+              const lotInfo = await getBinanceLotSize(tradingSymbol);
+              const sellQty = roundToStepSize(balance.free, lotInfo.stepSize);
+              
+              if (parseFloat(sellQty) < parseFloat(lotInfo.minQty)) {
+                console.log(`⚠️ Orphan position quantity ${sellQty} below min ${lotInfo.minQty} - cannot sell`);
+                continue;
+              }
+              
               await enforceRateLimit(exchangeName);
-              const sellQty = balance.free.toFixed(5);
               const sellResult = await placeBinanceMarketSell(apiKey, apiSecret, tradingSymbol, sellQty);
               
               if (sellResult.success) {
@@ -969,8 +982,14 @@ serve(async (req) => {
               }
             }
             
-            // Format quantity for Binance (usually 5 decimal places for crypto)
-            const sellQty = availableQty.toFixed(5);
+            // Get LOT_SIZE filter and round quantity properly
+            const lotInfo = await getBinanceLotSize(tradingSymbol);
+            const sellQty = roundToStepSize(availableQty, lotInfo.stepSize);
+            
+            if (parseFloat(sellQty) < parseFloat(lotInfo.minQty)) {
+              console.log(`⚠️ Profit-take quantity ${sellQty} below min ${lotInfo.minQty} - skipping`);
+              continue;
+            }
             
             // Place market sell order
             await enforceRateLimit(exchangeName);
@@ -1057,7 +1076,6 @@ serve(async (req) => {
         });
       }
 
-      const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
       const apiKey = await decryptSecret(connection.encrypted_api_key!, connection.encryption_iv!, encryptionKey);
       const apiSecret = await decryptSecret(connection.encrypted_api_secret!, connection.encryption_iv!, encryptionKey);
 
@@ -1102,8 +1120,7 @@ serve(async (req) => {
       });
     }
 
-    // Decrypt credentials
-    const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
+    // Decrypt credentials (encryptionKey already declared at top of function)
     const apiKey = await decryptSecret(connection.encrypted_api_key!, connection.encryption_iv!, encryptionKey);
     const apiSecret = await decryptSecret(connection.encrypted_api_secret!, connection.encryption_iv!, encryptionKey);
     const passphrase = connection.encrypted_passphrase 
