@@ -128,6 +128,29 @@ serve(async (req) => {
     // Calculate confidence based on data quality
     const confidence = Math.min(95, 50 + (closedTrades.length * 2));
 
+    // Calculate 24-hour hourly hit rate history
+    const hitRateHistory: Array<{ hour: string; hitRate: number; totalTrades: number }> = [];
+    const now = new Date();
+    
+    for (let i = 23; i >= 0; i--) {
+      const hourStart = new Date(now.getTime() - i * 60 * 60 * 1000);
+      const hourEnd = new Date(now.getTime() - (i - 1) * 60 * 60 * 1000);
+      
+      const hourTrades = closedTrades.filter(t => {
+        const tradeTime = new Date(t.created_at);
+        return tradeTime >= hourStart && tradeTime < hourEnd;
+      });
+      
+      const hourWins = hourTrades.filter(t => (t.profit_loss || 0) > 0).length;
+      const hourHitRate = hourTrades.length > 0 ? (hourWins / hourTrades.length) * 100 : 0;
+      
+      hitRateHistory.push({
+        hour: hourStart.toISOString(),
+        hitRate: Math.round(hourHitRate * 10) / 10,
+        totalTrades: hourTrades.length
+      });
+    }
+
     const response = {
       currentHitRate: Math.round(currentHitRate * 10) / 10,
       targetHitRate: 95,
@@ -147,6 +170,7 @@ serve(async (req) => {
       analyzedAt: new Date().toISOString(),
       tradesAnalyzed: closedTrades.length,
       avgProfit: Math.round(avgProfit * 100) / 100,
+      hitRateHistory,
     };
 
     console.log('Strategy analysis complete:', {
