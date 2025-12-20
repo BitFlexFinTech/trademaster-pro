@@ -12,6 +12,7 @@ import {
   LineChart,
   Bot,
   Brain,
+  Bug,
   Settings,
   User,
   ChevronLeft,
@@ -45,6 +46,7 @@ const navItems = [
   { to: '/charts', icon: LineChart, label: 'Charts' },
   { to: '/news', icon: Newspaper, label: 'News' },
   { to: '/research', icon: BookOpen, label: 'Research' },
+  { to: '/bugs-dashboard', icon: Bug, label: '🐛 Bugs' },
 ];
 
 const bottomNavItems = [

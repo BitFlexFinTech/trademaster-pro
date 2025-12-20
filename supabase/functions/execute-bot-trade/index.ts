@@ -1724,6 +1724,11 @@ serve(async (req) => {
               console.log(`✅ OCO order placed: OrderListId=${ocoOrderResult.orderListId}`);
               console.log(`   TP Order: ${ocoOrderResult.tpOrderId}, SL Order: ${ocoOrderResult.slOrderId}`);
               
+              // ✅ VALIDATION: Only insert trade if OCO was successfully placed
+              if (!ocoOrderResult.orderListId) {
+                throw new Error('OCO order failed - no orderListId returned');
+              }
+              
               // Record trade as OPEN - the check-trade-status function will monitor and close it
               const { data: insertedTrade, error: insertError } = await supabase.from("trades").insert({
                 user_id: user.id,
@@ -1742,6 +1747,20 @@ serve(async (req) => {
               
               if (insertError) {
                 console.error('Failed to insert open trade:', insertError);
+                // ⚠️ OCO is placed but trade record failed - log for manual review
+                await supabase.from('alerts').insert({
+                  user_id: user.id,
+                  title: `⚠️ Trade Record Failed`,
+                  message: `OCO placed (${ocoOrderResult.orderListId}) but DB insert failed. Manual review needed.`,
+                  alert_type: 'trade_record_error',
+                  data: { 
+                    orderListId: ocoOrderResult.orderListId,
+                    pair,
+                    direction,
+                    entryPrice: tradeResult.entryPrice,
+                    error: insertError.message
+                  }
+                });
               } else {
                 tradeRecordedAsOpen = true;
                 console.log(`📝 Trade recorded as OPEN: ${insertedTrade?.id}`);
