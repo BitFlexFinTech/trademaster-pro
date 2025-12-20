@@ -159,6 +159,107 @@ async function getBybitFreeStableBalance(
   }
 }
 
+// Fetch free USDT balance from OKX account
+async function getOKXFreeStableBalance(
+  apiKey: string,
+  apiSecret: string,
+  passphrase: string,
+): Promise<number> {
+  try {
+    const timestamp = new Date().toISOString();
+    const method = "GET";
+    const requestPath = "/api/v5/account/balance?ccy=USDT";
+    const preHash = timestamp + method + requestPath;
+    
+    // OKX uses base64 HMAC-SHA256
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(apiSecret);
+    const msgData = encoder.encode(preHash);
+    const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, msgData);
+    const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+
+    const response = await fetch(
+      `https://www.okx.com${requestPath}`,
+      {
+        method: "GET",
+        headers: {
+          "OK-ACCESS-KEY": apiKey,
+          "OK-ACCESS-SIGN": signature,
+          "OK-ACCESS-TIMESTAMP": timestamp,
+          "OK-ACCESS-PASSPHRASE": passphrase,
+        },
+      },
+    );
+
+    const data = await response.json();
+    if (data.code !== "0") {
+      console.error("Failed to fetch OKX balance:", data.msg);
+      return 0;
+    }
+
+    const balances = data.data?.[0]?.details || [];
+    const usdt = balances.find((b: { ccy: string }) => b.ccy === "USDT");
+    if (usdt) {
+      const free = parseFloat(usdt.availBal || usdt.cashBal || "0");
+      return Number.isFinite(free) ? free : 0;
+    }
+    return 0;
+  } catch (e) {
+    console.error("Error fetching OKX account balance:", e);
+    return 0;
+  }
+}
+
+// Fetch free USDT balance from Kraken account
+async function getKrakenFreeStableBalance(
+  apiKey: string,
+  apiSecret: string,
+): Promise<number> {
+  try {
+    const nonce = Date.now() * 1000;
+    const postData = `nonce=${nonce}`;
+    const path = "/0/private/Balance";
+    
+    // Kraken signature: HMAC-SHA512(path + SHA256(nonce + postData), base64_decode(secret))
+    const sha256Hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(nonce + postData));
+    const message = new Uint8Array([...new TextEncoder().encode(path), ...new Uint8Array(sha256Hash)]);
+    const secretKey = Uint8Array.from(atob(apiSecret), c => c.charCodeAt(0));
+    const cryptoKey = await crypto.subtle.importKey('raw', secretKey, { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']);
+    const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, message);
+    const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+
+    const response = await fetch(
+      `https://api.kraken.com${path}`,
+      {
+        method: "POST",
+        headers: {
+          "API-Key": apiKey,
+          "API-Sign": signature,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: postData,
+      },
+    );
+
+    const data = await response.json();
+    if (data.error?.length > 0) {
+      console.error("Failed to fetch Kraken balance:", data.error);
+      return 0;
+    }
+
+    // Kraken uses ZUSD for USD, USDT for Tether
+    const result = data.result || {};
+    const usdt = parseFloat(result.USDT || "0");
+    const zusd = parseFloat(result.ZUSD || "0");
+    const total = usdt + zusd;
+    return Number.isFinite(total) ? total : 0;
+  } catch (e) {
+    console.error("Error fetching Kraken account balance:", e);
+    return 0;
+  }
+}
+
 // Get Bybit lot size info
 async function getBybitLotSize(symbol: string): Promise<{ stepSize: string; minQty: string; minNotional: number }> {
   try {
@@ -232,6 +333,17 @@ const EXCHANGE_FEES: Record<string, number> = {
   nexo: 0.002,       // 0.2%
   kucoin: 0.001,     // 0.1%
   hyperliquid: 0.0002, // 0.02%
+};
+
+// ============ MINIMUM ORDER SIZE PER EXCHANGE ============
+const EXCHANGE_MIN_ORDER: Record<string, number> = {
+  binance: 5,       // $5 min notional (dynamic via API)
+  bybit: 5,         // $5 min (dynamic via API)
+  okx: 1,           // $1 min for most pairs
+  kraken: 5,        // $5 min for most pairs
+  nexo: 10,         // $10 min estimate
+  kucoin: 1,        // $1 min
+  hyperliquid: 10,  // $10 min
 };
 
 // Dynamic MIN_NET_PROFIT calculation - 0.2% of position or $0.05 minimum
@@ -1187,10 +1299,54 @@ serve(async (req) => {
             } else {
               insufficientBalanceExchanges.push(`${exchange.exchange_name} ($${balance.toFixed(2)})`);
             }
+          } else if (exName === "okx") {
+            // Check OKX balance
+            const balance = await getOKXFreeStableBalance(decryptedKey, decryptedSecret, decryptedPassphrase);
+            const minNotional = EXCHANGE_MIN_ORDER.okx || 1;
+            console.log(`${exchange.exchange_name} free USDT: $${balance}, min notional: $${minNotional}`);
+            
+            const minRequired = minNotional * 1.1;
+            if (balance >= minRequired) {
+              selectedExchange = exchange;
+              exchangeName = exName;
+              apiKey = decryptedKey;
+              apiSecret = decryptedSecret;
+              passphrase = decryptedPassphrase;
+              freeBalance = balance;
+              lotInfo = { stepSize: '0.0001', minQty: '0.0001', minNotional };
+              console.log(`✅ Selected ${exchange.exchange_name} with $${balance} available`);
+              break;
+            } else {
+              insufficientBalanceExchanges.push(`${exchange.exchange_name} ($${balance.toFixed(2)})`);
+            }
+          } else if (exName === "kraken") {
+            // Check Kraken balance
+            const balance = await getKrakenFreeStableBalance(decryptedKey, decryptedSecret);
+            const minNotional = EXCHANGE_MIN_ORDER.kraken || 5;
+            console.log(`${exchange.exchange_name} free USDT: $${balance}, min notional: $${minNotional}`);
+            
+            const minRequired = minNotional * 1.1;
+            if (balance >= minRequired) {
+              selectedExchange = exchange;
+              exchangeName = exName;
+              apiKey = decryptedKey;
+              apiSecret = decryptedSecret;
+              passphrase = decryptedPassphrase;
+              freeBalance = balance;
+              lotInfo = { stepSize: '0.0001', minQty: '0.0001', minNotional };
+              console.log(`✅ Selected ${exchange.exchange_name} with $${balance} available`);
+              break;
+            } else {
+              insufficientBalanceExchanges.push(`${exchange.exchange_name} ($${balance.toFixed(2)})`);
+            }
+          } else if (exName === "nexo") {
+            // Nexo doesn't have a public trading API - mark as unavailable for trading
+            console.log(`Skipping ${exchange.exchange_name}: trading API not available`);
+            insufficientBalanceExchanges.push(`${exchange.exchange_name} (no trading API)`);
           } else {
-            // For other exchanges (OKX, Kraken, Nexo), skip if we don't have balance check
-            console.log(`Skipping ${exchange.exchange_name}: balance check not implemented, will try after Binance/Bybit`);
-            insufficientBalanceExchanges.push(`${exchange.exchange_name} (balance check not implemented)`);
+            // For other unknown exchanges, skip
+            console.log(`Skipping ${exchange.exchange_name}: unsupported exchange`);
+            insufficientBalanceExchanges.push(`${exchange.exchange_name} (unsupported)`);
           }
         } catch (e) {
           console.error(`Failed to check ${exchange.exchange_name}:`, e);
