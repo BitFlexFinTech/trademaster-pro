@@ -38,6 +38,8 @@ import { RiskManagementPanel } from '@/components/bots/RiskManagementPanel';
 import { SpreadMonitor } from '@/components/bots/SpreadMonitor';
 import { SessionDashboard } from '@/components/bots/SessionDashboard';
 import { BalanceRequirementBanner } from '@/components/bots/BalanceRequirementBanner';
+import { ProfitEnginePanel } from '@/components/bots/ProfitEnginePanel';
+import { StuckTradesBanner } from '@/components/bots/StuckTradesBanner';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { AuditReport } from '@/lib/selfAuditReporter';
@@ -831,6 +833,9 @@ export default function Bots() {
         isAnyBotRunning={!!spotBot || !!leverageBot}
       />
 
+      {/* Stuck Trades Banner */}
+      <StuckTradesBanner />
+
       {/* Header */}
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <div className="flex items-center gap-2 md:gap-3">
@@ -1319,6 +1324,9 @@ export default function Bots() {
           )}
         </CollapsibleContent>
       </Collapsible>
+
+      {/* Profit Engine Status Panel */}
+      <ProfitEnginePanel />
 
       {/* Main Content Grid - Scrollable */}
       <div className={cn(

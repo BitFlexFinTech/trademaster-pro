@@ -644,6 +644,86 @@ export type Database = {
         }
         Relationships: []
       }
+      profit_audit_log: {
+        Row: {
+          action: string
+          balance_available: number | null
+          created_at: string
+          credential_found: boolean | null
+          current_price: number | null
+          entry_price: number | null
+          error_message: string | null
+          exchange: string
+          exchange_response: Json | null
+          fees: number | null
+          gross_pnl: number | null
+          id: string
+          lot_size_used: string | null
+          net_pnl: number | null
+          oco_status: string | null
+          quantity: number | null
+          quantity_sent: string | null
+          success: boolean | null
+          symbol: string
+          trade_id: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          balance_available?: number | null
+          created_at?: string
+          credential_found?: boolean | null
+          current_price?: number | null
+          entry_price?: number | null
+          error_message?: string | null
+          exchange: string
+          exchange_response?: Json | null
+          fees?: number | null
+          gross_pnl?: number | null
+          id?: string
+          lot_size_used?: string | null
+          net_pnl?: number | null
+          oco_status?: string | null
+          quantity?: number | null
+          quantity_sent?: string | null
+          success?: boolean | null
+          symbol: string
+          trade_id?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          balance_available?: number | null
+          created_at?: string
+          credential_found?: boolean | null
+          current_price?: number | null
+          entry_price?: number | null
+          error_message?: string | null
+          exchange?: string
+          exchange_response?: Json | null
+          fees?: number | null
+          gross_pnl?: number | null
+          id?: string
+          lot_size_used?: string | null
+          net_pnl?: number | null
+          oco_status?: string | null
+          quantity?: number | null
+          quantity_sent?: string | null
+          success?: boolean | null
+          symbol?: string
+          trade_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profit_audit_log_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       research_articles: {
         Row: {
           assets: string[] | null
