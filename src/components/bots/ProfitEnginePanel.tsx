@@ -16,10 +16,13 @@ import {
   ChevronUp,
   DollarSign,
   Zap,
-  AlertTriangle
+  AlertTriangle,
+  Play,
+  Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 interface AuditLog {
   id: string;
@@ -56,6 +59,8 @@ export function ProfitEnginePanel() {
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshCountdown, setRefreshCountdown] = useState(30);
+  const [triggering, setTriggering] = useState(false);
 
   const fetchAuditLogs = async () => {
     if (!user) return;
@@ -109,7 +114,18 @@ export function ProfitEnginePanel() {
   useEffect(() => {
     fetchAuditLogs();
     
-    // Subscribe to realtime updates
+    // Auto-refresh every 30 seconds
+    const refreshInterval = setInterval(() => {
+      fetchAuditLogs();
+      setRefreshCountdown(30);
+    }, 30000);
+    
+    // Countdown timer
+    const countdownInterval = setInterval(() => {
+      setRefreshCountdown(prev => prev > 0 ? prev - 1 : 30);
+    }, 1000);
+    
+    // Subscribe to realtime updates for immediate feedback
     const channel = supabase
       .channel('profit-audit-updates')
       .on(
@@ -127,14 +143,40 @@ export function ProfitEnginePanel() {
       .subscribe();
     
     return () => {
+      clearInterval(refreshInterval);
+      clearInterval(countdownInterval);
       supabase.removeChannel(channel);
     };
   }, [user]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    setRefreshCountdown(30);
     await fetchAuditLogs();
     setRefreshing(false);
+  };
+
+  const handleTriggerCheck = async () => {
+    if (!user) return;
+    setTriggering(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('check-trade-status', {
+        body: { userId: user.id }
+      });
+      if (error) {
+        toast.error('Status check failed: ' + error.message);
+      } else {
+        const closedCount = data?.closedCount || 0;
+        const profitsTaken = data?.profitsTaken || 0;
+        toast.success(`Check complete: ${closedCount} closed, ${profitsTaken} profits taken`);
+        await fetchAuditLogs();
+        setRefreshCountdown(30);
+      }
+    } catch (e: any) {
+      toast.error('Failed to trigger status check: ' + (e.message || 'Unknown error'));
+    } finally {
+      setTriggering(false);
+    }
   };
 
   const getActionBadge = (action: string) => {
@@ -182,16 +224,38 @@ export function ProfitEnginePanel() {
               </div>
               <div className="flex items-center gap-2">
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  className="h-6 w-6 p-0"
+                  className="h-6 text-[10px] px-2"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleRefresh();
+                    handleTriggerCheck();
                   }}
+                  disabled={triggering}
                 >
-                  <RefreshCw className={cn("w-3 h-3", refreshing && "animate-spin")} />
+                  {triggering ? (
+                    <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                  ) : (
+                    <Play className="w-3 h-3 mr-1" />
+                  )}
+                  Check Now
                 </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRefresh();
+                    }}
+                  >
+                    <RefreshCw className={cn("w-3 h-3", refreshing && "animate-spin")} />
+                  </Button>
+                  <Badge variant="outline" className="text-[9px] px-1 h-5">
+                    {refreshCountdown}s
+                  </Badge>
+                </div>
                 {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
               </div>
             </CardTitle>
