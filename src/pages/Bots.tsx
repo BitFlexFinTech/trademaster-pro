@@ -41,6 +41,7 @@ import { BalanceRequirementBanner } from '@/components/bots/BalanceRequirementBa
 import { ProfitEnginePanel } from '@/components/bots/ProfitEnginePanel';
 import { StuckTradesBanner } from '@/components/bots/StuckTradesBanner';
 import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
+import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { AuditReport } from '@/lib/selfAuditReporter';
@@ -184,6 +185,7 @@ export default function Bots() {
           }), {} as Record<string, number>),
           autoSpeedAdjust: parsed.autoSpeedAdjust ?? true,
           minProfitThreshold: parsed.minProfitThreshold ?? 0.0005,
+          autoWithdrawOnTarget: parsed.autoWithdrawOnTarget ?? true,
         };
       } catch { /* ignore parse errors */ }
     }
@@ -203,6 +205,7 @@ export default function Bots() {
       }), {} as Record<string, number>),
       autoSpeedAdjust: true,
       minProfitThreshold: 0.0005, // 0.05% default for adaptive profit-taking
+      autoWithdrawOnTarget: true, // Auto-withdraw when daily target is reached
     };
   };
   
@@ -1426,6 +1429,19 @@ export default function Bots() {
           )}
         </CollapsibleContent>
       </Collapsible>
+
+      {/* AI Recommendations Panel - Full 9 Fields */}
+      <AIRecommendationsPanel
+        botConfig={botConfig}
+        onApplyField={(field, value) => {
+          setBotConfig(prev => ({ ...prev, [field]: value }));
+        }}
+        onApplyAll={() => {
+          // Refetch config from DB since applyRecommendation will have updated it
+          refetch();
+        }}
+        className="mb-2 flex-shrink-0"
+      />
 
       {/* Profit Engine Status Panel - collapsed by default */}
       <ProfitEnginePanel defaultCollapsed={true} className="mb-2 flex-shrink-0" />
