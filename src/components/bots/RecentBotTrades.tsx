@@ -41,9 +41,14 @@ export function RecentBotTrades() {
   const [trades, setTrades] = useState<BotTrade[]>([]);
   const [loading, setLoading] = useState(true);
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
+  const [forceCloseDebounce, setForceCloseDebounce] = useState(false);
 
   const handleForceClose = async (tradeId: string) => {
+    // Debounce: prevent rapid clicks
+    if (forceCloseDebounce) return;
+    setForceCloseDebounce(true);
     setClosingTradeId(tradeId);
+    
     try {
       const { data, error } = await supabase.functions.invoke('check-trade-status', {
         body: { forceCloseTradeId: tradeId }
@@ -67,6 +72,8 @@ export function RecentBotTrades() {
       toast.error('Failed to close position');
     } finally {
       setClosingTradeId(null);
+      // Release debounce after 2 seconds
+      setTimeout(() => setForceCloseDebounce(false), 2000);
     }
   };
   // Calculate summary stats - MUST be before any early returns
@@ -333,7 +340,7 @@ export function RecentBotTrades() {
                           variant="destructive" 
                           size="sm" 
                           className="h-5 px-1.5 text-[8px]"
-                          disabled={closingTradeId === trade.id}
+                          disabled={closingTradeId === trade.id || forceCloseDebounce}
                         >
                           {closingTradeId === trade.id ? (
                             <Loader2 className="w-2.5 h-2.5 animate-spin" />

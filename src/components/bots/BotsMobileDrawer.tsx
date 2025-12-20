@@ -15,7 +15,7 @@ interface BotsMobileDrawerProps {
   leverageBot: any;
   bots: any[];
   prices: any[];
-  startBot: (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number) => Promise<any>;
+  startBot: (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number, isSandbox: boolean, amountPerTrade?: number, tradeIntervalMs?: number) => Promise<any>;
   stopBot: (botId: string, botName: string) => Promise<void>;
   updateBotPnl: (botId: string, pnl: number, trades: number, hitRate: number) => Promise<void>;
   analyzeBot: (botId: string, botName: string) => Promise<void>;
@@ -23,7 +23,11 @@ interface BotsMobileDrawerProps {
   usdtFloat: Array<{ exchange: string; amount: number; warning: boolean }>;
   dailyStopLoss?: number;
   perTradeStopLoss?: number;
+  amountPerTrade?: number;
+  tradeIntervalMs?: number;
+  autoSpeedAdjust?: boolean;
   onConfigChange?: (key: string, value: number) => void;
+  onAuditGenerated?: (report: any, charts: any) => void;
 }
 
 export function BotsMobileDrawer({
@@ -39,7 +43,11 @@ export function BotsMobileDrawer({
   usdtFloat,
   dailyStopLoss = 5,
   perTradeStopLoss = 0.60,
+  amountPerTrade = 100,
+  tradeIntervalMs = 60000,
+  autoSpeedAdjust = true,
   onConfigChange,
+  onAuditGenerated,
 }: BotsMobileDrawerProps) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('bots');
@@ -89,8 +97,12 @@ export function BotsMobileDrawer({
                 usdtFloat={usdtFloat}
                 dailyStopLoss={dailyStopLoss}
                 perTradeStopLoss={perTradeStopLoss}
+                amountPerTrade={amountPerTrade}
+                tradeIntervalMs={tradeIntervalMs}
+                autoSpeedAdjust={autoSpeedAdjust}
                 onConfigChange={onConfigChange}
                 isAnyBotRunning={!!spotBot || !!leverageBot}
+                onAuditGenerated={onAuditGenerated}
               />
               <BotCard
                 botType="leverage"
@@ -103,8 +115,12 @@ export function BotsMobileDrawer({
                 usdtFloat={usdtFloat}
                 dailyStopLoss={dailyStopLoss}
                 perTradeStopLoss={perTradeStopLoss}
+                amountPerTrade={amountPerTrade}
+                tradeIntervalMs={tradeIntervalMs}
+                autoSpeedAdjust={autoSpeedAdjust}
                 onConfigChange={onConfigChange}
                 isAnyBotRunning={!!spotBot || !!leverageBot}
+                onAuditGenerated={onAuditGenerated}
               />
             </TabsContent>
 

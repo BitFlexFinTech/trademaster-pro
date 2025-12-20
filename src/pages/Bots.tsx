@@ -47,6 +47,7 @@ import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconcilia
 import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AuditReport } from '@/lib/selfAuditReporter';
 import { DashboardCharts } from '@/lib/dashboardGenerator';
 import { toast } from 'sonner';
@@ -1467,60 +1468,72 @@ export default function Bots() {
           }}
         >
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3">
-            {/* Left Column - Spot and Leverage Bot Cards */}
-            <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 auto-rows-min">
-              {loading ? (
-                <>
-                  <BotCardSkeleton />
-                  <BotCardSkeleton />
-                </>
-              ) : (
-                <>
-                  <BotCard
-                    botType="spot"
-                    existingBot={spotBot}
-                    prices={prices}
-                    onStartBot={startBot}
-                    onStopBot={(botId) => handleStopBot(botId, 'GreenBack Spot')}
-                    onUpdateBotPnl={updateBotPnl}
-                    suggestedUSDT={suggestedUSDT}
-                    usdtFloat={usdtFloat}
-                    dailyStopLoss={botConfig.dailyStopLoss}
-                    perTradeStopLoss={botConfig.perTradeStopLoss}
-                    amountPerTrade={botConfig.amountPerTrade}
-                    tradeIntervalMs={botConfig.tradeIntervalMs}
-                    autoSpeedAdjust={botConfig.autoSpeedAdjust}
-                    onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
-                    isAnyBotRunning={!!spotBot || !!leverageBot}
-                    onAuditGenerated={(report, charts) => {
-                      setAuditReport(report);
-                      setDashboards(charts);
-                    }}
-                  />
-                  <BotCard
-                    botType="leverage"
-                    existingBot={leverageBot}
-                    prices={prices}
-                    onStartBot={startBot}
-                    onStopBot={(botId) => handleStopBot(botId, 'GreenBack Leverage')}
-                    onUpdateBotPnl={updateBotPnl}
-                    suggestedUSDT={suggestedUSDT}
-                    usdtFloat={usdtFloat}
-                    dailyStopLoss={botConfig.dailyStopLoss}
-                    perTradeStopLoss={botConfig.perTradeStopLoss}
-                    amountPerTrade={botConfig.amountPerTrade}
-                    tradeIntervalMs={botConfig.tradeIntervalMs}
-                    autoSpeedAdjust={botConfig.autoSpeedAdjust}
-                    onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
-                    isAnyBotRunning={!!spotBot || !!leverageBot}
-                    onAuditGenerated={(report, charts) => {
-                      setAuditReport(report);
-                      setDashboards(charts);
-                    }}
-                  />
-                </>
-              )}
-            </div>
+            {/* Left Column - Spot and Leverage Bot Cards - wrapped in ErrorBoundary */}
+            <ErrorBoundary
+              fallback={
+                <div className="lg:col-span-5 card-terminal p-4 text-center">
+                  <AlertTriangle className="w-8 h-8 text-destructive mx-auto mb-2" />
+                  <p className="text-sm text-foreground mb-2">Bot cards failed to load</p>
+                  <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+                    Reload Page
+                  </Button>
+                </div>
+              }
+            >
+              <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 auto-rows-min">
+                {loading ? (
+                  <>
+                    <BotCardSkeleton />
+                    <BotCardSkeleton />
+                  </>
+                ) : (
+                  <>
+                    <BotCard
+                      botType="spot"
+                      existingBot={spotBot}
+                      prices={prices}
+                      onStartBot={startBot}
+                      onStopBot={(botId) => handleStopBot(botId, 'GreenBack Spot')}
+                      onUpdateBotPnl={updateBotPnl}
+                      suggestedUSDT={suggestedUSDT}
+                      usdtFloat={usdtFloat}
+                      dailyStopLoss={botConfig.dailyStopLoss}
+                      perTradeStopLoss={botConfig.perTradeStopLoss}
+                      amountPerTrade={botConfig.amountPerTrade}
+                      tradeIntervalMs={botConfig.tradeIntervalMs}
+                      autoSpeedAdjust={botConfig.autoSpeedAdjust}
+                      onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+                      isAnyBotRunning={!!spotBot || !!leverageBot}
+                      onAuditGenerated={(report, charts) => {
+                        setAuditReport(report);
+                        setDashboards(charts);
+                      }}
+                    />
+                    <BotCard
+                      botType="leverage"
+                      existingBot={leverageBot}
+                      prices={prices}
+                      onStartBot={startBot}
+                      onStopBot={(botId) => handleStopBot(botId, 'GreenBack Leverage')}
+                      onUpdateBotPnl={updateBotPnl}
+                      suggestedUSDT={suggestedUSDT}
+                      usdtFloat={usdtFloat}
+                      dailyStopLoss={botConfig.dailyStopLoss}
+                      perTradeStopLoss={botConfig.perTradeStopLoss}
+                      amountPerTrade={botConfig.amountPerTrade}
+                      tradeIntervalMs={botConfig.tradeIntervalMs}
+                      autoSpeedAdjust={botConfig.autoSpeedAdjust}
+                      onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+                      isAnyBotRunning={!!spotBot || !!leverageBot}
+                      onAuditGenerated={(report, charts) => {
+                        setAuditReport(report);
+                        setDashboards(charts);
+                      }}
+                    />
+                  </>
+                )}
+              </div>
+            </ErrorBoundary>
 
             {/* Middle Column - Live P&L Dashboard + Recent Trades */}
             <div className="lg:col-span-4 flex flex-col gap-2">

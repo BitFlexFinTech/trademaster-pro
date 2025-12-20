@@ -250,18 +250,7 @@ export function BotCard({
     leveragesRef.current = leverages;
   }, [leverages]);
 
-  // CRITICAL: Keep pricesRef updated with latest prices to avoid stale closures
-  useEffect(() => {
-    pricesRef.current = prices;
-    // Log price updates to verify WebSocket is feeding fresh data
-    if (isRunning && prices.length > 0) {
-      const btcPrice = prices.find(p => p.symbol === 'BTCUSDT')?.price;
-      const ethPrice = prices.find(p => p.symbol === 'ETHUSDT')?.price;
-      if (import.meta.env.DEV && Math.random() < 0.1) { // Log 10% of updates to avoid spam
-        console.log(`[BotCard] Price update: BTC=$${btcPrice?.toFixed(2)} ETH=$${ethPrice?.toFixed(2)} (${prices.length} pairs)`);
-      }
-    }
-  }, [prices, isRunning]);
+  // NOTE: Removed duplicate pricesRef update - already handled at line 244-246
 
   // Callback for real-time price updates from profitLockStrategy
   const onPriceUpdate = useCallback((data: {
