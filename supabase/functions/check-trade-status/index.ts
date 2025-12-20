@@ -46,6 +46,42 @@ const EXCHANGE_FEES: Record<string, number> = {
 // Lowered from 0.05% to 0.01% for continuous profit-taking
 const DEFAULT_PROFIT_THRESHOLD = 0.0001; // 0.01%
 
+// Stale position threshold - force close after 4 hours
+const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
+
+// ============ EXCHANGE RATE LIMITS - Prevents API Bans ============
+const EXCHANGE_RATE_LIMITS: Record<string, { minDelayMs: number }> = {
+  binance: { minDelayMs: 100 },
+  bybit: { minDelayMs: 200 },
+  okx: { minDelayMs: 500 },
+  kraken: { minDelayMs: 1000 },
+  nexo: { minDelayMs: 500 },
+  kucoin: { minDelayMs: 200 },
+  hyperliquid: { minDelayMs: 100 },
+};
+
+// Track last request time per exchange
+const lastRequestTime: Record<string, number> = {};
+
+// Enforce exchange-specific rate limiting
+async function enforceRateLimit(exchange: string): Promise<void> {
+  const exchangeLower = exchange.toLowerCase();
+  const limits = EXCHANGE_RATE_LIMITS[exchangeLower] || { minDelayMs: 500 };
+  const now = Date.now();
+  const lastRequest = lastRequestTime[exchangeLower] || 0;
+  const timeSinceLastRequest = now - lastRequest;
+  
+  const jitter = Math.random() * 30;
+  const requiredDelay = limits.minDelayMs + jitter;
+  
+  if (timeSinceLastRequest < requiredDelay) {
+    const waitTime = requiredDelay - timeSinceLastRequest;
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  
+  lastRequestTime[exchangeLower] = Date.now();
+}
+
 // Get current price from Binance
 async function getBinancePrice(symbol: string): Promise<number> {
   try {
@@ -469,9 +505,20 @@ serve(async (req) => {
       
       let closedCount = 0;
       let profitsTaken = 0;
+      let stalePositionsClosed = 0;
       const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
+      const now = Date.now();
       
       for (const trade of openTrades) {
+        // ============ STALE POSITION CLEANUP ============
+        // Force-close positions older than 4 hours where OCO may have been cancelled
+        const tradeCreatedAt = new Date(trade.created_at).getTime();
+        const tradeAgeMs = now - tradeCreatedAt;
+        const tradeAgeHours = tradeAgeMs / (60 * 60 * 1000);
+        
+        if (tradeAgeMs > STALE_THRESHOLD_MS) {
+          console.log(`⚠️ STALE POSITION DETECTED: Trade ${trade.id} (${trade.pair}) is ${tradeAgeHours.toFixed(1)} hours old`);
+        }
         // Find the alert with OCO order info for this trade
         const alert = positionAlerts?.find(a => {
           const data = a.data as any;
@@ -511,6 +558,9 @@ serve(async (req) => {
           
           // STEP 1: First check if OCO was already filled
           if (orderListId) {
+            // Enforce rate limiting before API call
+            await enforceRateLimit(exchangeName);
+            
             const ocoStatus = await checkBinanceOCOStatus(apiKey, apiSecret, orderListId);
             console.log(`OCO ${orderListId} for trade ${trade.id}: ${ocoStatus.status}, filled: ${ocoStatus.filledLeg}`);
             
@@ -551,6 +601,124 @@ serve(async (req) => {
               await updateBotRunPnL(supabase, user.id, netPnL);
               continue;
             }
+            
+            // ============ STALE POSITION FORCE-CLOSE ============
+            // If position is older than 4 hours AND OCO is cancelled/expired, force close
+            if (tradeAgeMs > STALE_THRESHOLD_MS && (ocoStatus.status === 'CANCELLED' || ocoStatus.status === 'EXPIRED' || ocoStatus.status === 'REJECTED')) {
+              console.log(`🛑 STALE POSITION: OCO ${orderListId} status is ${ocoStatus.status} - force closing trade ${trade.id}`);
+              
+              // Get balance and force close with market order
+              await enforceRateLimit(exchangeName);
+              const balance = await getBinanceBalance(apiKey, apiSecret, baseAsset);
+              const availableQty = balance.free;
+              
+              if (availableQty > 0) {
+                await enforceRateLimit(exchangeName);
+                const sellQty = availableQty.toFixed(5);
+                const sellResult = await placeBinanceMarketSell(apiKey, apiSecret, tradingSymbol, sellQty);
+                
+                if (sellResult.success) {
+                  const exitPrice = sellResult.avgPrice;
+                  const actualPriceDiff = tradeDirection === 'long'
+                    ? exitPrice - actualEntryPrice
+                    : actualEntryPrice - exitPrice;
+                  
+                  const actualGrossPnL = (actualPriceDiff / actualEntryPrice) * positionSize * leverage;
+                  const actualNetPnL = actualGrossPnL - (positionSize * feeRate * 2);
+                  
+                  console.log(`⏰ STALE POSITION FORCE-CLOSED: Trade ${trade.id} at ${exitPrice}, P&L: $${actualNetPnL.toFixed(2)}`);
+                  
+                  await supabase.from('trades').update({
+                    exit_price: exitPrice,
+                    profit_loss: actualNetPnL,
+                    profit_percentage: (actualNetPnL / positionSize) * 100,
+                    status: 'closed',
+                    closed_at: new Date().toISOString(),
+                  }).eq('id', trade.id);
+                  
+                  await supabase.from('alerts').insert({
+                    user_id: user.id,
+                    title: `⏰ Stale Position Force-Closed: ${trade.pair}`,
+                    message: `Position was open for ${tradeAgeHours.toFixed(1)} hours. Force-closed at ${exitPrice.toFixed(2)} | P&L: $${actualNetPnL.toFixed(2)}`,
+                    alert_type: 'stale_position_closed',
+                    data: { tradeId: trade.id, exitPrice, pnl: actualNetPnL, ageHours: tradeAgeHours, reason: ocoStatus.status }
+                  });
+                  
+                  closedCount++;
+                  stalePositionsClosed++;
+                  if (actualNetPnL > 0) profitsTaken++;
+                  await updateBotRunPnL(supabase, user.id, actualNetPnL);
+                  continue;
+                }
+              } else {
+                // No balance but trade is still open - mark as closed with 0 P&L
+                console.log(`⏰ STALE POSITION: No ${baseAsset} balance, marking trade ${trade.id} as closed`);
+                
+                await supabase.from('trades').update({
+                  status: 'closed',
+                  profit_loss: 0,
+                  closed_at: new Date().toISOString(),
+                }).eq('id', trade.id);
+                
+                await supabase.from('alerts').insert({
+                  user_id: user.id,
+                  title: `⏰ Stale Position Cleaned Up: ${trade.pair}`,
+                  message: `Position was open for ${tradeAgeHours.toFixed(1)} hours with no balance. Marked as closed.`,
+                  alert_type: 'stale_position_closed',
+                  data: { tradeId: trade.id, ageHours: tradeAgeHours, reason: 'no_balance' }
+                });
+                
+                closedCount++;
+                stalePositionsClosed++;
+                continue;
+              }
+            }
+          }
+          
+          // Also check for stale positions without OCO (shouldn't happen but safety net)
+          if (!orderListId && tradeAgeMs > STALE_THRESHOLD_MS) {
+            console.log(`⏰ STALE ORPHAN: Trade ${trade.id} has no OCO and is ${tradeAgeHours.toFixed(1)} hours old`);
+            
+            await enforceRateLimit(exchangeName);
+            const balance = await getBinanceBalance(apiKey, apiSecret, baseAsset);
+            
+            if (balance.free > 0) {
+              await enforceRateLimit(exchangeName);
+              const sellQty = balance.free.toFixed(5);
+              const sellResult = await placeBinanceMarketSell(apiKey, apiSecret, tradingSymbol, sellQty);
+              
+              if (sellResult.success) {
+                const exitPrice = sellResult.avgPrice;
+                const actualPriceDiff = tradeDirection === 'long'
+                  ? exitPrice - actualEntryPrice
+                  : actualEntryPrice - exitPrice;
+                
+                const actualGrossPnL = (actualPriceDiff / actualEntryPrice) * positionSize * leverage;
+                const actualNetPnL = actualGrossPnL - (positionSize * feeRate * 2);
+                
+                await supabase.from('trades').update({
+                  exit_price: exitPrice,
+                  profit_loss: actualNetPnL,
+                  profit_percentage: (actualNetPnL / positionSize) * 100,
+                  status: 'closed',
+                  closed_at: new Date().toISOString(),
+                }).eq('id', trade.id);
+                
+                await supabase.from('alerts').insert({
+                  user_id: user.id,
+                  title: `⏰ Orphan Position Closed: ${trade.pair}`,
+                  message: `Position had no OCO order. Force-closed at ${exitPrice.toFixed(2)} | P&L: $${actualNetPnL.toFixed(2)}`,
+                  alert_type: 'stale_position_closed',
+                  data: { tradeId: trade.id, exitPrice, pnl: actualNetPnL, ageHours: tradeAgeHours, reason: 'no_oco' }
+                });
+                
+                closedCount++;
+                stalePositionsClosed++;
+                if (actualNetPnL > 0) profitsTaken++;
+                await updateBotRunPnL(supabase, user.id, actualNetPnL);
+                continue;
+              }
+            }
           }
           
           // STEP 2: ADAPTIVE PROFIT-TAKING - Check current price and take profit if > fees
@@ -582,6 +750,7 @@ serve(async (req) => {
             console.log(`🎯 PROFIT THRESHOLD MET! Taking profit on trade ${trade.id}: $${netUnrealizedPnL.toFixed(3)}`);
             
             // Get actual balance of the asset
+            await enforceRateLimit(exchangeName);
             const balance = await getBinanceBalance(apiKey, apiSecret, baseAsset);
             const availableQty = balance.free + balance.locked;
             
@@ -592,6 +761,7 @@ serve(async (req) => {
             
             // Cancel the OCO order first (if exists)
             if (orderListId) {
+              await enforceRateLimit(exchangeName);
               const cancelled = await cancelBinanceOCO(apiKey, apiSecret, tradingSymbol, orderListId);
               if (!cancelled) {
                 console.log(`Failed to cancel OCO, trying market sell anyway`);
@@ -602,6 +772,7 @@ serve(async (req) => {
             const sellQty = availableQty.toFixed(5);
             
             // Place market sell order
+            await enforceRateLimit(exchangeName);
             const sellResult = await placeBinanceMarketSell(apiKey, apiSecret, tradingSymbol, sellQty);
             
             if (sellResult.success) {
@@ -661,6 +832,7 @@ serve(async (req) => {
         openPositions: openTrades.length - closedCount,
         closedPositions: closedCount,
         profitsTaken,
+        stalePositionsClosed,
         profitThreshold: minProfitThreshold,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
