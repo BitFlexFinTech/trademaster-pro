@@ -5,7 +5,7 @@ import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useTradingMode, MAX_USDT_ALLOCATION, DEFAULT_BASE_BALANCE } from '@/contexts/TradingModeContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useConnectedExchanges } from '@/hooks/useConnectedExchanges';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAIStrategyMonitor } from '@/hooks/useAIStrategyMonitor';
 import { useRecommendationHistory } from '@/hooks/useRecommendationHistory';
 import { useDailyTargetRecommendation } from '@/hooks/useDailyTargetRecommendation';
