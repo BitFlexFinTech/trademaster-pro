@@ -221,7 +221,7 @@ const MAX_POSITION_SIZE_CAP = 500;     // Cap based on $230 equity * 2
 const DAILY_LOSS_LIMIT = -6.90;        // 3% of $230 = $6.90
 const MAX_SLIPPAGE_PERCENT = 0.15;     // 0.15% max slippage (tighter for micro-scalping)
 const PROFIT_LOCK_TIMEOUT_MS = 30000;  // 30 second timeout
-const LIMIT_ORDER_PROFIT_TARGET = 0.005; // 0.5% profit target (increased for fee coverage)
+const LIMIT_ORDER_PROFIT_TARGET = 0.007; // 0.7% profit target (increased for fee coverage)
 
 // ============ FEE CONSTANTS FOR ACCURATE P&L ============
 const EXCHANGE_FEES: Record<string, number> = {
@@ -234,9 +234,9 @@ const EXCHANGE_FEES: Record<string, number> = {
   hyperliquid: 0.0002, // 0.02%
 };
 
-// Dynamic MIN_NET_PROFIT calculation - 0.3% of position or $0.10 minimum
+// Dynamic MIN_NET_PROFIT calculation - 0.2% of position or $0.05 minimum
 function calculateMinNetProfit(positionSize: number): number {
-  return Math.max(0.10, positionSize * 0.003);
+  return Math.max(0.05, positionSize * 0.002);
 }
 
 // Helper: Calculate position size based on 1% risk
@@ -1044,7 +1044,7 @@ serve(async (req) => {
     }
     
     // Calculate position size - use user-configured value, capped for safety
-    const expectedMove = 0.005; // 0.5% average move
+    const expectedMove = 0.007; // 0.7% average move
     const leverage = mode === 'leverage' ? (leverages?.[connections[0].exchange_name] || 5) : 1;
 
     // Base position size from target and user cap
