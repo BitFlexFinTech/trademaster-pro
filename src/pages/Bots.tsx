@@ -170,6 +170,7 @@ export default function Bots() {
       try {
         const parsed = JSON.parse(saved);
         return {
+          dailyTarget: parsed.dailyTarget ?? 40,
           profitPerTrade: parsed.profitPerTrade ?? 0.50,
           amountPerTrade: parsed.amountPerTrade ?? 100,
           tradeIntervalMs: parsed.tradeIntervalMs ?? 60000, // 60s default
@@ -188,6 +189,7 @@ export default function Bots() {
     }
     // Default values if no saved settings
     return {
+      dailyTarget: 40,
       profitPerTrade: 0.50,
       amountPerTrade: 100,
       tradeIntervalMs: 60000, // 60s default (user requested)
@@ -216,6 +218,78 @@ export default function Bots() {
     KuCoin: 10,
     Hyperliquid: 10,
   };
+
+  // CRITICAL: Sync bot config from database on mount and subscribe to realtime updates
+  useEffect(() => {
+    if (!user) return;
+    
+    // Fetch initial config from database
+    const fetchDbConfig = async () => {
+      const { data, error } = await supabase
+        .from('bot_config')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+      
+      if (data && !error) {
+        console.log('[BOT CONFIG] Loaded from database:', data);
+        setBotConfig(prev => {
+          const newConfig = {
+            ...prev,
+            dailyTarget: data.daily_target ?? prev.dailyTarget,
+            profitPerTrade: data.profit_per_trade ?? prev.profitPerTrade,
+            amountPerTrade: data.amount_per_trade ?? prev.amountPerTrade,
+            tradeIntervalMs: data.trade_interval_ms ?? prev.tradeIntervalMs,
+            perTradeStopLoss: data.per_trade_stop_loss ?? prev.perTradeStopLoss,
+            minProfitThreshold: data.min_profit_threshold ?? prev.minProfitThreshold,
+            focusPairs: data.focus_pairs || prev.focusPairs,
+          };
+          // Also save to localStorage for consistency
+          localStorage.setItem('greenback-bot-settings', JSON.stringify(newConfig));
+          return newConfig;
+        });
+      }
+    };
+    
+    fetchDbConfig();
+    
+    // Subscribe to realtime updates for bot_config changes
+    const channel = supabase
+      .channel('bot-config-sync')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'bot_config',
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        console.log('[BOT CONFIG] Realtime update received:', payload);
+        const newConfig = payload.new as any;
+        if (newConfig) {
+          setBotConfig(prev => {
+            const updatedConfig = {
+              ...prev,
+              dailyTarget: newConfig.daily_target ?? prev.dailyTarget,
+              profitPerTrade: newConfig.profit_per_trade ?? prev.profitPerTrade,
+              amountPerTrade: newConfig.amount_per_trade ?? prev.amountPerTrade,
+              tradeIntervalMs: newConfig.trade_interval_ms ?? prev.tradeIntervalMs,
+              perTradeStopLoss: newConfig.per_trade_stop_loss ?? prev.perTradeStopLoss,
+              minProfitThreshold: newConfig.min_profit_threshold ?? prev.minProfitThreshold,
+              focusPairs: newConfig.focus_pairs || prev.focusPairs,
+            };
+            localStorage.setItem('greenback-bot-settings', JSON.stringify(updatedConfig));
+            return updatedConfig;
+          });
+          toast.success('🎯 Bot config synced from AI recommendation!', {
+            description: `Daily: $${newConfig.daily_target}, Profit: $${newConfig.profit_per_trade?.toFixed(2)}`,
+          });
+        }
+      })
+      .subscribe();
+    
+    return () => { 
+      supabase.removeChannel(channel); 
+    };
+  }, [user]);
 
   // Auto-calculate stop loss when profit per trade changes (80% lower = 20% of profit)
   useEffect(() => {

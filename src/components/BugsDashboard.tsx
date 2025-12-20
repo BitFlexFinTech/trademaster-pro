@@ -8,6 +8,7 @@ import { Bug, Search, Zap, CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useBalanceReconciliation } from '@/hooks/useBalanceReconciliation';
+import { ProfitAuditLogViewer } from '@/components/bugs/ProfitAuditLogViewer';
 
 interface BugEntry {
   id: string;
@@ -579,6 +580,9 @@ export default function BugsDashboard() {
           )}
         </div>
       </ScrollArea>
+
+      {/* Profit Audit Log Viewer */}
+      <ProfitAuditLogViewer />
     </div>
   );
 }

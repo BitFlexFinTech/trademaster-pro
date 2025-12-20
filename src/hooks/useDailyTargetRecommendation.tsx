@@ -17,6 +17,12 @@ interface PerExchangeTarget {
   maxTrades: number;
 }
 
+interface TradeSpeedRecommendation {
+  recommendedIntervalMs: number;
+  limitingExchange: string;
+  speedReasoning: string;
+}
+
 interface DailyTargetRecommendation {
   dailyTarget: number;
   profitPerTrade: number;
@@ -25,12 +31,14 @@ interface DailyTargetRecommendation {
   riskTolerance: string;
   reasoning: string;
   perExchangeTargets: PerExchangeTarget[];
+  tradeSpeed?: TradeSpeedRecommendation;
   metrics: {
     totalCapital: number;
     totalAvailable: number;
     effectiveHitRate: number;
     expectedProfitPerTrade: number;
     maxDrawdown: number;
+    tradesPerHour?: number;
   };
 }
 
@@ -44,6 +52,7 @@ interface UseDailyTargetRecommendationReturn {
     averageProfitPerTrade: number;
     tradingHoursPerDay?: number;
     riskTolerance?: 'conservative' | 'moderate' | 'aggressive';
+    connectedExchanges?: string[];
   }) => Promise<void>;
   applyRecommendation: (onApply?: (target: number, profit: number) => void) => Promise<void>;
 }
@@ -86,6 +95,7 @@ export function useDailyTargetRecommendation(): UseDailyTargetRecommendationRetu
     averageProfitPerTrade: number;
     tradingHoursPerDay?: number;
     riskTolerance?: 'conservative' | 'moderate' | 'aggressive';
+    connectedExchanges?: string[];
   }) => {
     setLoading(true);
     setError(null);
@@ -98,6 +108,7 @@ export function useDailyTargetRecommendation(): UseDailyTargetRecommendationRetu
           averageProfitPerTrade: params.averageProfitPerTrade,
           tradingHoursPerDay: params.tradingHoursPerDay || 8,
           riskTolerance: params.riskTolerance || 'moderate',
+          connectedExchanges: params.connectedExchanges || params.usdtFloat.map(f => f.exchange),
         },
       });
 
@@ -105,8 +116,11 @@ export function useDailyTargetRecommendation(): UseDailyTargetRecommendationRetu
 
       if (data?.success && data.recommendation) {
         setRecommendation(data.recommendation);
+        const speedInfo = data.recommendation.tradeSpeed 
+          ? `, Speed: ${data.recommendation.tradeSpeed.recommendedIntervalMs}ms` 
+          : '';
         toast.success('AI Recommendation Ready', {
-          description: `Suggested target: $${data.recommendation.dailyTarget} (${data.recommendation.confidence}% confidence)`,
+          description: `Target: $${data.recommendation.dailyTarget} (${data.recommendation.confidence}% confidence)${speedInfo}`,
         });
       } else {
         throw new Error(data?.error || 'Failed to get recommendation');
@@ -138,10 +152,13 @@ export function useDailyTargetRecommendation(): UseDailyTargetRecommendationRetu
         ? Math.max(10, Math.min(recommendation.metrics.totalAvailable * 0.1, 5000)) // 10% of available, min $10, max $5000
         : 100;
       
-      const tradesPerDay = recommendation.estimatedTrades || 50;
-      const tradingHoursPerDay = 8;
-      const tradesPerHour = tradesPerDay / tradingHoursPerDay;
-      const intervalMs = Math.max(3000, Math.floor((3600 * 1000) / tradesPerHour)); // At least 3s between trades
+      // Use rate limit-aware trade speed from recommendation if available
+      const intervalMs = recommendation.tradeSpeed?.recommendedIntervalMs || (() => {
+        const tradesPerDay = recommendation.estimatedTrades || 50;
+        const tradingHoursPerDay = 8;
+        const tradesPerHour = tradesPerDay / tradingHoursPerDay;
+        return Math.max(3000, Math.floor((3600 * 1000) / tradesPerHour)); // At least 3s between trades
+      })();
 
       // 1. PERSIST TO DATABASE - This triggers Realtime sync to ALL components
       const { error: upsertError } = await supabase
