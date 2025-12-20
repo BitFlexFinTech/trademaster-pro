@@ -3,12 +3,24 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
-import { TrendingUp, TrendingDown, Clock, Activity, Zap } from 'lucide-react';
+import { TrendingUp, TrendingDown, Clock, Activity, Zap, XCircle, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
-
+import { toast } from 'sonner';
 interface BotTrade {
   id: string;
   pair: string;
@@ -28,7 +40,35 @@ export function RecentBotTrades() {
   const { resetTrigger, mode } = useTradingMode();
   const [trades, setTrades] = useState<BotTrade[]>([]);
   const [loading, setLoading] = useState(true);
+  const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
 
+  const handleForceClose = async (tradeId: string) => {
+    setClosingTradeId(tradeId);
+    try {
+      const { data, error } = await supabase.functions.invoke('check-trade-status', {
+        body: { forceCloseTradeId: tradeId }
+      });
+      
+      if (error) throw error;
+      
+      if (data?.success) {
+        toast.success('Position Closed', {
+          description: `P&L: $${data.netPnL?.toFixed(2) || '0.00'}`,
+        });
+        // Remove from local state
+        setTrades(prev => prev.filter(t => t.id !== tradeId));
+      } else {
+        toast.error('Failed to close position', {
+          description: data?.error || 'Unknown error',
+        });
+      }
+    } catch (err) {
+      console.error('Force close error:', err);
+      toast.error('Failed to close position');
+    } finally {
+      setClosingTradeId(null);
+    }
+  };
   // Calculate summary stats - MUST be before any early returns
   const { totalPnL, tradeCount, avgTimeBetweenTrades, tradesPerMinute, cumulativePnL } = useMemo(() => {
     const total = trades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
@@ -273,13 +313,62 @@ export function RecentBotTrades() {
                   >
                     {trade.direction.toUpperCase()}
                   </Badge>
+                  {trade.status === 'open' && (
+                    <Badge variant="secondary" className="text-[8px] h-4">OPEN</Badge>
+                  )}
                 </div>
-                <span className={cn(
-                  'font-mono font-bold',
-                  (trade.profit_loss || 0) >= 0 ? 'text-primary' : 'text-destructive'
-                )}>
-                  {(trade.profit_loss || 0) >= 0 ? '+' : ''}${(trade.profit_loss || 0).toFixed(2)}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    'font-mono font-bold',
+                    (trade.profit_loss || 0) >= 0 ? 'text-primary' : 'text-destructive'
+                  )}>
+                    {(trade.profit_loss || 0) >= 0 ? '+' : ''}${(trade.profit_loss || 0).toFixed(2)}
+                  </span>
+                  
+                  {/* Close Position Now button for open trades */}
+                  {trade.status === 'open' && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button 
+                          variant="destructive" 
+                          size="sm" 
+                          className="h-5 px-1.5 text-[8px]"
+                          disabled={closingTradeId === trade.id}
+                        >
+                          {closingTradeId === trade.id ? (
+                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                          ) : (
+                            <>
+                              <XCircle className="w-2.5 h-2.5 mr-0.5" />
+                              Close
+                            </>
+                          )}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Force Close Position?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will cancel any pending OCO orders and immediately sell at market price.
+                            <br /><br />
+                            <strong>{trade.pair}</strong> - {trade.direction.toUpperCase()}
+                            <br />
+                            Entry: ${trade.entry_price.toFixed(2)}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction 
+                            onClick={() => handleForceClose(trade.id)}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          >
+                            Confirm Close
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                </div>
               </div>
               
               <div className="grid grid-cols-4 gap-2 text-muted-foreground">

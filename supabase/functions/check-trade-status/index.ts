@@ -82,6 +82,73 @@ async function enforceRateLimit(exchange: string): Promise<void> {
   lastRequestTime[exchangeLower] = Date.now();
 }
 
+// ============ LOT_SIZE ROUNDING ============
+// Fetch Binance LOT_SIZE filter for proper quantity rounding
+async function getBinanceLotSize(symbol: string): Promise<{ stepSize: string; minQty: string; minNotional: number }> {
+  try {
+    const response = await fetch(`https://api.binance.com/api/v3/exchangeInfo?symbol=${symbol}`);
+    if (!response.ok) {
+      console.log(`Failed to get lot size for ${symbol}, using defaults`);
+      return { stepSize: '0.00001', minQty: '0.00001', minNotional: 10 };
+    }
+    const data = await response.json();
+    const lotSizeFilter = data.symbols?.[0]?.filters?.find((f: any) => f.filterType === 'LOT_SIZE');
+    const notionalFilter = data.symbols?.[0]?.filters?.find((f: any) => 
+      f.filterType === 'NOTIONAL' || f.filterType === 'MIN_NOTIONAL'
+    );
+    return {
+      stepSize: lotSizeFilter?.stepSize || '0.00001',
+      minQty: lotSizeFilter?.minQty || '0.00001',
+      minNotional: parseFloat(notionalFilter?.minNotional || '10')
+    };
+  } catch (e) {
+    console.error(`Error fetching lot size for ${symbol}:`, e);
+    return { stepSize: '0.00001', minQty: '0.00001', minNotional: 10 };
+  }
+}
+
+// Round quantity to step size (LOT_SIZE filter compliance)
+function roundToStepSize(quantity: number, stepSize: string): string {
+  const step = parseFloat(stepSize);
+  if (step === 0) return quantity.toString();
+  const precision = Math.max(0, -Math.floor(Math.log10(step)));
+  const rounded = Math.floor(quantity / step) * step;
+  return rounded.toFixed(precision);
+}
+
+// Log to profit_audit_log table
+async function logProfitAudit(
+  supabase: any,
+  entry: {
+    user_id: string;
+    trade_id?: string;
+    action: string;
+    symbol: string;
+    exchange: string;
+    entry_price?: number;
+    current_price?: number;
+    quantity?: number;
+    gross_pnl?: number;
+    fees?: number;
+    net_pnl?: number;
+    lot_size_used?: string;
+    quantity_sent?: string;
+    exchange_response?: any;
+    success: boolean;
+    error_message?: string;
+    credential_found?: boolean;
+    oco_status?: string;
+    balance_available?: number;
+  }
+) {
+  try {
+    await supabase.from('profit_audit_log').insert(entry);
+    console.log(`📝 Audit logged: ${entry.action} ${entry.symbol} success=${entry.success}`);
+  } catch (e) {
+    console.error('Failed to log audit entry:', e);
+  }
+}
+
 // Get current price from Binance
 async function getBinancePrice(symbol: string): Promise<number> {
   try {
@@ -455,12 +522,146 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold } = body;
+    const { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold, forceCloseTradeId, diagnoseTradeId } = body;
 
-    console.log(`Check trade status request:`, { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold });
+    console.log(`Check trade status request:`, { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold, forceCloseTradeId, diagnoseTradeId });
 
     // Get user's profit threshold from bot_config or use default
     const minProfitThreshold = profitThreshold || DEFAULT_PROFIT_THRESHOLD;
+    const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
+
+    // MODE 0a: Force close specific trade
+    if (forceCloseTradeId) {
+      console.log(`Force closing trade ${forceCloseTradeId}`);
+      
+      const { data: trade } = await supabase
+        .from('trades')
+        .select('*')
+        .eq('id', forceCloseTradeId)
+        .eq('user_id', user.id)
+        .eq('status', 'open')
+        .single();
+      
+      if (!trade) {
+        return new Response(JSON.stringify({ success: false, error: 'Trade not found or already closed' }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      const exchangeName = (trade.exchange_name || 'binance').toLowerCase();
+      const { data: connection } = await supabase
+        .from("exchange_connections")
+        .select("*")
+        .eq("user_id", user.id)
+        .ilike("exchange_name", exchangeName)
+        .eq("is_connected", true)
+        .maybeSingle();
+      
+      if (!connection?.encrypted_api_key) {
+        return new Response(JSON.stringify({ success: false, error: 'No exchange credentials' }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      const apiKey = await decryptSecret(connection.encrypted_api_key!, connection.encryption_iv!, encryptionKey);
+      const apiSecret = await decryptSecret(connection.encrypted_api_secret!, connection.encryption_iv!, encryptionKey);
+      const tradingSymbol = trade.pair?.replace('/', '') || 'BTCUSDT';
+      const baseAsset = tradingSymbol.replace('USDT', '');
+      
+      // Get balance and lot size
+      const balance = await getBinanceBalance(apiKey, apiSecret, baseAsset);
+      const lotInfo = await getBinanceLotSize(tradingSymbol);
+      const sellQty = roundToStepSize(balance.free, lotInfo.stepSize);
+      
+      if (parseFloat(sellQty) <= 0) {
+        return new Response(JSON.stringify({ success: false, error: 'No balance to sell' }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      // Market sell
+      const sellResult = await placeBinanceMarketSell(apiKey, apiSecret, tradingSymbol, sellQty);
+      
+      if (sellResult.success) {
+        const feeRate = EXCHANGE_FEES[exchangeName] || 0.001;
+        const priceDiff = trade.direction === 'long' 
+          ? sellResult.avgPrice - trade.entry_price 
+          : trade.entry_price - sellResult.avgPrice;
+        const grossPnL = (priceDiff / trade.entry_price) * trade.amount;
+        const netPnL = grossPnL - (trade.amount * feeRate * 2);
+        
+        await supabase.from('trades').update({
+          exit_price: sellResult.avgPrice,
+          profit_loss: netPnL,
+          status: 'closed',
+          closed_at: new Date().toISOString(),
+        }).eq('id', trade.id);
+        
+        await logProfitAudit(supabase, {
+          user_id: user.id, trade_id: trade.id, action: 'manual_close',
+          symbol: tradingSymbol, exchange: exchangeName,
+          entry_price: trade.entry_price, current_price: sellResult.avgPrice,
+          quantity: balance.free, net_pnl: netPnL, lot_size_used: lotInfo.stepSize,
+          quantity_sent: sellQty, success: true, credential_found: true,
+          balance_available: balance.free
+        });
+        
+        return new Response(JSON.stringify({ success: true, netPnL, exitPrice: sellResult.avgPrice }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      return new Response(JSON.stringify({ success: false, error: 'Market sell failed' }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // MODE 0b: Diagnose specific trade
+    if (diagnoseTradeId) {
+      const { data: trade } = await supabase
+        .from('trades')
+        .select('*')
+        .eq('id', diagnoseTradeId)
+        .eq('user_id', user.id)
+        .single();
+      
+      if (!trade) {
+        return new Response(JSON.stringify({ error: 'Trade not found' }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      const exchangeName = (trade.exchange_name || 'binance').toLowerCase();
+      const { data: connection } = await supabase
+        .from("exchange_connections")
+        .select("*")
+        .eq("user_id", user.id)
+        .ilike("exchange_name", exchangeName)
+        .eq("is_connected", true)
+        .maybeSingle();
+      
+      const tradingSymbol = trade.pair?.replace('/', '') || 'BTCUSDT';
+      const baseAsset = tradingSymbol.replace('USDT', '');
+      let balance = { free: 0, locked: 0 };
+      let currentPrice = 0;
+      
+      if (connection?.encrypted_api_key) {
+        const apiKey = await decryptSecret(connection.encrypted_api_key!, connection.encryption_iv!, encryptionKey);
+        const apiSecret = await decryptSecret(connection.encrypted_api_secret!, connection.encryption_iv!, encryptionKey);
+        balance = await getBinanceBalance(apiKey, apiSecret, baseAsset);
+        currentPrice = await getBinancePrice(tradingSymbol);
+      }
+      
+      const priceDiff = trade.direction === 'long' ? currentPrice - trade.entry_price : trade.entry_price - currentPrice;
+      const unrealizedPnL = currentPrice > 0 ? (priceDiff / trade.entry_price) * trade.amount : null;
+      
+      return new Response(JSON.stringify({
+        tradeId: trade.id, symbol: tradingSymbol,
+        credentialFound: !!connection?.encrypted_api_key,
+        ocoStatus: null, balanceAvailable: balance.free,
+        currentPrice, unrealizedPnL, lastError: null
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // MODE 1: Check all open positions with ADAPTIVE PROFIT-TAKING
     if (checkOpenPositions) {
