@@ -822,6 +822,27 @@ serve(async (req) => {
               if (availableQty > 0) {
                 const lotInfo = await getBinanceLotSize(tradingSymbol);
                 const sellQty = roundToStepSize(availableQty, lotInfo.stepSize);
+                const stalePriceCheck = await getBinancePrice(tradingSymbol);
+                
+                // Log the attempt BEFORE the quantity check
+                await logProfitAudit(supabase, {
+                  user_id: user.id,
+                  trade_id: trade.id,
+                  action: 'stale_close',
+                  symbol: tradingSymbol,
+                  exchange: exchangeName,
+                  entry_price: actualEntryPrice,
+                  current_price: stalePriceCheck,
+                  quantity: availableQty,
+                  lot_size_used: lotInfo.stepSize,
+                  quantity_sent: sellQty,
+                  credential_found: true,
+                  balance_available: availableQty,
+                  success: false,
+                  error_message: parseFloat(sellQty) < parseFloat(lotInfo.minQty) 
+                    ? `Quantity ${sellQty} below minimum ${lotInfo.minQty}` 
+                    : undefined
+                });
                 
                 if (parseFloat(sellQty) < parseFloat(lotInfo.minQty)) {
                   console.log(`⚠️ Stale position quantity ${sellQty} below min ${lotInfo.minQty} - cannot sell`);
@@ -892,6 +913,27 @@ serve(async (req) => {
             if (balance.free > 0) {
               const lotInfo = await getBinanceLotSize(tradingSymbol);
               const sellQty = roundToStepSize(balance.free, lotInfo.stepSize);
+              const orphanPriceCheck = await getBinancePrice(tradingSymbol);
+              
+              // Log the attempt BEFORE the quantity check
+              await logProfitAudit(supabase, {
+                user_id: user.id,
+                trade_id: trade.id,
+                action: 'orphan_close',
+                symbol: tradingSymbol,
+                exchange: exchangeName,
+                entry_price: actualEntryPrice,
+                current_price: orphanPriceCheck,
+                quantity: balance.free,
+                lot_size_used: lotInfo.stepSize,
+                quantity_sent: sellQty,
+                credential_found: true,
+                balance_available: balance.free,
+                success: false,
+                error_message: parseFloat(sellQty) < parseFloat(lotInfo.minQty) 
+                  ? `Quantity ${sellQty} below minimum ${lotInfo.minQty}` 
+                  : undefined
+              });
               
               if (parseFloat(sellQty) < parseFloat(lotInfo.minQty)) {
                 console.log(`⚠️ Orphan position quantity ${sellQty} below min ${lotInfo.minQty} - cannot sell`);
@@ -985,6 +1027,29 @@ serve(async (req) => {
             // Get LOT_SIZE filter and round quantity properly
             const lotInfo = await getBinanceLotSize(tradingSymbol);
             const sellQty = roundToStepSize(availableQty, lotInfo.stepSize);
+            
+            // Log the attempt BEFORE the quantity check
+            await logProfitAudit(supabase, {
+              user_id: user.id,
+              trade_id: trade.id,
+              action: 'profit_take',
+              symbol: tradingSymbol,
+              exchange: exchangeName,
+              entry_price: actualEntryPrice,
+              current_price: currentPrice,
+              quantity: availableQty,
+              gross_pnl: grossUnrealizedPnL,
+              net_pnl: netUnrealizedPnL,
+              lot_size_used: lotInfo.stepSize,
+              quantity_sent: sellQty,
+              credential_found: true,
+              oco_status: orderListId ? 'CANCELLED' : undefined,
+              balance_available: availableQty,
+              success: false,
+              error_message: parseFloat(sellQty) < parseFloat(lotInfo.minQty) 
+                ? `Quantity ${sellQty} below minimum ${lotInfo.minQty}` 
+                : undefined
+            });
             
             if (parseFloat(sellQty) < parseFloat(lotInfo.minQty)) {
               console.log(`⚠️ Profit-take quantity ${sellQty} below min ${lotInfo.minQty} - skipping`);
