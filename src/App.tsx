@@ -19,6 +19,7 @@ import Risk from "./pages/Risk";
 import Sandbox from "./pages/Sandbox";
 import Charts from "./pages/Charts";
 import Bots from "./pages/Bots";
+import BotAnalytics from "./pages/BotAnalytics";
 import Settings from "./pages/Settings";
 import DemoAccount from "./pages/DemoAccount";
 import Terms from "./pages/Terms";
@@ -61,6 +62,7 @@ const App = () => (
                     <Route path="/signals" element={<Signals />} />
                     <Route path="/auto-earn" element={<AutoEarn />} />
                     <Route path="/bots" element={<Bots />} />
+                    <Route path="/bot-analytics" element={<BotAnalytics />} />
                     <Route path="/airdrops" element={<Airdrops />} />
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/risk" element={<Risk />} />

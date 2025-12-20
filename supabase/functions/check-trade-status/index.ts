@@ -522,13 +522,296 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold, forceCloseTradeId, diagnoseTradeId } = body;
+    const { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold, forceCloseTradeId, diagnoseTradeId, cleanupStaleTrades, forceCloseAll } = body;
 
-    console.log(`Check trade status request:`, { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold, forceCloseTradeId, diagnoseTradeId });
+    console.log(`Check trade status request:`, { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold, forceCloseTradeId, diagnoseTradeId, cleanupStaleTrades, forceCloseAll });
 
     // Get user's profit threshold from bot_config or use default
     const minProfitThreshold = profitThreshold || DEFAULT_PROFIT_THRESHOLD;
     const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
+
+    // MODE: Cleanup stale trades (called by cron job - marks zero-balance trades older than 4 hours as closed)
+    if (cleanupStaleTrades) {
+      console.log(`Running stale trade cleanup for all users...`);
+      
+      const fourHoursAgo = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
+      
+      // Get all stale open trades (older than 4 hours)
+      const { data: staleTrades, error: staleError } = await supabase
+        .from('trades')
+        .select('*')
+        .eq('status', 'open')
+        .lt('created_at', fourHoursAgo);
+      
+      if (staleError) {
+        console.error('Failed to fetch stale trades:', staleError);
+        return new Response(JSON.stringify({ error: 'Failed to fetch stale trades' }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      if (!staleTrades || staleTrades.length === 0) {
+        console.log('No stale trades found');
+        return new Response(JSON.stringify({ cleanedCount: 0, message: 'No stale trades' }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      console.log(`Found ${staleTrades.length} stale trades to check`);
+      let cleanedCount = 0;
+      
+      for (const trade of staleTrades) {
+        try {
+          const exchangeName = (trade.exchange_name || 'binance').toLowerCase();
+          const tradingSymbol = trade.pair?.replace('/', '') || 'BTCUSDT';
+          const baseAsset = tradingSymbol.replace('USDT', '');
+          
+          // Get user's exchange credentials
+          const { data: connection } = await supabase
+            .from("exchange_connections")
+            .select("*")
+            .eq("user_id", trade.user_id)
+            .ilike("exchange_name", exchangeName)
+            .eq("is_connected", true)
+            .maybeSingle();
+          
+          if (!connection?.encrypted_api_key) {
+            console.log(`No credentials for trade ${trade.id}, marking as closed`);
+            // No credentials = mark as closed with zero P&L
+            await supabase.from('trades').update({
+              status: 'closed',
+              closed_at: new Date().toISOString(),
+              exit_price: trade.entry_price,
+              profit_loss: 0
+            }).eq('id', trade.id);
+            
+            await logProfitAudit(supabase, {
+              user_id: trade.user_id,
+              trade_id: trade.id,
+              action: 'stale_cleanup',
+              symbol: tradingSymbol,
+              exchange: exchangeName,
+              success: true,
+              error_message: 'No credentials - auto marked closed',
+              credential_found: false
+            });
+            cleanedCount++;
+            continue;
+          }
+          
+          const apiKey = await decryptSecret(connection.encrypted_api_key!, connection.encryption_iv!, encryptionKey);
+          const apiSecret = await decryptSecret(connection.encrypted_api_secret!, connection.encryption_iv!, encryptionKey);
+          
+          // Check if there's actually any balance for this asset
+          await enforceRateLimit(exchangeName);
+          const balance = await getBinanceBalance(apiKey, apiSecret, baseAsset);
+          
+          if (balance.free === 0 && balance.locked === 0) {
+            console.log(`Trade ${trade.id} has zero balance, marking as closed`);
+            
+            // Get current price for audit
+            const currentPrice = await getBinancePrice(tradingSymbol);
+            
+            await supabase.from('trades').update({
+              status: 'closed',
+              closed_at: new Date().toISOString(),
+              exit_price: currentPrice || trade.entry_price,
+              profit_loss: 0
+            }).eq('id', trade.id);
+            
+            await logProfitAudit(supabase, {
+              user_id: trade.user_id,
+              trade_id: trade.id,
+              action: 'stale_cleanup',
+              symbol: tradingSymbol,
+              exchange: exchangeName,
+              entry_price: trade.entry_price,
+              current_price: currentPrice,
+              success: true,
+              error_message: 'Zero balance - auto marked closed',
+              credential_found: true,
+              balance_available: 0
+            });
+            cleanedCount++;
+          } else {
+            console.log(`Trade ${trade.id} still has balance (${balance.free} free, ${balance.locked} locked), skipping`);
+          }
+        } catch (err) {
+          console.error(`Error processing stale trade ${trade.id}:`, err);
+        }
+      }
+      
+      console.log(`Stale trade cleanup complete: ${cleanedCount} trades cleaned`);
+      return new Response(JSON.stringify({ cleanedCount, totalChecked: staleTrades.length }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // MODE: Force close all open positions (manual trigger)
+    if (forceCloseAll) {
+      console.log(`Force closing all open positions for user ${user.id}`);
+      
+      const { data: openTrades, error: tradesError } = await supabase
+        .from('trades')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'open');
+      
+      if (tradesError) {
+        return new Response(JSON.stringify({ error: 'Failed to fetch open trades' }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      if (!openTrades || openTrades.length === 0) {
+        return new Response(JSON.stringify({ closedCount: 0, message: 'No open positions' }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      console.log(`Found ${openTrades.length} open positions to force close`);
+      let closedCount = 0;
+      let totalPnL = 0;
+      const results: any[] = [];
+      
+      for (const trade of openTrades) {
+        try {
+          const exchangeName = (trade.exchange_name || 'binance').toLowerCase();
+          const tradingSymbol = trade.pair?.replace('/', '') || 'BTCUSDT';
+          const baseAsset = tradingSymbol.replace('USDT', '');
+          
+          const { data: connection } = await supabase
+            .from("exchange_connections")
+            .select("*")
+            .eq("user_id", user.id)
+            .ilike("exchange_name", exchangeName)
+            .eq("is_connected", true)
+            .maybeSingle();
+          
+          if (!connection?.encrypted_api_key) {
+            // No credentials - just mark as closed
+            await supabase.from('trades').update({
+              status: 'closed',
+              closed_at: new Date().toISOString(),
+              exit_price: trade.entry_price,
+              profit_loss: 0
+            }).eq('id', trade.id);
+            
+            await logProfitAudit(supabase, {
+              user_id: user.id,
+              trade_id: trade.id,
+              action: 'force_close',
+              symbol: tradingSymbol,
+              exchange: exchangeName,
+              success: true,
+              error_message: 'No credentials - marked closed',
+              credential_found: false
+            });
+            
+            closedCount++;
+            results.push({ tradeId: trade.id, symbol: tradingSymbol, success: true, method: 'no_credentials' });
+            continue;
+          }
+          
+          const apiKey = await decryptSecret(connection.encrypted_api_key!, connection.encryption_iv!, encryptionKey);
+          const apiSecret = await decryptSecret(connection.encrypted_api_secret!, connection.encryption_iv!, encryptionKey);
+          
+          await enforceRateLimit(exchangeName);
+          const balance = await getBinanceBalance(apiKey, apiSecret, baseAsset);
+          
+          if (balance.free <= 0) {
+            // No balance - mark as closed
+            const currentPrice = await getBinancePrice(tradingSymbol);
+            
+            await supabase.from('trades').update({
+              status: 'closed',
+              closed_at: new Date().toISOString(),
+              exit_price: currentPrice || trade.entry_price,
+              profit_loss: 0
+            }).eq('id', trade.id);
+            
+            await logProfitAudit(supabase, {
+              user_id: user.id,
+              trade_id: trade.id,
+              action: 'force_close',
+              symbol: tradingSymbol,
+              exchange: exchangeName,
+              current_price: currentPrice,
+              success: true,
+              error_message: 'Zero balance - marked closed',
+              credential_found: true,
+              balance_available: 0
+            });
+            
+            closedCount++;
+            results.push({ tradeId: trade.id, symbol: tradingSymbol, success: true, method: 'zero_balance' });
+            continue;
+          }
+          
+          // Has balance - attempt market sell
+          const lotInfo = await getBinanceLotSize(tradingSymbol);
+          const sellQty = roundToStepSize(balance.free, lotInfo.stepSize);
+          
+          if (parseFloat(sellQty) <= 0) {
+            results.push({ tradeId: trade.id, symbol: tradingSymbol, success: false, error: 'Quantity too small' });
+            continue;
+          }
+          
+          await enforceRateLimit(exchangeName);
+          const sellResult = await placeBinanceMarketSell(apiKey, apiSecret, tradingSymbol, sellQty);
+          
+          if (sellResult.success) {
+            const feeRate = EXCHANGE_FEES[exchangeName] || 0.001;
+            const priceDiff = trade.direction === 'long' 
+              ? sellResult.avgPrice - trade.entry_price 
+              : trade.entry_price - sellResult.avgPrice;
+            const grossPnL = (priceDiff / trade.entry_price) * trade.amount;
+            const netPnL = grossPnL - (trade.amount * feeRate * 2);
+            
+            await supabase.from('trades').update({
+              exit_price: sellResult.avgPrice,
+              profit_loss: netPnL,
+              status: 'closed',
+              closed_at: new Date().toISOString(),
+            }).eq('id', trade.id);
+            
+            await logProfitAudit(supabase, {
+              user_id: user.id,
+              trade_id: trade.id,
+              action: 'force_close',
+              symbol: tradingSymbol,
+              exchange: exchangeName,
+              entry_price: trade.entry_price,
+              current_price: sellResult.avgPrice,
+              quantity: balance.free,
+              net_pnl: netPnL,
+              lot_size_used: lotInfo.stepSize,
+              quantity_sent: sellQty,
+              success: true,
+              credential_found: true,
+              balance_available: balance.free
+            });
+            
+            closedCount++;
+            totalPnL += netPnL;
+            results.push({ tradeId: trade.id, symbol: tradingSymbol, success: true, netPnL, method: 'market_sell' });
+          } else {
+            results.push({ tradeId: trade.id, symbol: tradingSymbol, success: false, error: 'Market sell failed' });
+          }
+        } catch (err) {
+          console.error(`Error force closing trade ${trade.id}:`, err);
+          results.push({ tradeId: trade.id, success: false, error: String(err) });
+        }
+      }
+      
+      console.log(`Force close complete: ${closedCount}/${openTrades.length} closed, total P&L: $${totalPnL.toFixed(2)}`);
+      return new Response(JSON.stringify({ closedCount, totalPnL, results }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
 
     // MODE 0a: Force close specific trade
     if (forceCloseTradeId) {

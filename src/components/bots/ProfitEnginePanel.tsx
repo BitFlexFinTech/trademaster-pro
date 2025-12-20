@@ -6,6 +6,17 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { 
   CheckCircle, 
   XCircle, 
@@ -18,7 +29,8 @@ import {
   Zap,
   AlertTriangle,
   Play,
-  Loader2
+  Loader2,
+  Trash2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -52,15 +64,21 @@ interface ProfitEngineStatus {
   lastSellAttempt: { time: string; success: boolean; error?: string; pnl?: number } | null;
 }
 
-export function ProfitEnginePanel() {
+interface ProfitEnginePanelProps {
+  defaultCollapsed?: boolean;
+  className?: string;
+}
+
+export function ProfitEnginePanel({ defaultCollapsed = false, className }: ProfitEnginePanelProps) {
   const { user } = useAuth();
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [status, setStatus] = useState<ProfitEngineStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(!defaultCollapsed);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshCountdown, setRefreshCountdown] = useState(30);
   const [triggering, setTriggering] = useState(false);
+  const [forceClosing, setForceClosing] = useState(false);
 
   const fetchAuditLogs = async () => {
     if (!user) return;
@@ -179,6 +197,31 @@ export function ProfitEnginePanel() {
     }
   };
 
+  const handleForceCloseAll = async () => {
+    if (!user) return;
+    setForceClosing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('check-trade-status', {
+        body: { forceCloseAll: true }
+      });
+      if (error) {
+        toast.error('Force close failed: ' + error.message);
+      } else {
+        const closedCount = data?.closedCount || 0;
+        const totalPnL = data?.totalPnL || 0;
+        toast.success(`Force close complete`, {
+          description: `${closedCount} position(s) closed, P&L: $${totalPnL.toFixed(2)}`
+        });
+        await fetchAuditLogs();
+        setRefreshCountdown(30);
+      }
+    } catch (e: any) {
+      toast.error('Failed to force close: ' + (e.message || 'Unknown error'));
+    } finally {
+      setForceClosing(false);
+    }
+  };
+
   const getActionBadge = (action: string) => {
     switch (action) {
       case 'profit_take':
@@ -213,7 +256,7 @@ export function ProfitEnginePanel() {
   }
 
   return (
-    <Card className="bg-card border-border">
+    <Card className={cn("bg-card border-border", className)}>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <CollapsibleTrigger asChild>
           <CardHeader className="pb-2 cursor-pointer hover:bg-secondary/30 transition-colors">
@@ -240,6 +283,38 @@ export function ProfitEnginePanel() {
                   )}
                   Check Now
                 </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-6 text-[10px] px-2"
+                      onClick={(e) => e.stopPropagation()}
+                      disabled={forceClosing}
+                    >
+                      {forceClosing ? (
+                        <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                      ) : (
+                        <Trash2 className="w-3 h-3 mr-1" />
+                      )}
+                      Force Close
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Force Close All Positions?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will attempt to market sell all open positions and clean up stale trades in the database. Any remaining balances will be sold at market price.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleForceCloseAll} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                        Yes, Force Close All
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
                 <div className="flex items-center gap-1">
                   <Button
                     variant="ghost"
