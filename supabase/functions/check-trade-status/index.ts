@@ -42,8 +42,9 @@ const EXCHANGE_FEES: Record<string, number> = {
   hyperliquid: 0.0002,
 };
 
-// Default profit threshold above fees (0.05% = covers fees + small profit)
-const DEFAULT_PROFIT_THRESHOLD = 0.0005;
+// Default profit threshold - take profit as soon as fees are covered with ANY profit
+// Lowered from 0.05% to 0.01% for continuous profit-taking
+const DEFAULT_PROFIT_THRESHOLD = 0.0001; // 0.01%
 
 // Get current price from Binance
 async function getBinancePrice(symbol: string): Promise<number> {
@@ -572,9 +573,10 @@ serve(async (req) => {
           
           console.log(`Trade ${trade.id} (${tradingSymbol}): Entry ${actualEntryPrice}, Current ${currentPrice}, Unrealized: $${netUnrealizedPnL.toFixed(3)} (${(unrealizedPnLPercent * 100).toFixed(3)}%)`);
           
-          // Check if profit exceeds threshold (fees + minimum profit margin)
-          const minProfitAmount = positionSize * minProfitThreshold;
-          const shouldTakeProfit = netUnrealizedPnL > minProfitAmount && netUnrealizedPnL > 0.01; // At least $0.01 profit
+          // CONTINUOUS PROFIT-TAKING: Take profit as soon as fees are covered
+          // Exit when: net P&L > $0.01 (absolute minimum after fees)
+          // This ensures we NEVER wait for a fixed TP - we take any profit available
+          const shouldTakeProfit = netUnrealizedPnL > 0.01; // Just $0.01 net profit after fees
           
           if (shouldTakeProfit) {
             console.log(`🎯 PROFIT THRESHOLD MET! Taking profit on trade ${trade.id}: $${netUnrealizedPnL.toFixed(3)}`);

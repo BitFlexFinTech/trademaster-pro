@@ -11,10 +11,11 @@ import { useRecommendationHistory } from '@/hooks/useRecommendationHistory';
 import { useDailyTargetRecommendation } from '@/hooks/useDailyTargetRecommendation';
 import { useEmergencyKillSwitch } from '@/hooks/useEmergencyKillSwitch';
 import { useMLConfidence } from '@/hooks/useMLConfidence';
+import { useOpenPositionMonitor } from '@/hooks/useOpenPositionMonitor';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff, Download, Power, Lock, Unlock, Edit2, Brain, Sparkles, Target, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
+import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff, Download, Power, Lock, Unlock, Edit2, Brain, Sparkles, Target, TrendingUp, ChevronDown, ChevronUp, Zap } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn, exportToCSV } from '@/lib/utils';
@@ -341,6 +342,64 @@ export default function Bots() {
     fetchLatestPrediction,
     recordPredictionOutcome,
   } = useMLConfidence();
+
+  // Open Position Monitor for sync button
+  const { syncNow, isChecking: isSyncingPositions } = useOpenPositionMonitor({ enabled: false }); // Disabled here since MainLayout handles it
+  const [openPositionCount, setOpenPositionCount] = useState(0);
+  const [syncingNow, setSyncingNow] = useState(false);
+
+  // Fetch open position count
+  useEffect(() => {
+    const fetchOpenPositionCount = async () => {
+      if (!user) return;
+      const { count } = await supabase
+        .from('trades')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('status', 'open');
+      setOpenPositionCount(count || 0);
+    };
+    
+    fetchOpenPositionCount();
+    const interval = setInterval(fetchOpenPositionCount, 5000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // Handle sync now button
+  const handleSyncPositions = async () => {
+    setSyncingNow(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('check-trade-status', {
+        body: { checkOpenPositions: true, profitThreshold: 0.0001 }
+      });
+      
+      if (error) throw error;
+      
+      const closed = data?.closedPositions || 0;
+      const profits = data?.profitsTaken || 0;
+      
+      if (closed > 0) {
+        toast.success(`${closed} Position(s) Synced`, {
+          description: `${profits} profit(s) taken`,
+        });
+        triggerSync();
+        refetch();
+      } else if (data?.openPositions === 0) {
+        toast.info('No open positions');
+      } else {
+        toast.info(`${data?.openPositions} position(s) still open`, {
+          description: 'Waiting for profit threshold',
+        });
+      }
+      
+      setOpenPositionCount(data?.openPositions || 0);
+    } catch (err) {
+      console.error('Sync error:', err);
+      toast.error('Failed to sync positions');
+    } finally {
+      setSyncingNow(false);
+    }
+  };
 
   // REMOVED: Auto-apply useEffects that were overwriting user settings
   // User must manually click "Apply" button to accept AI recommendations
@@ -823,6 +882,38 @@ export default function Bots() {
               )}
               KILL SWITCH
             </Button>
+          )}
+          {/* Sync Positions Button - Shows open position count */}
+          {tradingMode === 'live' && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant={openPositionCount > 0 ? 'default' : 'outline'}
+                    className={cn(
+                      "h-6 text-xs gap-1 hidden md:flex",
+                      openPositionCount > 0 && "bg-primary hover:bg-primary/90"
+                    )}
+                    onClick={handleSyncPositions}
+                    disabled={syncingNow}
+                  >
+                    {syncingNow ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Zap className="w-3 h-3" />
+                    )}
+                    Sync{openPositionCount > 0 && ` (${openPositionCount})`}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Check open positions and take profits</p>
+                  {openPositionCount > 0 && (
+                    <p className="text-xs text-muted-foreground">{openPositionCount} open position(s)</p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
           {/* Close All Positions - Live Mode Only */}
           {tradingMode === 'live' && !spotBot && !leverageBot && (

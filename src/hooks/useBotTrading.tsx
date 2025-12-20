@@ -229,8 +229,8 @@ export function useBotTrading({
       }
     };
 
-    // Poll every 10 seconds for OCO order fills
-    const pollInterval = setInterval(pollOpenPositions, 10000);
+    // Poll every 3 seconds for OCO order fills - CRITICAL for continuous profit-taking
+    const pollInterval = setInterval(pollOpenPositions, 3000);
     
     // Initial poll
     pollOpenPositions();
