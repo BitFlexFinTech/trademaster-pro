@@ -28,6 +28,7 @@ interface BotsMobileDrawerProps {
   autoSpeedAdjust?: boolean;
   onConfigChange?: (key: string, value: number) => void;
   onAuditGenerated?: (report: any, charts: any) => void;
+  refetch?: () => Promise<void>;
 }
 
 export function BotsMobileDrawer({
@@ -48,6 +49,7 @@ export function BotsMobileDrawer({
   autoSpeedAdjust = true,
   onConfigChange,
   onAuditGenerated,
+  refetch,
 }: BotsMobileDrawerProps) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('bots');
@@ -103,6 +105,7 @@ export function BotsMobileDrawer({
                 onConfigChange={onConfigChange}
                 isAnyBotRunning={!!spotBot || !!leverageBot}
                 onAuditGenerated={onAuditGenerated}
+                refetch={refetch}
               />
               <BotCard
                 botType="leverage"
@@ -121,6 +124,7 @@ export function BotsMobileDrawer({
                 onConfigChange={onConfigChange}
                 isAnyBotRunning={!!spotBot || !!leverageBot}
                 onAuditGenerated={onAuditGenerated}
+                refetch={refetch}
               />
             </TabsContent>
 
