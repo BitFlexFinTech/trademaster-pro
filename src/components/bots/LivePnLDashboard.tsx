@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PnLTicker } from '@/components/bots/PnLTicker';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -78,23 +79,13 @@ export function LivePnLDashboard({ className }: LivePnLDashboardProps) {
       </CardHeader>
 
       <CardContent className="space-y-4 flex-1 overflow-y-auto">
-        {/* Main P&L Display */}
+        {/* Main P&L Display with Animated Ticker */}
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-muted-foreground">Current P&L</p>
             <div className="flex items-center gap-2">
-              <span className={cn(
-                "text-4xl font-bold tabular-nums transition-colors",
-                isProfitable ? "text-green-500" : "text-red-500"
-              )}>
-                {isProfitable ? '+' : ''}{currentPnL.toFixed(2)}
-              </span>
+              <PnLTicker value={currentPnL} size="lg" showChange />
               <span className="text-xl text-muted-foreground">USDT</span>
-              {isProfitable ? (
-                <TrendingUp className="h-6 w-6 text-green-500" />
-              ) : (
-                <TrendingDown className="h-6 w-6 text-red-500" />
-              )}
             </div>
           </div>
 
