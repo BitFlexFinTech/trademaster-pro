@@ -289,19 +289,24 @@ const GREENBACK_CONFIG = {
   risk_per_trade_pct: 0.01,        // 1% = $2.30 max loss
   max_daily_loss_pct: 0.03,        // 3% = $6.90
   leverage_cap: 3,
-  instruments_whitelist: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'],
+  instruments_whitelist: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT', 'DOGE/USDT', 'ADA/USDT', 'AVAX/USDT', 'MATIC/USDT'],
   spread_threshold_bps: 1,         // 0.01% max spread
   slippage_block_pct: 0.40,        // Block if slippage > 40% of target
   sl_distance_pct: { min: 0.20, max: 0.30 },
+  max_consecutive_losses: 8,       // Increased from 5 to allow more attempts before blocking
 };
 
-// Fallback pairs order - primary pairs first, then fallbacks
+// Fallback pairs order - expanded list with more fallback options
 const FALLBACK_PAIRS_ORDER = [
   'BTC/USDT',   // Primary - highest liquidity
   'ETH/USDT',   // Primary - second highest liquidity  
   'SOL/USDT',   // Fallback 1 - high liquidity
   'BNB/USDT',   // Fallback 2 - Binance native
   'XRP/USDT',   // Fallback 3 - good liquidity
+  'DOGE/USDT',  // Fallback 4 - high volume meme
+  'ADA/USDT',   // Fallback 5 - Cardano
+  'AVAX/USDT',  // Fallback 6 - Avalanche
+  'MATIC/USDT', // Fallback 7 - Polygon
 ];
 
 // Instrument whitelist (highest liquidity only for GREENBACK)
@@ -532,7 +537,7 @@ async function findUnblockedPair(
   userId: string,
   isSandbox: boolean,
   pairsToTry: string[],
-  maxConsecutiveLosses: number = 5
+  maxConsecutiveLosses: number = GREENBACK_CONFIG.max_consecutive_losses || 8
 ): Promise<{ pair: string | null; skippedPairs: Array<{ pair: string; losses: number }> }> {
   const skippedPairs: Array<{ pair: string; losses: number }> = [];
   
