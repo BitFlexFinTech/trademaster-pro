@@ -6,6 +6,7 @@ import { AiSummaryCard } from '@/components/dashboard/AiSummaryCard';
 import { VideoHighlights } from '@/components/dashboard/VideoHighlights';
 import { GreenBackWidget } from '@/components/dashboard/GreenBackWidget';
 import { NewsSidebar } from '@/components/dashboard/NewsSidebar';
+import { JarvisEngineDashboard } from '@/components/dashboard/JarvisEngineDashboard';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useNotifications } from '@/hooks/useNotifications';
 
@@ -23,6 +24,11 @@ export default function Dashboard() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      {/* JARVIS Engine Dashboard */}
+      <div className="flex-shrink-0 mb-3">
+        <JarvisEngineDashboard />
+      </div>
+
       {/* Top Row - Stats Cards - All same height */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 flex-shrink-0 mb-3">
         <div className="lg:col-span-2 h-[140px] overflow-hidden">

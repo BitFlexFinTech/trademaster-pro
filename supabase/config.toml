@@ -1,5 +1,8 @@
 project_id = "rkqeowpkwbbkqsadbxth"
 
+[functions.binance-futures-positions]
+verify_jwt = true
+
 [functions.auto-apply-config]
 verify_jwt = false
 

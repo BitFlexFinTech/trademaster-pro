@@ -165,7 +165,7 @@ export function useJarvisSentinels(): UseJarvisSentinelsReturn {
     }, 1000);
     
     return () => clearInterval(interval);
-  }, [settings, rateState.cooldownEndsAt, rateState.isInCooldown, notifySentinelAlert]);
+  }, [settings, rateState.cooldownEndsAt, rateState.isInCooldown, notify, playTargetSound]);
 
   // Liquidation sentinel monitoring
   useEffect(() => {
