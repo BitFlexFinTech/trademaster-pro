@@ -1088,8 +1088,8 @@ serve(async (req) => {
                 closedCount++;
                 if (netPnL > 0) profitsTaken++;
                 
-                // Update bot run P&L
-                await updateBotRunPnL(supabase, user.id, netPnL);
+                // Update bot run P&L - use trade's bot_run_id for accurate linking
+                await updateBotRunPnL(supabase, user.id, netPnL, trade.bot_run_id);
                 continue;
               } else {
                 // OCO ALL_DONE but no leg filled - check if balance is zero (position closed elsewhere)
@@ -1211,19 +1211,20 @@ serve(async (req) => {
                     closed_at: new Date().toISOString(),
                   }).eq('id', trade.id);
                   
-                  await supabase.from('alerts').insert({
-                    user_id: user.id,
-                    title: `⏰ Stale Position Force-Closed: ${trade.pair}`,
-                    message: `Position was open for ${tradeAgeHours.toFixed(1)} hours. Force-closed at ${exitPrice.toFixed(2)} | P&L: $${actualNetPnL.toFixed(2)}`,
-                    alert_type: 'stale_position_closed',
-                    data: { tradeId: trade.id, exitPrice, pnl: actualNetPnL, ageHours: tradeAgeHours, reason: ocoStatus.status }
-                  });
-                  
-                  closedCount++;
-                  stalePositionsClosed++;
-                  if (actualNetPnL > 0) profitsTaken++;
-                  await updateBotRunPnL(supabase, user.id, actualNetPnL);
-                  continue;
+                await supabase.from('alerts').insert({
+                  user_id: user.id,
+                  title: `⏰ Stale Position Force-Closed: ${trade.pair}`,
+                  message: `Position was open for ${tradeAgeHours.toFixed(1)} hours. Force-closed at ${exitPrice.toFixed(2)} | P&L: $${actualNetPnL.toFixed(2)}`,
+                  alert_type: 'stale_position_closed',
+                  data: { tradeId: trade.id, exitPrice, pnl: actualNetPnL, ageHours: tradeAgeHours, reason: ocoStatus.status }
+                });
+                
+                closedCount++;
+                stalePositionsClosed++;
+                if (actualNetPnL > 0) profitsTaken++;
+                // FIXED: Use trade's bot_run_id for accurate P&L tracking
+                await updateBotRunPnL(supabase, user.id, actualNetPnL, trade.bot_run_id);
+                continue;
                 }
               } else {
                 // No balance: do NOT auto-close at $0.00 (this causes false “profit taken”/closure).
@@ -1311,7 +1312,8 @@ serve(async (req) => {
                 closedCount++;
                 stalePositionsClosed++;
                 if (actualNetPnL > 0) profitsTaken++;
-                await updateBotRunPnL(supabase, user.id, actualNetPnL);
+                // FIXED: Use trade's bot_run_id for accurate P&L tracking
+                await updateBotRunPnL(supabase, user.id, actualNetPnL, trade.bot_run_id);
                 continue;
               }
             }
@@ -1540,8 +1542,8 @@ serve(async (req) => {
               closedCount++;
               profitsTaken++;
               
-              // Update bot run P&L
-              await updateBotRunPnL(supabase, user.id, actualNetPnL);
+              // Update bot run P&L - use trade's bot_run_id for accurate linking
+              await updateBotRunPnL(supabase, user.id, actualNetPnL, trade.bot_run_id);
             } else {
               console.error(`Failed to execute market sell for trade ${trade.id}`);
               
@@ -1712,27 +1714,52 @@ serve(async (req) => {
 });
 
 // Helper function to update bot run P&L
-async function updateBotRunPnL(supabase: any, userId: string, pnl: number) {
-  const { data: botRun } = await supabase
-    .from('bot_runs')
-    .select('id, current_pnl, hit_rate, trades_executed')
-    .eq('user_id', userId)
-    .eq('status', 'running')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+// FIXED: Now takes optional botRunId to update the SPECIFIC bot run linked to the trade
+// Falls back to finding the most recent running bot if no botRunId provided
+async function updateBotRunPnL(supabase: any, userId: string, pnl: number, botRunId?: string) {
+  let botRun;
+  
+  if (botRunId) {
+    // Direct lookup by bot_run_id (preferred - accurate)
+    const { data } = await supabase
+      .from('bot_runs')
+      .select('id, current_pnl, hit_rate, trades_executed')
+      .eq('id', botRunId)
+      .maybeSingle();
+    botRun = data;
+    console.log(`[updateBotRunPnL] Direct lookup: bot_run_id=${botRunId}, found=${!!botRun}`);
+  }
+  
+  // Fallback: find most recent running bot for this user
+  if (!botRun) {
+    const { data } = await supabase
+      .from('bot_runs')
+      .select('id, current_pnl, hit_rate, trades_executed')
+      .eq('user_id', userId)
+      .eq('status', 'running')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    botRun = data;
+    console.log(`[updateBotRunPnL] Fallback lookup: user_id=${userId}, found=${!!botRun}`);
+  }
   
   if (botRun) {
     const newPnl = (botRun.current_pnl || 0) + pnl;
     const currentWins = Math.round(((botRun.hit_rate || 0) / 100) * (botRun.trades_executed || 0));
     const newWins = currentWins + (pnl > 0 ? 1 : 0);
     const newTotalTrades = (botRun.trades_executed || 0) + 1;
-    const newHitRate = (newWins / newTotalTrades) * 100;
+    const newHitRate = newTotalTrades > 0 ? (newWins / newTotalTrades) * 100 : 0;
+    
+    console.log(`[updateBotRunPnL] Updating bot ${botRun.id}: pnl ${botRun.current_pnl} -> ${newPnl}, trades ${botRun.trades_executed} -> ${newTotalTrades}`);
     
     await supabase.from('bot_runs').update({
       current_pnl: newPnl,
       hit_rate: newHitRate,
       trades_executed: newTotalTrades,
+      updated_at: new Date().toISOString(),
     }).eq('id', botRun.id);
+  } else {
+    console.warn(`[updateBotRunPnL] No bot run found for user ${userId} (botRunId=${botRunId})`);
   }
 }

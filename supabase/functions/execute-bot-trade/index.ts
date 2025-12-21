@@ -1816,8 +1816,12 @@ serve(async (req) => {
           const exitSide = direction === 'long' ? 'SELL' : 'BUY';
           
           // Calculate Take Profit and Stop Loss prices
-          const TP_PERCENT = 0.005;  // 0.5% take profit
-          const SL_PERCENT = 0.002;  // 0.2% stop loss (tighter for better R:R)
+          // WIDENED MARGINS: Account for ~0.2% round-trip fees
+          // TP: 0.8% gross = ~0.6% net profit after fees
+          // SL: 0.5% gross = ~0.3% net loss after fees  
+          // This gives ~2:1 reward-to-risk ratio after fees
+          const TP_PERCENT = 0.008;  // 0.8% take profit (was 0.5%)
+          const SL_PERCENT = 0.005;  // 0.5% stop loss (was 0.2%)
           
           const takeProfitPrice = direction === 'long'
             ? tradeResult.entryPrice * (1 + TP_PERCENT)
