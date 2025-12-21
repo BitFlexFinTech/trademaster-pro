@@ -1194,6 +1194,47 @@ export default function Bots() {
             />
           )}
 
+          {/* Low Balance Warning Banner - Critical Alert */}
+          {tradingMode === 'live' && exchangeBalances && exchangeBalances.map((balanceInfo) => {
+            const minRequired = 5; // $5 minimum for any trade
+            const actualBalance = balanceInfo.usdtBalance || 0;
+            const isLowBalance = actualBalance > 0 && actualBalance < minRequired;
+            
+            if (!isLowBalance) return null;
+            
+            return (
+              <div key={`low-balance-${balanceInfo.exchange}`} className="bg-destructive/10 border border-destructive/40 rounded-lg p-3 mb-3">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5 animate-pulse" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-destructive">
+                      Insufficient Balance on {balanceInfo.exchange}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Current: <span className="font-mono font-medium text-destructive">${actualBalance.toFixed(2)}</span> USDT | 
+                      Minimum Required: <span className="font-mono font-medium">${minRequired}</span> USDT
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Deposit at least <span className="font-medium text-foreground">${(minRequired - actualBalance).toFixed(2)}</span> more USDT to resume trading.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-destructive/50 text-destructive hover:bg-destructive/10"
+                    onClick={() => {
+                      fetchExchangeBalances();
+                      toast.info('Refreshing balance...');
+                    }}
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1" />
+                    Refresh
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+
           {/* Portfolio Value by Exchange - Collapsible */}
           <Collapsible open={usdtFloatOpen} onOpenChange={setUsdtFloatOpen} className="card-terminal p-3 mb-3">
             <CollapsibleTrigger asChild>

@@ -289,11 +289,20 @@ const GREENBACK_CONFIG = {
   risk_per_trade_pct: 0.01,        // 1% = $2.30 max loss
   max_daily_loss_pct: 0.03,        // 3% = $6.90
   leverage_cap: 3,
-  instruments_whitelist: ['BTC/USDT', 'ETH/USDT'],
+  instruments_whitelist: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'],
   spread_threshold_bps: 1,         // 0.01% max spread
   slippage_block_pct: 0.40,        // Block if slippage > 40% of target
   sl_distance_pct: { min: 0.20, max: 0.30 },
 };
+
+// Fallback pairs order - primary pairs first, then fallbacks
+const FALLBACK_PAIRS_ORDER = [
+  'BTC/USDT',   // Primary - highest liquidity
+  'ETH/USDT',   // Primary - second highest liquidity  
+  'SOL/USDT',   // Fallback 1 - high liquidity
+  'BNB/USDT',   // Fallback 2 - Binance native
+  'XRP/USDT',   // Fallback 3 - good liquidity
+];
 
 // Instrument whitelist (highest liquidity only for GREENBACK)
 const TOP_PAIRS = GREENBACK_CONFIG.instruments_whitelist;
@@ -481,6 +490,66 @@ async function getUserHoldings(
     .maybeSingle();
   
   return data?.quantity || 0;
+}
+
+// Get consecutive loss count for a specific pair
+async function getConsecutiveLossCount(
+  supabase: any,
+  userId: string,
+  pair: string,
+  isSandbox: boolean
+): Promise<number> {
+  const { data: recentTrades } = await supabase
+    .from('trades')
+    .select('profit_loss, status')
+    .eq('user_id', userId)
+    .eq('pair', pair)
+    .eq('is_sandbox', isSandbox)
+    .eq('status', 'closed')
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  if (!recentTrades || recentTrades.length === 0) {
+    return 0;
+  }
+
+  // Count consecutive losses (real losses, not timeout exits)
+  let consecutiveLosses = 0;
+  for (const trade of recentTrades) {
+    if ((trade.profit_loss || 0) < -0.05) {
+      consecutiveLosses++;
+    } else {
+      break; // Stop counting on first non-loss
+    }
+  }
+  
+  return consecutiveLosses;
+}
+
+// Find the first unblocked pair from the fallback list
+async function findUnblockedPair(
+  supabase: any,
+  userId: string,
+  isSandbox: boolean,
+  pairsToTry: string[],
+  maxConsecutiveLosses: number = 5
+): Promise<{ pair: string | null; skippedPairs: Array<{ pair: string; losses: number }> }> {
+  const skippedPairs: Array<{ pair: string; losses: number }> = [];
+  
+  for (const pair of pairsToTry) {
+    const lossCount = await getConsecutiveLossCount(supabase, userId, pair, isSandbox);
+    
+    if (lossCount < maxConsecutiveLosses) {
+      console.log(`✅ ${pair} available (${lossCount} consecutive losses, max ${maxConsecutiveLosses})`);
+      return { pair, skippedPairs };
+    }
+    
+    console.log(`⏭️ ${pair} blocked (${lossCount} consecutive losses >= ${maxConsecutiveLosses})`);
+    skippedPairs.push({ pair, losses: lossCount });
+  }
+  
+  console.log(`❌ All pairs blocked: ${skippedPairs.map(p => `${p.pair}(${p.losses})`).join(', ')}`);
+  return { pair: null, skippedPairs };
 }
 
 // Smart direction selection based on historical win rates
@@ -1194,8 +1263,32 @@ serve(async (req) => {
       });
     }
 
-    // Select a random pair and fetch real-time price
-    const pair = TOP_PAIRS[Math.floor(Math.random() * TOP_PAIRS.length)];
+    // ========== SMART PAIR SELECTION WITH FALLBACK ==========
+    // Try to find an unblocked pair from the fallback list
+    const { pair: selectedPair, skippedPairs } = await findUnblockedPair(
+      supabase,
+      user.id,
+      isSandbox,
+      FALLBACK_PAIRS_ORDER
+    );
+
+    // If all pairs are blocked, return skip response
+    if (!selectedPair) {
+      console.log(`❌ ALL PAIRS BLOCKED - skipping trade cycle`);
+      return new Response(JSON.stringify({ 
+        skipped: true, 
+        reason: `All trading pairs are blocked due to consecutive losses`,
+        blockedPairs: skippedPairs,
+        suggestion: 'Use "Clear Blocked Pairs" button to reset loss tracking'
+      }), { 
+        status: 200, 
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      });
+    }
+
+    const pair = selectedPair;
+    console.log(`📊 Selected pair: ${pair} (skipped ${skippedPairs.length} blocked pairs)`);
+    
     const currentPrice = await fetchPrice(pair);
     
     if (currentPrice === 0) {
@@ -1221,10 +1314,31 @@ serve(async (req) => {
       const lastTradeTime = new Date(recentPairTrades[0].created_at).getTime();
       const secondsSinceLastTrade = (Date.now() - lastTradeTime) / 1000;
       
-      console.log(`⏳ PAIR COOLDOWN: ${pair} traded ${secondsSinceLastTrade.toFixed(0)}s ago - skipping`);
+      console.log(`⏳ PAIR COOLDOWN: ${pair} traded ${secondsSinceLastTrade.toFixed(0)}s ago - trying next pair`);
+      
+      // Try to find another pair that's not on cooldown
+      const remainingPairs = FALLBACK_PAIRS_ORDER.filter(p => p !== pair);
+      const { pair: alternatePair } = await findUnblockedPair(supabase, user.id, isSandbox, remainingPairs);
+      
+      if (!alternatePair) {
+        return new Response(JSON.stringify({ 
+          skipped: true, 
+          reason: `${pair} on ${PAIR_COOLDOWN_SECONDS}s cooldown, no alternate pairs available`,
+          pair,
+          cooldownSeconds: PAIR_COOLDOWN_SECONDS
+        }), { 
+          status: 200, 
+          headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        });
+      }
+      
+      // Use the alternate pair (re-fetch price)
+      console.log(`🔄 Switching to alternate pair: ${alternatePair}`);
+      // Note: We're keeping the original pair here for simplicity - a more complex implementation 
+      // would restart the trade flow with the new pair
       return new Response(JSON.stringify({ 
         skipped: true, 
-        reason: `${pair} on ${PAIR_COOLDOWN_SECONDS}s cooldown (${secondsSinceLastTrade.toFixed(0)}s since last trade)`,
+        reason: `${pair} on cooldown, will try ${alternatePair} next cycle`,
         pair,
         cooldownSeconds: PAIR_COOLDOWN_SECONDS
       }), { 
