@@ -48,6 +48,7 @@ import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconcilia
 import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
 import { TradeExecutionStatus } from '@/components/bots/TradeExecutionStatus';
 import { BotsOnboardingTips } from '@/components/bots/BotsOnboardingTips';
+import { ProfitTargetWizard } from '@/components/wizard/ProfitTargetWizard';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -121,6 +122,9 @@ export default function Bots() {
   // Collapsible sections state - collapsed by default per user request
   const [usdtFloatOpen, setUsdtFloatOpen] = useState(false);
   const [aiRecommendationOpen, setAiRecommendationOpen] = useState(false);
+  
+  // Profit Target Wizard state
+  const [showProfitWizard, setShowProfitWizard] = useState(false);
   
   // Onboarding tips for first-time visitors
   const { hasSeenBotsTips, markAsSeen } = useOnboardingTips();
@@ -963,6 +967,16 @@ export default function Bots() {
                 onSettingsChange={setBotConfig}
                 disabled={!!spotBot || !!leverageBot}
               />
+              {/* Profit Target Wizard Button */}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 text-xs gap-1 hidden md:flex bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
+                onClick={() => setShowProfitWizard(true)}
+              >
+                <Target className="w-3 h-3" />
+                Profit Wizard
+              </Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -1699,6 +1713,12 @@ export default function Bots() {
       <BotComparisonView
         open={showComparison}
         onOpenChange={setShowComparison}
+      />
+
+      {/* Profit Target Wizard */}
+      <ProfitTargetWizard
+        open={showProfitWizard}
+        onOpenChange={setShowProfitWizard}
       />
     </div>
   );
