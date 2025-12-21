@@ -369,9 +369,25 @@ export function useBotTrading({
         } else {
           // ============ PROFIT-FOCUSED MODE WITH REAL PRICE MONITORING ============
           
-          // Determine direction based on price momentum
+          // BALANCED DIRECTION LOGIC: Use neutral zone + technical signals
           const priceChange = (currentPrice - lastPrice) / lastPrice;
-          direction = priceChange >= 0 ? 'long' : 'short';
+          const neutralZone = 0.0001; // 0.01% neutral zone
+          
+          if (Math.abs(priceChange) < neutralZone) {
+            // Neutral zone - alternate between long/short for balance
+            // Use trade count to alternate: even = long, odd = short
+            const tradeCount = metricsRef.current.tradesExecuted;
+            direction = tradeCount % 2 === 0 ? 'long' : 'short';
+          } else if (priceChange >= 0.0002) {
+            // Strong upward momentum - go long
+            direction = 'long';
+          } else if (priceChange <= -0.0001) {
+            // Downward momentum (lower threshold for shorts) - go short
+            direction = 'short';
+          } else {
+            // Slight upward - still long but consider RSI if available
+            direction = 'long';
+          }
 
           if (tradingMode === 'demo') {
             // ===== PHASE 1: DEMO MODE - REAL PRICE MONITORING =====
@@ -409,8 +425,27 @@ export function useBotTrading({
             exitReason = monitorResult.exitReason;
             holdTimeMs = monitorResult.holdTimeMs;
 
+            // CRITICAL FIX: Validate exit price is not equal to entry (prevents $0 profit)
+            if (exitPrice === currentPrice && exitReason === 'TIME_EXIT') {
+              // Get fresh price from prices array to ensure we have actual market price
+              const freshPrice = pricesRef.current.find(p => p.symbol.toUpperCase() === symbol)?.price;
+              if (freshPrice && freshPrice !== currentPrice) {
+                exitPrice = freshPrice;
+                console.log(`🔄 Exit price updated to fresh market price: $${exitPrice.toFixed(4)}`);
+              }
+            }
+
             // Calculate actual P&L based on real price movement
             tradePnl = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange) * leverage;
+            
+            // VALIDATION: If P&L is exactly $0, something is wrong - recalculate
+            if (tradePnl === 0 && exitPrice !== currentPrice) {
+              const priceDiff = direction === 'long' 
+                ? (exitPrice - currentPrice) / currentPrice 
+                : (currentPrice - exitPrice) / currentPrice;
+              tradePnl = priceDiff * positionSize * leverage;
+              console.log(`⚠️ Recalculated P&L from price diff: $${tradePnl.toFixed(4)}`);
+            }
             
             // Record in profit lock strategy for hit rate tracking
             profitLockStrategy.recordTrade(isWin, tradePnl);
@@ -419,7 +454,7 @@ export function useBotTrading({
             avgHoldTimeRef.current.push(holdTimeMs);
             if (avgHoldTimeRef.current.length > 50) avgHoldTimeRef.current.shift();
 
-            console.log(`📈 Trade Result: ${exitReason} | Win: ${isWin} | P&L: $${tradePnl.toFixed(2)} | Hold: ${(holdTimeMs/1000).toFixed(1)}s`);
+            console.log(`📈 Trade Result: ${exitReason} | Dir: ${direction} | Win: ${isWin} | P&L: $${tradePnl.toFixed(2)} | Hold: ${(holdTimeMs/1000).toFixed(1)}s`);
 
           } else {
             // ===== PHASE 2: LIVE MODE - REAL TRADE WITH POLLING =====

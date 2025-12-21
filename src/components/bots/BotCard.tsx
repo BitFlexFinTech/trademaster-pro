@@ -395,12 +395,26 @@ export function BotCard({
               
               metricsRef.current = { currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate, winsCount: wins };
               
-              // FIXED: Use async/await with proper error handling
+              // FIXED: Use async/await with proper error handling + broadcast for cross-component sync
               (async () => {
                 try {
                   const result = await onUpdateBotPnl(botId, newPnl, newTrades, newHitRate);
                   const success = result && typeof result === 'object' && 'success' in result ? result.success : true;
                   setLastTradeInfo(prev => prev ? { ...prev, syncStatus: success ? 'synced' : 'failed' } : null);
+                  
+                  // BROADCAST: Emit trade event for cross-component sync
+                  await supabase.channel('bot-trades-broadcast').send({
+                    type: 'broadcast',
+                    event: 'trade_completed',
+                    payload: { 
+                      botId, 
+                      pnl: newTrade.profit_loss, 
+                      totalPnl: newPnl,
+                      trades: newTrades,
+                      hitRate: newHitRate,
+                      timestamp: Date.now(),
+                    },
+                  });
                   
                   if (!success) {
                     console.warn('[WebSocket] DB sync failed, result:', result);
@@ -1620,23 +1634,23 @@ export function BotCard({
 
   return (
     <div className="card-terminal p-3 flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Zap className="w-5 h-5 text-primary" />
-            {isRunning && <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full animate-pulse" />}
+      {/* Header - Fixed overflow with flex-wrap and truncate */}
+      <div className="flex items-start justify-between gap-2 mb-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="relative shrink-0">
+            <Zap className="w-4 h-4 text-primary" />
+            {isRunning && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />}
           </div>
-          <div>
-            <h3 className="font-semibold text-foreground flex items-center gap-2">
-              {botName}
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-foreground text-sm flex items-center gap-1.5 flex-wrap">
+              <span className="truncate">{botName}</span>
               {isRunning && activeExchange && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger>
-                      <Badge variant="outline" className="text-[9px] flex items-center gap-1 animate-pulse">
+                      <Badge variant="outline" className="text-[8px] flex items-center gap-0.5 animate-pulse shrink-0">
                         <span className="w-1 h-1 bg-primary rounded-full" />
-                        {activeExchange}
+                        <span className="truncate max-w-[50px]">{activeExchange}</span>
                       </Badge>
                     </TooltipTrigger>
                     <TooltipContent>Trading on {activeExchange}</TooltipContent>
@@ -1644,13 +1658,14 @@ export function BotCard({
                 </TooltipProvider>
               )}
             </h3>
-            <p className="text-[10px] text-muted-foreground">
-              {botType === 'spot' ? 'Spot Trading Only' : 'Leverage Trading (1-25x)'}
+            <p className="text-[9px] text-muted-foreground truncate">
+              {botType === 'spot' ? 'Spot Trading' : 'Leverage (1-25x)'}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Connection Health Indicator */}
+        {/* Right side buttons - shrink-0 to prevent squishing */}
+        <div className="flex items-center gap-1 shrink-0 flex-wrap">
+          {/* Connection Health Indicator - compact */}
           {tradingMode === 'live' && (
             <TooltipProvider>
               <Tooltip>
@@ -1658,49 +1673,51 @@ export function BotCard({
                   <Badge 
                     variant={connectionHealth === 'connected' ? 'outline' : 'destructive'} 
                     className={cn(
-                      "text-[9px] flex items-center gap-1",
+                      "text-[8px] px-1.5 py-0 h-4 flex items-center gap-0.5",
                       connectionHealth === 'reconnecting' && "animate-pulse"
                     )}
                   >
                     <span className={cn(
-                      "w-1.5 h-1.5 rounded-full",
+                      "w-1 h-1 rounded-full shrink-0",
                       connectionHealth === 'connected' && "bg-primary",
                       connectionHealth === 'disconnected' && "bg-destructive",
                       connectionHealth === 'reconnecting' && "bg-yellow-500"
                     )} />
-                    {connectionHealth === 'connected' && 'Online'}
-                    {connectionHealth === 'disconnected' && 'Offline'}
-                    {connectionHealth === 'reconnecting' && 'Reconnecting'}
+                    <span className="hidden sm:inline">
+                      {connectionHealth === 'connected' && 'On'}
+                      {connectionHealth === 'disconnected' && 'Off'}
+                      {connectionHealth === 'reconnecting' && '...'}
+                    </span>
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>
                   {connectionHealth === 'connected' && 'Connected to exchange APIs'}
-                  {connectionHealth === 'disconnected' && 'Network connection lost - trades may be delayed'}
-                  {connectionHealth === 'reconnecting' && 'Attempting to reconnect...'}
+                  {connectionHealth === 'disconnected' && 'Network connection lost'}
+                  {connectionHealth === 'reconnecting' && 'Reconnecting...'}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           )}
-          {/* Pending Trades Indicator */}
+          {/* Pending Trades - compact */}
           {pendingTrades.length > 0 && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger>
-                  <Badge variant="outline" className="text-[9px] flex items-center gap-1">
-                    <Clock className="w-3 h-3 animate-pulse" />
-                    {pendingTrades.length} pending
+                  <Badge variant="outline" className="text-[8px] px-1.5 py-0 h-4 flex items-center gap-0.5">
+                    <Clock className="w-2.5 h-2.5 animate-pulse shrink-0" />
+                    {pendingTrades.length}
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {pendingTrades.length} order{pendingTrades.length > 1 ? 's' : ''} awaiting fill
+                  {pendingTrades.length} order{pendingTrades.length > 1 ? 's' : ''} pending
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           )}
-          <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[10px]">
-            {isRunning ? 'Running' : 'Stopped'}
+          <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[8px] px-1.5 py-0 h-4 shrink-0">
+            {isRunning ? 'Run' : 'Stop'}
           </Badge>
-          {/* Quick Settings Toggle */}
+          {/* Quick Settings Toggle - compact */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1715,17 +1732,17 @@ export function BotCard({
                     }
                   }}
                   disabled={isRunning}
-                  className={cn("h-6 w-6 p-0", isRunning && "opacity-50")}
+                  className={cn("h-5 w-5 p-0 shrink-0", isRunning && "opacity-50")}
                 >
-                  <SlidersHorizontal className="w-3 h-3" />
+                  <SlidersHorizontal className="w-2.5 h-2.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {isRunning ? 'Stop bot to adjust settings' : 'Quick adjust targets'}
+                {isRunning ? 'Stop to adjust' : 'Quick settings'}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          {/* Sound Toggle */}
+          {/* Sound Toggle - compact */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1733,13 +1750,13 @@ export function BotCard({
                   variant="ghost"
                   size="sm"
                   onClick={toggleSound}
-                  className="h-6 w-6 p-0"
+                  className="h-5 w-5 p-0 shrink-0"
                 >
-                  {soundEnabled ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3 text-muted-foreground" />}
+                  {soundEnabled ? <Volume2 className="w-2.5 h-2.5" /> : <VolumeX className="w-2.5 h-2.5 text-muted-foreground" />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {soundEnabled ? 'Sound On - Click to mute' : 'Sound Off - Click to enable'}
+                {soundEnabled ? 'Sound On' : 'Sound Off'}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
