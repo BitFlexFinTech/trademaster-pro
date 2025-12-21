@@ -46,7 +46,7 @@ import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
 import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
 import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummaryCard';
-import { RegimePerformanceChart } from '@/components/bots/RegimePerformanceChart';
+
 import { useRegimeTransitionNotifier } from '@/hooks/useRegimeTransitionNotifier';
 import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
 import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
@@ -1709,9 +1709,6 @@ export default function Bots() {
 
               {/* Regime History Summary Card */}
               <RegimeHistorySummaryCard />
-
-              {/* Regime Performance Chart - P&L Trends per Regime */}
-              <RegimePerformanceChart />
 
               {/* Profit Withdrawal History Chart */}
               <ProfitWithdrawalChart className="max-h-[400px] overflow-y-auto" />

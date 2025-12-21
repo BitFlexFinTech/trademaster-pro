@@ -16,6 +16,9 @@ import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
 import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
 import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { JarvisPerformanceAnalytics } from '@/components/bots/JarvisPerformanceAnalytics';
+import { RegimePerformanceChart } from '@/components/bots/RegimePerformanceChart';
+import { RegimeTransitionHistoryTable } from '@/components/bots/RegimeTransitionHistoryTable';
+import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -208,7 +211,21 @@ export default function BotAnalytics() {
           </TabsContent>
 
           <TabsContent value="regime" className="m-0 space-y-4">
-            <JarvisPerformanceAnalytics />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <JarvisPerformanceAnalytics />
+              <RegimePerformanceChart />
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <RegimeTransitionHistoryTable />
+              <div className="card-terminal p-3 max-h-[400px] overflow-y-auto">
+                <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
+                  Recent Trades
+                </h3>
+                <RecentBotTrades />
+              </div>
+            </div>
+            
             <RegimeTransitionChart timeframeDays={7} />
           </TabsContent>
 
