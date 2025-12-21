@@ -45,6 +45,7 @@ import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
 import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
 import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
 import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
+import { TradeExecutionStatus } from '@/components/bots/TradeExecutionStatus';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -1438,12 +1439,52 @@ export default function Bots() {
           <AIRecommendationsPanel
             botConfig={botConfig}
             onApplyField={(field, value) => {
-              setBotConfig(prev => ({ ...prev, [field]: value }));
+              // FIXED: Sync all fields properly including dailyTarget, profitPerTrade, stopLoss
+              setBotConfig(prev => {
+                const updatedConfig = { ...prev };
+                switch (field) {
+                  case 'dailyTarget':
+                    updatedConfig.dailyTarget = value;
+                    break;
+                  case 'profitPerTrade':
+                    updatedConfig.profitPerTrade = value;
+                    break;
+                  case 'amountPerTrade':
+                    updatedConfig.amountPerTrade = value;
+                    break;
+                  case 'tradeIntervalMs':
+                    updatedConfig.tradeIntervalMs = value;
+                    break;
+                  case 'dailyStopLoss':
+                    updatedConfig.dailyStopLoss = value;
+                    break;
+                  case 'perTradeStopLoss':
+                    updatedConfig.perTradeStopLoss = value;
+                    break;
+                  case 'minProfitThreshold':
+                    updatedConfig.minProfitThreshold = value;
+                    break;
+                  case 'focusPairs':
+                    updatedConfig.focusPairs = value;
+                    break;
+                  default:
+                    (updatedConfig as any)[field] = value;
+                }
+                // Persist to localStorage
+                localStorage.setItem('greenback-bot-settings', JSON.stringify(updatedConfig));
+                return updatedConfig;
+              });
             }}
             onApplyAll={() => {
               // Refetch config from DB since applyRecommendation will have updated it
               refetch();
             }}
+            className="mb-2"
+          />
+
+          {/* Trade Execution Status Panel - Shows blocked/cooldown/active pairs */}
+          <TradeExecutionStatus 
+            isRunning={!!spotBot || !!leverageBot}
             className="mb-2"
           />
 
@@ -1505,6 +1546,9 @@ export default function Bots() {
                         setAuditReport(report);
                         setDashboards(charts);
                       }}
+                      configDailyTarget={botConfig.dailyTarget}
+                      configProfitPerTrade={botConfig.profitPerTrade}
+                      configMinProfitThreshold={botConfig.minProfitThreshold}
                     />
                     <BotCard
                       botType="leverage"
@@ -1526,6 +1570,9 @@ export default function Bots() {
                         setAuditReport(report);
                         setDashboards(charts);
                       }}
+                      configDailyTarget={botConfig.dailyTarget}
+                      configProfitPerTrade={botConfig.profitPerTrade}
+                      configMinProfitThreshold={botConfig.minProfitThreshold}
                     />
                   </>
                 )}

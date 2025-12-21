@@ -52,6 +52,10 @@ interface BotCardProps {
   onConfigChange?: (key: string, value: number) => void;
   isAnyBotRunning?: boolean;
   onAuditGenerated?: (report: AuditReport, dashboards: DashboardCharts) => void;
+  // NEW: Props for syncing config from parent
+  configDailyTarget?: number;
+  configProfitPerTrade?: number;
+  configMinProfitThreshold?: number;
 }
 
 export function BotCard({
@@ -71,6 +75,10 @@ export function BotCard({
   onConfigChange,
   isAnyBotRunning = false,
   onAuditGenerated,
+  // NEW: Config sync props
+  configDailyTarget,
+  configProfitPerTrade,
+  configMinProfitThreshold,
 }: BotCardProps) {
   const { user } = useAuth();
   // Use separate triggers: resetTrigger for full reset, dailyResetTrigger for 24h P&L reset, syncTrigger for data sync
@@ -96,6 +104,7 @@ export function BotCard({
   const [profitPerTrade, setProfitPerTrade] = useState(Math.max(existingBot?.profitPerTrade || 0.50, MIN_NET_PROFIT));
   const [localAmountPerTrade, setLocalAmountPerTrade] = useState(amountPerTrade);
   const [localTradeIntervalMs, setLocalTradeIntervalMs] = useState(tradeIntervalMs);
+  const [minEdgeRequired, setMinEdgeRequired] = useState(0.3); // 0.3% minimum edge above fees
 
   // CRITICAL FIX: Sync local state when parent props change (from realtime updates)
   useEffect(() => {
@@ -110,8 +119,32 @@ export function BotCard({
       setLocalTradeIntervalMs(tradeIntervalMs);
     }
   }, [tradeIntervalMs, isRunning]);
-  const [minEdgeRequired, setMinEdgeRequired] = useState(0.3); // 0.3% minimum edge above fees
-  
+
+  // NEW: Sync dailyTarget from parent config when it changes
+  useEffect(() => {
+    if (!isRunning && configDailyTarget !== undefined && configDailyTarget !== dailyTarget) {
+      setDailyTarget(configDailyTarget);
+    }
+  }, [configDailyTarget, isRunning]);
+
+  // NEW: Sync profitPerTrade from parent config when it changes
+  useEffect(() => {
+    if (!isRunning && configProfitPerTrade !== undefined && configProfitPerTrade !== profitPerTrade) {
+      setProfitPerTrade(Math.max(configProfitPerTrade, MIN_NET_PROFIT));
+    }
+  }, [configProfitPerTrade, isRunning]);
+
+  // NEW: Sync minEdgeRequired from parent config when it changes
+  useEffect(() => {
+    if (!isRunning && configMinProfitThreshold !== undefined) {
+      // Convert from decimal to percentage (0.003 -> 0.3)
+      const edgePercent = configMinProfitThreshold * 100;
+      if (edgePercent !== minEdgeRequired) {
+        setMinEdgeRequired(edgePercent);
+      }
+    }
+  }, [configMinProfitThreshold, isRunning]);
+
   const [leverages, setLeverages] = useState<Record<string, number>>({
     Binance: 5, OKX: 5, Bybit: 5, Kraken: 2, Nexo: 2,
   });
