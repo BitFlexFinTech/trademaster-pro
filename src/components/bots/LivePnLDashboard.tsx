@@ -59,7 +59,7 @@ export function LivePnLDashboard({ className }: LivePnLDashboardProps) {
   const targetReached = currentPnL >= dailyTarget;
 
   return (
-    <Card className={cn("bg-card border-border overflow-hidden", className)}>
+    <Card className={cn("bg-card border-border overflow-hidden flex flex-col", className)}>
       {/* Animated gradient border for target reached */}
       {targetReached && (
         <div className="absolute inset-0 bg-gradient-to-r from-green-500/20 via-emerald-500/20 to-green-500/20 animate-pulse pointer-events-none" />
@@ -77,7 +77,7 @@ export function LivePnLDashboard({ className }: LivePnLDashboardProps) {
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 flex-1 overflow-y-auto">
         {/* Main P&L Display */}
         <div className="flex items-center justify-between">
           <div>

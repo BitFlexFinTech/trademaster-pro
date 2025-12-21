@@ -61,7 +61,8 @@ const DEFAULT_FEE_RATE = 0.001;          // Default 0.1% fee rate per side
 const DEFAULT_MIN_NET_PROFIT = 0.25;     // Default $0.25 minimum NET profit after fees (lowered for faster locks)
 const MAX_EXTENDED_HOLD_MULTIPLIER = 3;  // Hold up to 3x max time (90s total) then force exit with VALID price
 const SUPER_SCALP_MIN_HOLD_MS = 200;    // Minimum 200ms before super-scalp exit - FAST SCALPING
-const ABSOLUTE_MAX_HOLD_MS = 120000;    // 120s absolute max - MUST exit with actual current price
+const ABSOLUTE_MAX_HOLD_MS = 90000;     // 90s absolute max - Exit with fresh price to prevent $0 profit
+const FORCE_EXIT_PRICE_SPREAD = 0.0001; // 0.01% minimum spread for force exits
 
 /**
  * Calculate minimum GROSS profit needed to achieve target NET profit after fees

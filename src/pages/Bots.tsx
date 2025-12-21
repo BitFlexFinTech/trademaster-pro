@@ -934,7 +934,7 @@ export default function Bots() {
   };
 
   return (
-    <div className="h-full flex flex-col min-h-0">
+    <div className="h-[calc(100vh-64px)] flex flex-col overflow-hidden">
       {/* Emergency Kill Banner - Sticky at top */}
       <EmergencyKillBanner
         currentPnL={currentPnL}
@@ -1644,9 +1644,9 @@ export default function Bots() {
             </ErrorBoundary>
 
             {/* Middle Column - Live P&L Dashboard + Recent Trades */}
-            <div className="lg:col-span-4 flex flex-col gap-2">
+            <div className="lg:col-span-4 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
               {/* Live P&L Dashboard */}
-              <LivePnLDashboard />
+              <LivePnLDashboard className="max-h-[350px] overflow-y-auto" />
 
               {/* Link to full analytics page */}
               <Button asChild variant="outline" className="h-8 gap-2">
@@ -1669,9 +1669,9 @@ export default function Bots() {
             </div>
 
             {/* Right Column - Profit History + Bot History */}
-            <div className="lg:col-span-3 flex flex-col gap-2">
+            <div className="lg:col-span-3 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
               {/* Profit Withdrawal History Chart */}
-              <ProfitWithdrawalChart />
+              <ProfitWithdrawalChart className="max-h-[400px] overflow-y-auto" />
 
               {/* Bot History */}
               <div className="card-terminal p-3 flex flex-col flex-1 min-h-[200px]">
