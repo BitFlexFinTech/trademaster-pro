@@ -70,24 +70,49 @@ export function usePositionAutoScaling({
   const consecutiveWins = stats.consecutiveWins;
   const consecutiveLosses = stats.consecutiveLosses;
 
-  // Calculate regime confidence based on deviation from EMA
+  // Calculate regime confidence based on deviation from EMA (1% = 100%)
   const regimeConfidence = useMemo(() => {
     if (!regime || !mergedConfig.enableRegimeScaling) return 0;
-    // 1% deviation = 100% confidence, 0.5% = 50%
     return Math.min(1, Math.abs(deviation) / 1.0);
   }, [deviation, regime, mergedConfig.enableRegimeScaling]);
 
-  // Calculate regime multiplier
+  // Calculate regime multiplier with PROGRESSIVE CONFIDENCE-BASED SCALING
+  // Instead of binary threshold, the multiplier scales proportionally with confidence
   const regimeMultiplier = useMemo(() => {
     if (!regime || !mergedConfig.enableRegimeScaling) return 1.0;
-    if (regimeConfidence < (mergedConfig.regimeConfidenceThreshold ?? 0.5)) return 1.0;
+    
+    // Minimum threshold - below 30% confidence, no scaling
+    const minConfidenceThreshold = 0.3;
+    if (regimeConfidence < minConfidenceThreshold) return 1.0;
 
+    // Get base target multiplier for this regime
+    let baseMultiplier: number;
     switch (regime) {
-      case 'BULL': return mergedConfig.bullMultiplier ?? 1.2;
-      case 'BEAR': return mergedConfig.bearMultiplier ?? 1.0;
-      case 'CHOP': return mergedConfig.chopMultiplier ?? 0.8;
-      default: return 1.0;
+      case 'BULL': 
+        baseMultiplier = mergedConfig.bullMultiplier ?? 1.2; // Larger in bullish trends
+        break;
+      case 'BEAR': 
+        baseMultiplier = mergedConfig.bearMultiplier ?? 1.0; // Neutral in bearish
+        break;
+      case 'CHOP': 
+        baseMultiplier = mergedConfig.chopMultiplier ?? 0.8; // Smaller in choppy markets
+        break;
+      default: 
+        return 1.0;
     }
+
+    // PROGRESSIVE SCALING: Scale multiplier proportionally with confidence
+    // At 30% confidence → minimal scaling (50% of the way to base)
+    // At 70% confidence → strong scaling (90% of the way to base)
+    // At 100% confidence → full base multiplier
+    const confidenceScale = (regimeConfidence - minConfidenceThreshold) / (1 - minConfidenceThreshold);
+    
+    // Smooth interpolation from 1.0 to baseMultiplier based on confidence
+    const progressiveMultiplier = 1.0 + (baseMultiplier - 1.0) * confidenceScale;
+    
+    console.log(`📊 Progressive scaling: ${regime} @ ${(regimeConfidence * 100).toFixed(0)}% confidence → ${progressiveMultiplier.toFixed(3)}x multiplier`);
+    
+    return progressiveMultiplier;
   }, [regime, regimeConfidence, mergedConfig]);
 
   // Recalculate streak multiplier when streaks change
@@ -215,13 +240,21 @@ export function calculateScaledPositionSize(
     reason = `Caution mode (${consecutiveLosses} losses)`;
   }
 
-  // Regime-based adjustment
+  // Regime-based adjustment with progressive scaling
   if (regime && deviation !== undefined) {
     const regimeConfidence = Math.min(1, Math.abs(deviation) / 1.0);
-    if (regimeConfidence >= 0.5) {
-      const regimeMult = regime === 'BULL' ? 1.2 : regime === 'CHOP' ? 0.8 : 1.0;
-      multiplier *= regimeMult;
-      reason += ` × ${regime} regime`;
+    const minConfidenceThreshold = 0.3;
+    
+    if (regimeConfidence >= minConfidenceThreshold) {
+      // Get base multiplier for regime
+      const baseRegimeMult = regime === 'BULL' ? 1.2 : regime === 'CHOP' ? 0.8 : 1.0;
+      
+      // Progressive scaling based on confidence
+      const confidenceScale = (regimeConfidence - minConfidenceThreshold) / (1 - minConfidenceThreshold);
+      const progressiveRegimeMult = 1.0 + (baseRegimeMult - 1.0) * confidenceScale;
+      
+      multiplier *= progressiveRegimeMult;
+      reason += ` × ${regime} (${(regimeConfidence * 100).toFixed(0)}% conf)`;
     }
   }
 
