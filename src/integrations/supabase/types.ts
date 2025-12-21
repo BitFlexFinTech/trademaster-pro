@@ -853,6 +853,7 @@ export type Database = {
       trades: {
         Row: {
           amount: number
+          bot_run_id: string | null
           closed_at: string | null
           created_at: string
           direction: string
@@ -870,6 +871,7 @@ export type Database = {
         }
         Insert: {
           amount: number
+          bot_run_id?: string | null
           closed_at?: string | null
           created_at?: string
           direction: string
@@ -887,6 +889,7 @@ export type Database = {
         }
         Update: {
           amount?: number
+          bot_run_id?: string | null
           closed_at?: string | null
           created_at?: string
           direction?: string
@@ -902,7 +905,15 @@ export type Database = {
           status?: string | null
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "trades_bot_run_id_fkey"
+            columns: ["bot_run_id"]
+            isOneToOne: false
+            referencedRelation: "bot_runs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       usage_limits: {
         Row: {

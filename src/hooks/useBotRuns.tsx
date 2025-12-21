@@ -300,7 +300,7 @@ export function useBotRuns() {
   const recalculateBotPnl = async (botId: string): Promise<{ success: boolean; newPnl: number; tradeCount: number }> => {
     if (!user) return { success: false, newPnl: 0, tradeCount: 0 };
     
-    // Get bot's start time
+    // Get bot's start time and sandbox status
     const { data: bot } = await supabase
       .from('bot_runs')
       .select('started_at, is_sandbox')
@@ -311,14 +311,34 @@ export function useBotRuns() {
       return { success: false, newPnl: 0, tradeCount: 0 };
     }
     
-    // Query all trades since bot started
-    const { data: trades, error } = await supabase
+    // Query trades by bot_run_id first (accurate), fallback to date-based query for older trades
+    let trades;
+    let error;
+    
+    // Try bot_run_id filter first (new trades with proper linking)
+    const { data: linkedTrades, error: linkedError } = await supabase
       .from('trades')
       .select('profit_loss')
-      .eq('user_id', user.id)
-      .eq('is_sandbox', bot.is_sandbox ?? false)
-      .gte('created_at', bot.started_at)
+      .eq('bot_run_id', botId)
       .not('profit_loss', 'is', null);
+    
+    if (!linkedError && linkedTrades && linkedTrades.length > 0) {
+      trades = linkedTrades;
+      console.log(`[recalculateBotPnl] Using bot_run_id filter: ${linkedTrades.length} trades`);
+    } else {
+      // Fallback to date-based query for older trades without bot_run_id
+      const { data: dateTrades, error: dateError } = await supabase
+        .from('trades')
+        .select('profit_loss')
+        .eq('user_id', user.id)
+        .eq('is_sandbox', bot.is_sandbox ?? false)
+        .gte('created_at', bot.started_at)
+        .not('profit_loss', 'is', null);
+      
+      trades = dateTrades;
+      error = dateError;
+      console.log(`[recalculateBotPnl] Using date-based fallback: ${dateTrades?.length || 0} trades`);
+    }
       
     if (error) {
       console.error('[recalculateBotPnl] ❌ Error fetching trades:', error);
