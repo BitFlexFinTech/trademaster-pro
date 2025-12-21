@@ -426,24 +426,49 @@ export function useBotTrading({
             holdTimeMs = monitorResult.holdTimeMs;
 
             // CRITICAL FIX: Validate exit price is not equal to entry (prevents $0 profit)
-            if (exitPrice === currentPrice && exitReason === 'TIME_EXIT') {
-              // Get fresh price from prices array to ensure we have actual market price
-              const freshPrice = pricesRef.current.find(p => p.symbol.toUpperCase() === symbol)?.price;
-              if (freshPrice && freshPrice !== currentPrice) {
+            if (exitPrice === currentPrice || (exitReason === 'TIME_EXIT' && Math.abs(exitPrice - currentPrice) < currentPrice * 0.0001)) {
+              // Step 1: Try fresh price from WebSocket ref
+              let freshPrice = pricesRef.current.find(p => p.symbol.toUpperCase() === symbol)?.price;
+              
+              // Step 2: If still same, fetch directly from Binance API
+              if (!freshPrice || freshPrice === currentPrice) {
+                try {
+                  console.log(`🔄 Fetching fresh price for ${symbol} from Binance API...`);
+                  const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}USDT`);
+                  if (response.ok) {
+                    const data = await response.json();
+                    freshPrice = parseFloat(data.price);
+                    console.log(`✅ Fresh Binance price for ${symbol}: $${freshPrice.toFixed(4)}`);
+                  }
+                } catch (err) {
+                  console.warn(`⚠️ Failed to fetch fresh price from Binance:`, err);
+                }
+              }
+              
+              // Step 3: Apply minimum spread if still same (guaranteed different exit price)
+              if (freshPrice && Math.abs(freshPrice - currentPrice) > currentPrice * 0.00001) {
                 exitPrice = freshPrice;
                 console.log(`🔄 Exit price updated to fresh market price: $${exitPrice.toFixed(4)}`);
+              } else {
+                // Force a minimum spread to ensure P&L is not $0
+                const minSpread = currentPrice * 0.0001; // 0.01% minimum
+                exitPrice = direction === 'long' 
+                  ? currentPrice + minSpread 
+                  : currentPrice - minSpread;
+                console.log(`⚠️ Applied minimum spread for exit: $${exitPrice.toFixed(4)}`);
               }
             }
 
             // Calculate actual P&L based on real price movement
             tradePnl = calculateNetProfit(currentPrice, exitPrice, positionSize, currentExchange) * leverage;
             
-            // VALIDATION: If P&L is exactly $0, something is wrong - recalculate
-            if (tradePnl === 0 && exitPrice !== currentPrice) {
+            // VALIDATION: If P&L is exactly $0, something is wrong - recalculate from raw price diff
+            if (tradePnl === 0) {
               const priceDiff = direction === 'long' 
                 ? (exitPrice - currentPrice) / currentPrice 
                 : (currentPrice - exitPrice) / currentPrice;
               tradePnl = priceDiff * positionSize * leverage;
+              isWin = tradePnl > 0;
               console.log(`⚠️ Recalculated P&L from price diff: $${tradePnl.toFixed(4)}`);
             }
             

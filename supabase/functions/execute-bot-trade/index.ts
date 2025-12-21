@@ -553,6 +553,13 @@ async function findUnblockedPair(
     skippedPairs.push({ pair, losses: lossCount });
   }
   
+  // CRITICAL FIX: If ALL pairs blocked, reset the one with fewest losses and continue
+  if (skippedPairs.length > 0) {
+    const leastBlocked = skippedPairs.sort((a, b) => a.losses - b.losses)[0];
+    console.log(`🔄 All pairs blocked - auto-resetting ${leastBlocked.pair} (${leastBlocked.losses} losses) to prevent bot stopping`);
+    return { pair: leastBlocked.pair, skippedPairs };
+  }
+  
   console.log(`❌ All pairs blocked: ${skippedPairs.map(p => `${p.pair}(${p.losses})`).join(', ')}`);
   return { pair: null, skippedPairs };
 }
@@ -576,8 +583,8 @@ async function selectSmartDirection(
       const momentum = await getMarketMomentum(pair);
       console.log(`📊 SPOT ${pair}: Holdings $${holdingsValue.toFixed(2)}, Momentum ${(momentum * 100).toFixed(2)}%`);
       
-      // If bearish momentum (< -0.5%), go SHORT by selling held assets
-      if (momentum < -0.005) {
+      // FIXED: Lower threshold from -0.5% to -0.1% for easier short triggering
+      if (momentum < -0.001) {
         return { 
           direction: 'short', 
           confidence: 65, 
