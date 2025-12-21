@@ -113,7 +113,23 @@ Deno.serve(async (req) => {
 
     const binanceConnection = connections?.find(c => c.exchange_name === 'Binance');
     
-    // Get all open trades
+    // Get today's date
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Get today's CLOSED trades for P&L summary
+    const { data: closedTrades, error: closedError } = await supabase
+      .from('trades')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('status', 'closed')
+      .eq('is_sandbox', false)
+      .gte('created_at', today.toISOString())
+      .order('created_at', { ascending: false });
+
+    if (closedError) throw closedError;
+
+    // Get all open trades (should be minimal/none for this system)
     const { data: openTrades, error: tradesError } = await supabase
       .from('trades')
       .select('*')
@@ -122,7 +138,15 @@ Deno.serve(async (req) => {
 
     if (tradesError) throw tradesError;
 
-    console.log(`[reconcile-balances] Found ${openTrades?.length || 0} open trades`);
+    console.log(`[reconcile-balances] Found ${closedTrades?.length || 0} closed trades today, ${openTrades?.length || 0} open trades`);
+    
+    // Calculate today's P&L from closed trades
+    const todayPnL = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
+    const todayWins = closedTrades?.filter(t => (t.profit_loss || 0) > 0).length || 0;
+    const todayLosses = (closedTrades?.length || 0) - todayWins;
+    const hitRate = closedTrades && closedTrades.length > 0 
+      ? (todayWins / closedTrades.length) * 100 
+      : 0;
 
     // Calculate expected positions by asset
     const expectedPositions: Record<string, { qty: number; value: number; trades: OpenTrade[] }> = {};
