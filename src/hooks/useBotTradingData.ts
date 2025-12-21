@@ -147,7 +147,7 @@ export function useBotTradingData({ exchange, botId, enabled = true }: UseBotTra
     if (!user?.id || !enabled) return;
 
     const channel = supabase
-      .channel('bot-trades-broadcast-listener')
+      .channel('bot-trades-broadcast')
       .on('broadcast', { event: 'trade_completed' }, (payload) => {
         console.log('[useBotTradingData] Broadcast received:', payload);
         

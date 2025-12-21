@@ -808,6 +808,54 @@ export type Database = {
           },
         ]
       }
+      regime_history: {
+        Row: {
+          created_at: string | null
+          deviation: number
+          duration_minutes: number | null
+          ema200: number
+          ended_at: string | null
+          id: string
+          pnl_during_regime: number | null
+          price: number
+          regime: string
+          started_at: string
+          symbol: string
+          trades_during_regime: number | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          deviation: number
+          duration_minutes?: number | null
+          ema200: number
+          ended_at?: string | null
+          id?: string
+          pnl_during_regime?: number | null
+          price: number
+          regime: string
+          started_at?: string
+          symbol?: string
+          trades_during_regime?: number | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          deviation?: number
+          duration_minutes?: number | null
+          ema200?: number
+          ended_at?: string | null
+          id?: string
+          pnl_during_regime?: number | null
+          price?: number
+          regime?: string
+          started_at?: string
+          symbol?: string
+          trades_during_regime?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       research_articles: {
         Row: {
           assets: string[] | null
@@ -947,6 +995,7 @@ export type Database = {
           pair: string
           profit_loss: number | null
           profit_percentage: number | null
+          regime_at_entry: string | null
           status: string | null
           user_id: string
         }
@@ -965,6 +1014,7 @@ export type Database = {
           pair: string
           profit_loss?: number | null
           profit_percentage?: number | null
+          regime_at_entry?: string | null
           status?: string | null
           user_id: string
         }
@@ -983,6 +1033,7 @@ export type Database = {
           pair?: string
           profit_loss?: number | null
           profit_percentage?: number | null
+          regime_at_entry?: string | null
           status?: string | null
           user_id?: string
         }

@@ -130,12 +130,12 @@ export function useRealTimePnL() {
     fetchInitialData();
   }, [fetchInitialData]);
 
-  // Subscribe to real-time trade updates
+  // Subscribe to real-time trade updates via postgres_changes
   useEffect(() => {
     if (!user?.id) return;
 
     const channel = supabase
-      .channel('realtime-pnl')
+      .channel('realtime-pnl-postgres')
       .on(
         'postgres_changes',
         {
@@ -145,7 +145,7 @@ export function useRealTimePnL() {
           filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
-          console.log('Real-time trade update:', payload);
+          console.log('[useRealTimePnL] Postgres trade update:', payload);
           fetchInitialData();
         }
       )
@@ -167,6 +167,49 @@ export function useRealTimePnL() {
       supabase.removeChannel(channel);
     };
   }, [user?.id, fetchInitialData]);
+
+  // Subscribe to broadcast events for instant cross-component sync
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel('bot-trades-broadcast')
+      .on('broadcast', { event: 'trade_completed' }, (payload) => {
+        console.log('[useRealTimePnL] Broadcast received:', payload);
+        
+        const tradeData = payload.payload;
+        if (!tradeData) return;
+
+        const pnl = tradeData.pnl || 0;
+        const isWin = pnl > 0;
+
+        setData(prev => {
+          const newPnL = prev.currentPnL + pnl;
+          const newTradesCount = prev.tradesCount + 1;
+          const newWinsCount = prev.winsCount + (isWin ? 1 : 0);
+          const newLossesCount = prev.lossesCount + (isWin ? 0 : 1);
+
+          return {
+            ...prev,
+            currentPnL: newPnL,
+            progressPercent: Math.min((newPnL / prev.dailyTarget) * 100, 100),
+            tradesCount: newTradesCount,
+            winsCount: newWinsCount,
+            lossesCount: newLossesCount,
+            winRate: newTradesCount > 0 ? (newWinsCount / newTradesCount) * 100 : 0,
+            bestTrade: Math.max(prev.bestTrade, pnl),
+            worstTrade: Math.min(prev.worstTrade, pnl),
+            avgTradeProfit: newTradesCount > 0 ? newPnL / newTradesCount : 0,
+            lastUpdate: new Date(),
+          };
+        });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   return data;
 }

@@ -186,7 +186,7 @@ export function useTradingDataSync(botType?: 'spot' | 'leverage') {
     if (!user?.id) return;
 
     const channel = supabase
-      .channel(`global-trades-broadcast-${botType || 'all'}`)
+      .channel('bot-trades-broadcast')
       .on('broadcast', { event: 'trade_completed' }, (payload) => {
         const data = payload.payload as TradeBroadcastPayload;
         if (!data) return;
