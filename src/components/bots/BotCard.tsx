@@ -214,7 +214,7 @@ export function BotCard({
     scalingReason, 
     currentMultiplier,
     recentPerformance 
-  } = usePositionAutoScaling({ basePositionSize: localAmountPerTrade });
+  } = usePositionAutoScaling({ config: { basePositionSize: localAmountPerTrade } });
 
   const [recentTrades, setRecentTrades] = useState<Array<{
     id: string;

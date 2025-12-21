@@ -44,6 +44,7 @@ import { ProfitEnginePanel } from '@/components/bots/ProfitEnginePanel';
 import { StuckTradesBanner } from '@/components/bots/StuckTradesBanner';
 import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
 import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
+import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
 import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
 import { TradeExecutionStatus } from '@/components/bots/TradeExecutionStatus';
@@ -122,6 +123,7 @@ export default function Bots() {
   // Collapsible sections state - collapsed by default per user request
   const [usdtFloatOpen, setUsdtFloatOpen] = useState(false);
   const [aiRecommendationOpen, setAiRecommendationOpen] = useState(false);
+  const [regimeChartOpen, setRegimeChartOpen] = useState(false);
   
   // Profit Target Wizard state
   const [showProfitWizard, setShowProfitWizard] = useState(false);
@@ -1670,6 +1672,34 @@ export default function Bots() {
 
             {/* Right Column - Profit History + Bot History */}
             <div className="lg:col-span-3 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
+              {/* Regime Transition Chart - Collapsible */}
+              <Collapsible 
+                open={regimeChartOpen} 
+                onOpenChange={setRegimeChartOpen}
+                className="card-terminal"
+              >
+                <CollapsibleTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    className="w-full flex items-center justify-between p-3 h-auto hover:bg-slate-800/50"
+                  >
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-purple-500" />
+                      <span className="text-xs font-semibold">Regime Transitions</span>
+                      <Badge variant="outline" className="text-[8px]">JARVIS</Badge>
+                    </div>
+                    {regimeChartOpen ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="px-3 pb-3">
+                  <RegimeTransitionChart timeframeDays={7} />
+                </CollapsibleContent>
+              </Collapsible>
+
               {/* Profit Withdrawal History Chart */}
               <ProfitWithdrawalChart className="max-h-[400px] overflow-y-auto" />
 
