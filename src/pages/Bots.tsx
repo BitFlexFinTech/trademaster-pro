@@ -1562,20 +1562,10 @@ export default function Bots() {
           <ProfitEnginePanel defaultCollapsed={true} className="mb-2" />
         </div>
 
-        {/* Bot Cards: guaranteed visible + independently scrollable */}
-        <section 
-          className="flex-1 min-h-[50vh] overflow-y-auto"
-          ref={(el) => {
-            // Debug logging for layout issues in development
-            if (el && process.env.NODE_ENV === 'development') {
-              const height = el.getBoundingClientRect().height;
-              if (height < 100) {
-                console.warn('[BOTS LAYOUT] Bot cards section has insufficient height:', height, 'px');
-              }
-            }
-          }}
-        >
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3">
+        {/* Bot Cards: Fixed height with internal scroll - page should NOT scroll */}
+        <section className="flex-1 min-h-0 overflow-hidden">
+          <ScrollArea className="h-full">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3 pr-2">
             {/* Left Column - Spot and Leverage Bot Cards - wrapped in ErrorBoundary */}
             <ErrorBoundary
               fallback={
@@ -1693,7 +1683,8 @@ export default function Bots() {
                 </div>
               </div>
             </div>
-          </div>
+            </div>
+          </ScrollArea>
         </section>
       </div>
 

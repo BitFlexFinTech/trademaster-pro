@@ -59,8 +59,9 @@ const DEFAULT_MIN_PROFIT_PERCENT = 0.01; // 0.01% minimum profit (before fees)
 const DEFAULT_MIN_PROFIT_DOLLARS = 0.01; // $0.01 minimum profit - base value (fees added dynamically)
 const DEFAULT_FEE_RATE = 0.001;          // Default 0.1% fee rate per side
 const DEFAULT_MIN_NET_PROFIT = 0.25;     // Default $0.25 minimum NET profit after fees (lowered for faster locks)
-const MAX_EXTENDED_HOLD_MULTIPLIER = 2;  // Hold up to 2x max time (60s total) then force exit
+const MAX_EXTENDED_HOLD_MULTIPLIER = 3;  // Hold up to 3x max time (90s total) then force exit with VALID price
 const SUPER_SCALP_MIN_HOLD_MS = 200;    // Minimum 200ms before super-scalp exit - FAST SCALPING
+const ABSOLUTE_MAX_HOLD_MS = 120000;    // 120s absolute max - MUST exit with actual current price
 
 /**
  * Calculate minimum GROSS profit needed to achieve target NET profit after fees
@@ -616,19 +617,36 @@ class ProfitLockStrategyManager {
               }
             }
             
-            // FORCE EXIT: Max time reached - ALWAYS return breakeven or better (NEVER a loss)
-            // This prevents consecutive loss pauses from stopping the bot
+            // FORCE EXIT: Max extended time reached - exit at CURRENT PRICE (not entry!)
+            // CRITICAL FIX: Always use actual current price to avoid $0 profit bug
             clearInterval(checkInterval);
-            const forceNetProfit = Math.max(0, netProfitDollars); // NEVER negative
-            console.log(`⏰ FORCE EXIT: Max hold ${extendedMaxTime/1000}s reached. Exiting at BREAKEVEN (original: $${netProfitDollars.toFixed(3)}, forced: $${forceNetProfit.toFixed(3)})`);
+            const actualExitPrice = currentPrice; // ALWAYS use current market price
+            const actualNetProfit = netProfitDollars; // Real P&L, can be negative
+            console.log(`⏰ FORCE EXIT: Max hold ${extendedMaxTime/1000}s reached. Exit @ $${actualExitPrice.toFixed(4)} (P&L: $${actualNetProfit.toFixed(3)})`);
             resolve({
-              exitPrice: forceNetProfit > 0 ? currentPrice : entryPrice, // Return entry price for breakeven
-              isWin: true, // ALWAYS a win (breakeven counts as win to avoid pauses)
+              exitPrice: actualExitPrice, // CRITICAL: Use actual current price, NOT entry price
+              isWin: actualNetProfit >= 0, // Honest win/loss tracking
               exitReason: 'TIME_EXIT',
               holdTimeMs: elapsed,
               maxProfitSeen,
               minProfitSeen,
-              profitDollars: forceNetProfit, // Always >= 0
+              profitDollars: actualNetProfit, // Real P&L value
+            });
+            return;
+          }
+          
+          // ABSOLUTE MAX: 120s hard limit - MUST exit no matter what
+          if (elapsed >= ABSOLUTE_MAX_HOLD_MS) {
+            clearInterval(checkInterval);
+            console.log(`🚨 ABSOLUTE MAX EXIT: ${ABSOLUTE_MAX_HOLD_MS/1000}s limit. Exit @ $${currentPrice.toFixed(4)}`);
+            resolve({
+              exitPrice: currentPrice,
+              isWin: netProfitDollars >= 0,
+              exitReason: 'TIME_EXIT',
+              holdTimeMs: elapsed,
+              maxProfitSeen,
+              minProfitSeen,
+              profitDollars: netProfitDollars,
             });
             return;
           }
