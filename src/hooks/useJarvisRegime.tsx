@@ -202,6 +202,19 @@ export function useJarvisRegime(symbol: string = 'BTCUSDT'): UseJarvisRegimeRetu
       // Persist to database
       persistRegimeTransition(regime, currentPrice, ema200, deviation);
       
+      // Broadcast regime change globally for instant sync across all components
+      supabase.channel('jarvis-regime-broadcast').send({
+        type: 'broadcast',
+        event: 'regime_changed',
+        payload: { 
+          regime, 
+          deviation: deviation * 100, 
+          symbol,
+          previousRegime: lastRegimeRef.current,
+          timestamp: new Date().toISOString(),
+        }
+      });
+      
       lastRegimeRef.current = regime;
       lastTransitionRef.current = new Date();
     }

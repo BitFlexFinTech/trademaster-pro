@@ -80,6 +80,9 @@ interface UseBotTradingProps {
   targetHitRate?: number;
   tradingStrategy?: TradingStrategy;
   minProfitThreshold?: number;
+  // Regime direction sync
+  regime?: 'BULL' | 'BEAR' | 'CHOP' | null;
+  regimeDirectionSync?: boolean;
 }
 
 export function useBotTrading({
@@ -89,7 +92,7 @@ export function useBotTrading({
   dailyTarget,
   profitPerTrade,
   amountPerTrade = 100,
-  tradeIntervalMs = 3000, // Increased to 3s minimum for profit lock monitoring
+  tradeIntervalMs = 3000,
   stopLossPercent = 0.15,
   leverages,
   prices,
@@ -98,6 +101,8 @@ export function useBotTrading({
   targetHitRate = 80,
   tradingStrategy = 'profit',
   minProfitThreshold = 0.0005,
+  regime,
+  regimeDirectionSync = false,
 }: UseBotTradingProps) {
   const { user } = useAuth();
   const { mode: tradingMode, setVirtualBalance } = useTradingMode();
@@ -375,18 +380,30 @@ export function useBotTrading({
           
           if (Math.abs(priceChange) < neutralZone) {
             // Neutral zone - alternate between long/short for balance
-            // Use trade count to alternate: even = long, odd = short
             const tradeCount = metricsRef.current.tradesExecuted;
             direction = tradeCount % 2 === 0 ? 'long' : 'short';
           } else if (priceChange >= 0.0002) {
             // Strong upward momentum - go long
             direction = 'long';
           } else if (priceChange <= -0.0001) {
-            // Downward momentum (lower threshold for shorts) - go short
+            // Downward momentum - go short
             direction = 'short';
           } else {
-            // Slight upward - still long but consider RSI if available
+            // Slight upward - still long
             direction = 'long';
+          }
+
+          // REGIME DIRECTION ENFORCEMENT
+          if (regimeDirectionSync && regime) {
+            if (regime === 'BULL' && direction === 'short') {
+              console.log(`🚫 Trade blocked: BULL regime - shorts not allowed`);
+              return;
+            }
+            if (regime === 'BEAR' && direction === 'long') {
+              console.log(`🚫 Trade blocked: BEAR regime - longs not allowed`);
+              return;
+            }
+            // CHOP allows both directions
           }
 
           if (tradingMode === 'demo') {
