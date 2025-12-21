@@ -26,6 +26,7 @@ import { generateDashboards, recordProfitForDashboard, DashboardCharts } from '@
 import { profitLockStrategy } from '@/lib/profitLockStrategy';
 import { dailyTargetAnalyzer, type TradeRecord } from '@/lib/dailyTargetAnalyzer';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
+import { usePositionAutoScaling } from '@/hooks/usePositionAutoScaling';
 import { toast } from 'sonner';
 import {
   Tooltip,
@@ -207,7 +208,14 @@ export function BotCard({
     isRunning,
   });
 
-  // Recent trades history for quick review (last 5)
+  // Position auto-scaling based on consecutive wins/losses
+  const { 
+    scaledPositionSize, 
+    scalingReason, 
+    currentMultiplier,
+    recentPerformance 
+  } = usePositionAutoScaling({ basePositionSize: localAmountPerTrade });
+
   const [recentTrades, setRecentTrades] = useState<Array<{
     id: string;
     pair: string;
@@ -457,6 +465,30 @@ export function BotCard({
       supabase.removeChannel(tradesChannel);
     };
   }, [user, existingBot?.id, onUpdateBotPnl]);
+
+  // Broadcast sync listener for cross-component trade updates
+  useEffect(() => {
+    if (!user) return;
+
+    const broadcastChannel = supabase
+      .channel('bot-trades-broadcast')
+      .on('broadcast', { event: 'trade_completed' }, (payload) => {
+        // Update metrics from any bot that completes a trade
+        if (payload.payload?.botId === existingBot?.id) {
+          setMetrics(prev => ({
+            ...prev,
+            currentPnL: payload.payload.totalPnl ?? prev.currentPnL,
+            tradesExecuted: payload.payload.trades ?? prev.tradesExecuted,
+            hitRate: payload.payload.hitRate ?? prev.hitRate,
+          }));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(broadcastChannel);
+    };
+  }, [user, existingBot?.id]);
 
   useEffect(() => {
     pricesRef.current = prices;
@@ -2098,20 +2130,39 @@ export function BotCard({
             {metrics.tradesPerMinute}
           </p>
         </div>
-        <div className={cn(
-          "p-1.5 rounded text-center",
-          positionSizing.adjustedForDrawdown ? "bg-yellow-500/20" : "bg-secondary/50"
-        )}>
-          <div className="text-[8px] text-muted-foreground flex items-center justify-center gap-1">
-            <TrendingUp className="w-2 h-2" /> Size
-          </div>
-          <p className={cn(
-            "text-xs font-bold font-mono",
-            positionSizing.adjustedForDrawdown ? "text-yellow-400" : "text-foreground"
-          )}>
-            ${positionSizing.recommendedSize.toFixed(0)}
-          </p>
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className={cn(
+              "p-1.5 rounded text-center cursor-help",
+              recentPerformance === 'winning' ? "bg-green-500/20" :
+              recentPerformance === 'losing' ? "bg-red-500/20" :
+              positionSizing.adjustedForDrawdown ? "bg-yellow-500/20" : "bg-secondary/50"
+            )}>
+              <div className="text-[8px] text-muted-foreground flex items-center justify-center gap-1">
+                <TrendingUp className="w-2 h-2" /> Size
+                {currentMultiplier !== 1.0 && (
+                  <Badge variant="outline" className="text-[6px] h-3 px-1 ml-0.5">
+                    {(currentMultiplier * 100).toFixed(0)}%
+                  </Badge>
+                )}
+              </div>
+              <p className={cn(
+                "text-xs font-bold font-mono",
+                recentPerformance === 'winning' ? "text-green-400" :
+                recentPerformance === 'losing' ? "text-red-400" :
+                positionSizing.adjustedForDrawdown ? "text-yellow-400" : "text-foreground"
+              )}>
+                ${scaledPositionSize.toFixed(0)}
+              </p>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs max-w-[200px]">
+            <p className="font-medium">{scalingReason}</p>
+            <p className="text-muted-foreground mt-1">
+              Base: ${localAmountPerTrade} → Scaled: ${scaledPositionSize.toFixed(2)}
+            </p>
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Active Trade Monitor - Real-time Price vs Entry */}

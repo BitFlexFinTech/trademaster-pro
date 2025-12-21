@@ -16,11 +16,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import { TradeReplayModal } from '@/components/bots/TradeReplayModal';
 import { cn } from '@/lib/utils';
-import { TrendingUp, TrendingDown, Clock, Activity, Zap, XCircle, Loader2 } from 'lucide-react';
+import { TrendingUp, TrendingDown, Clock, Activity, Zap, XCircle, Loader2, PlayCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
 import { toast } from 'sonner';
+
 interface BotTrade {
   id: string;
   pair: string;
@@ -42,6 +44,27 @@ export function RecentBotTrades() {
   const [loading, setLoading] = useState(true);
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
   const [forceCloseDebounce, setForceCloseDebounce] = useState(false);
+  
+  // Trade replay modal state
+  const [replayOpen, setReplayOpen] = useState(false);
+  const [replayIndex, setReplayIndex] = useState(0);
+  
+  // Transform trades for replay modal
+  const formattedTrades = useMemo(() => 
+    trades.filter(t => t.exit_price !== null).map(t => ({
+      id: t.id,
+      pair: t.pair,
+      direction: t.direction as 'long' | 'short',
+      entryPrice: t.entry_price,
+      exitPrice: t.exit_price || t.entry_price,
+      amount: t.amount,
+      profitLoss: t.profit_loss || 0,
+      profitPercent: t.amount > 0 ? ((t.profit_loss || 0) / t.amount) * 100 : 0,
+      createdAt: new Date(t.created_at),
+      closedAt: t.closed_at ? new Date(t.closed_at) : undefined,
+      exchange: t.exchange_name || undefined,
+    }))
+  , [trades]);
 
   const handleForceClose = async (tradeId: string) => {
     // Debounce: prevent rapid clicks
@@ -231,6 +254,18 @@ export function RecentBotTrades() {
         <div className="flex items-center gap-1.5">
           <Activity className="w-3 h-3 text-primary" />
           <span className="text-xs font-semibold text-foreground">Recent Trades</span>
+          {/* Replay button */}
+          {formattedTrades.length > 0 && (
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              className="h-5 px-1.5 text-[9px]"
+              onClick={() => { setReplayIndex(0); setReplayOpen(true); }}
+            >
+              <PlayCircle className="h-3 w-3 mr-0.5" />
+              Replay
+            </Button>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           {/* Trades Per Minute Counter */}
@@ -416,6 +451,14 @@ export function RecentBotTrades() {
           ))}
         </div>
       </ScrollArea>
+      
+      {/* Trade Replay Modal */}
+      <TradeReplayModal 
+        open={replayOpen} 
+        onClose={() => setReplayOpen(false)} 
+        trades={formattedTrades}
+        initialTradeIndex={replayIndex}
+      />
     </div>
   );
 }

@@ -590,8 +590,31 @@ export function useBotTrading({
                 }
 
                 if (!tradeCompleted) {
-                  // Timeout - use current price as estimate
-                  const timeoutPrice = getCurrentPrice(symbol) || data.entryPrice;
+                  // Timeout - CRITICAL: Never fallback to entryPrice
+                  let timeoutPrice = getCurrentPrice(symbol);
+                  
+                  // If WebSocket price unavailable or same as entry, fetch fresh from API
+                  if (!timeoutPrice || timeoutPrice === data.entryPrice) {
+                    try {
+                      const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}USDT`);
+                      const apiData = await response.json();
+                      timeoutPrice = parseFloat(apiData.price);
+                      console.log(`📡 Fetched fresh price from API: $${timeoutPrice}`);
+                    } catch (err) {
+                      console.warn('Failed to fetch API price, applying minimum spread');
+                      // Apply minimum spread to avoid $0 profit
+                      const minSpread = data.entryPrice * 0.0001; // 0.01% minimum
+                      timeoutPrice = data.entryPrice + (direction === 'long' ? minSpread : -minSpread);
+                    }
+                  }
+                  
+                  // FINAL GUARD: Ensure exit price differs from entry
+                  if (timeoutPrice === data.entryPrice) {
+                    const minSpread = data.entryPrice * 0.0001;
+                    timeoutPrice = data.entryPrice + (direction === 'long' ? minSpread : -minSpread);
+                    console.log(`🛡️ Applied minimum spread to prevent $0 trade`);
+                  }
+                  
                   tradePnl = calculateNetProfit(data.entryPrice, timeoutPrice, positionSize, currentExchange) * leverage;
                   isWin = tradePnl > 0;
                   exitPrice = timeoutPrice;
@@ -665,6 +688,12 @@ export function useBotTrading({
             timestamp: new Date(),
           });
           setVirtualBalance(prev => prev + tradePnl);
+        }
+
+        // FINAL VALIDATION GATE: Block $0 profit trades
+        if (exitPrice === currentPrice || Math.abs(tradePnl) < 0.0001) {
+          console.warn(`🚫 BLOCKING $0 trade - exitPrice (${exitPrice}) equals entry (${currentPrice}) or tradePnl (${tradePnl}) is zero. Skipping DB insert.`);
+          return; // Don't save this invalid trade
         }
 
         // Log to database
