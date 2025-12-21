@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useBotRuns } from '@/hooks/useBotRuns';
+import { useTradingDataSync } from '@/hooks/useTradingDataSync';
 import { useRealtimePrices } from '@/hooks/useRealtimePrices';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTradingMode, MAX_USDT_ALLOCATION } from '@/contexts/TradingModeContext';
@@ -34,18 +35,19 @@ export function GreenBackWidget() {
   const { user } = useAuth();
   const { connectedExchangeNames, hasConnections } = useConnectedExchanges();
   
+  // Real-time synced metrics - same source as BotCard for global sync
+  const { metrics: syncedMetrics, isLoading: metricsLoading } = useTradingDataSync();
+  
   // Find BOTH spot and leverage bots
   const spotBot = getSpotBot();
   const leverageBot = getLeverageBot();
   const anyBotRunning = spotBot?.status === 'running' || leverageBot?.status === 'running';
   const runningBotCount = (spotBot ? 1 : 0) + (leverageBot ? 1 : 0);
 
-  // Combined metrics from both bots
-  const combinedPnL = (spotBot?.currentPnl || 0) + (leverageBot?.currentPnl || 0);
-  const combinedTrades = (spotBot?.tradesExecuted || 0) + (leverageBot?.tradesExecuted || 0);
-  const combinedHitRate = combinedTrades > 0 
-    ? ((spotBot?.tradesExecuted || 0) * (spotBot?.hitRate || 0) + (leverageBot?.tradesExecuted || 0) * (leverageBot?.hitRate || 0)) / combinedTrades
-    : 0;
+  // Use synced metrics for real-time global data
+  const combinedPnL = syncedMetrics.currentPnL;
+  const combinedTrades = syncedMetrics.tradesExecuted;
+  const combinedHitRate = syncedMetrics.hitRate;
 
   const dailyTarget = (spotBot?.dailyTarget || 40) + (leverageBot?.dailyTarget || 0);
   const profitPerTrade = spotBot?.profitPerTrade || leverageBot?.profitPerTrade || 1;
@@ -68,12 +70,18 @@ export function GreenBackWidget() {
     return Math.max(0, Math.min(100, rate * 100));
   }, [dailyTarget, profitPerTrade]);
 
-  const [metrics, setMetrics] = useState({
+  // Local state only for non-synced values
+  const [localMetrics, setLocalMetrics] = useState({
+    avgTimeToTP: 12.3,
+  });
+  
+  // Merged metrics: synced values + local-only values
+  const metrics = {
     currentPnL: combinedPnL,
     tradesExecuted: combinedTrades,
     hitRate: combinedHitRate,
-    avgTimeToTP: 12.3,
-  });
+    avgTimeToTP: localMetrics.avgTimeToTP,
+  };
 
   const [activeExchange, setActiveExchange] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
@@ -85,12 +93,7 @@ export function GreenBackWidget() {
   // Listen to FULL RESET trigger - reset ALL state (manual demo reset)
   useEffect(() => {
     if (resetTrigger > 0) {
-      setMetrics({
-        currentPnL: 0,
-        tradesExecuted: 0,
-        hitRate: 0,
-        avgTimeToTP: 12.3,
-      });
+      setLocalMetrics({ avgTimeToTP: 12.3 });
       setLastTrade(null);
       setActiveExchange(null);
       lastPricesRef.current = {};
@@ -101,27 +104,12 @@ export function GreenBackWidget() {
   // Listen to DAILY RESET trigger - 24-hour P&L reset ONLY
   useEffect(() => {
     if (dailyResetTrigger > 0) {
-      console.log('[GreenBackWidget] 24-hour daily reset - resetting P&L');
-      setMetrics({
-        currentPnL: 0,
-        tradesExecuted: 0,
-        hitRate: 0,
-        avgTimeToTP: 12.3,
-      });
+      console.log('[GreenBackWidget] 24-hour daily reset');
+      setLocalMetrics({ avgTimeToTP: 12.3 });
       setLastTrade(null);
       refetch();
     }
   }, [dailyResetTrigger, refetch]);
-
-  // Sync metrics from database
-  useEffect(() => {
-    setMetrics({
-      currentPnL: combinedPnL,
-      tradesExecuted: combinedTrades,
-      hitRate: combinedHitRate,
-      avgTimeToTP: 12.3,
-    });
-  }, [combinedPnL, combinedTrades, combinedHitRate]);
 
   // ===== NO TRADING LOOP IN WIDGET =====
   // CRITICAL: All trading happens in BotCard on the /bots page ONLY
@@ -196,7 +184,7 @@ export function GreenBackWidget() {
       });
       if (error) throw error;
       
-      setMetrics(prev => ({ ...prev, currentPnL: 0 }));
+      // P&L is now synced globally via useTradingDataSync - just show success
       sonnerToast.success(`💰 Withdrew $${data?.withdrawnAmount?.toFixed(2) || metrics.currentPnL.toFixed(2)}`);
       refetch();
     } catch (err) {
