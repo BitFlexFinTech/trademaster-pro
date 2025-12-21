@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,202 +25,34 @@ import {
   Wrench,
   Zap
 } from 'lucide-react';
-import { 
-  scanForIssues, 
-  markIssueFixed, 
-  unmarkIssueFixed,
-  clearAllFixedMarkers,
-  type DetectedIssue, 
-  type ScanResult 
-} from '@/lib/debugger/issueScanner';
-import { 
-  getFixFunction, 
-  fixAllIssues, 
-  type FixResult, 
-  type FixProgress 
-} from '@/lib/debugger/issueResolver';
+import { useIssueSync } from '@/hooks/useIssueSync';
+import { type DetectedIssue } from '@/lib/debugger/issueScanner';
 import { toast } from 'sonner';
 
 export default function Debugger() {
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
-  const [showFixed, setShowFixed] = useState(false);
-  
-  // Auto-fix state
-  const [fixingIssues, setFixingIssues] = useState<Map<string, FixProgress>>(new Map());
-  const [fixResults, setFixResults] = useState<Map<string, FixResult>>(new Map());
-  const [isFixingAll, setIsFixingAll] = useState(false);
 
-  // Auto-scan on mount
-  useEffect(() => {
-    handleScan();
-  }, []);
-
-  const handleScan = async () => {
-    setIsScanning(true);
-    
-    try {
-      const result = await scanForIssues();
-      setScanResult(result);
-      
-      const unfixedCount = result.issues.filter(i => !i.fixed && i.severity !== 'info').length;
-      
-      toast.success('Scan Complete', {
-        description: `Found ${unfixedCount} active issues, ${result.issues.filter(i => i.fixed).length} marked as fixed`,
-      });
-    } catch (error) {
-      toast.error('Scan Failed', {
-        description: 'Could not connect to database. Check your connection.',
-      });
-    } finally {
-      setIsScanning(false);
-    }
-  };
-
-  const handleMarkFixed = async (issueId: string) => {
-    markIssueFixed(issueId);
-    await handleScan(); // Rescan to update UI
-    toast.success('Issue Marked as Fixed', {
-      description: 'This issue will be hidden unless you show fixed issues.',
-    });
-  };
-
-  const handleUnmarkFixed = async (issueId: string) => {
-    unmarkIssueFixed(issueId);
-    await handleScan();
-    toast.info('Issue Unmarked', {
-      description: 'This issue is now active again.',
-    });
-  };
-
-  const handleClearAllFixed = async () => {
-    clearAllFixedMarkers();
-    await handleScan();
-    toast.info('All Fixed Markers Cleared', {
-      description: 'All issues are now shown as active.',
-    });
-  };
-
-  // Auto-fix single issue
-  const handleAutoFix = async (issueId: string) => {
-    const fixFn = getFixFunction(issueId);
-    if (!fixFn) {
-      toast.error('No Auto-Fix Available', {
-        description: 'This issue type cannot be automatically fixed.',
-      });
-      return;
-    }
-
-    // Update progress state
-    setFixingIssues(prev => new Map(prev).set(issueId, {
-      status: 'fixing',
-      progress: 25,
-      currentStep: 'Analyzing issue...',
-    }));
-
-    try {
-      // Simulate progress steps
-      await new Promise(r => setTimeout(r, 500));
-      setFixingIssues(prev => new Map(prev).set(issueId, {
-        status: 'fixing',
-        progress: 50,
-        currentStep: 'Applying fix...',
-      }));
-
-      const result = await fixFn();
-
-      await new Promise(r => setTimeout(r, 300));
-      setFixingIssues(prev => new Map(prev).set(issueId, {
-        status: 'testing',
-        progress: 75,
-        currentStep: 'Verifying fix...',
-      }));
-
-      await new Promise(r => setTimeout(r, 500));
-
-      // Store result
-      setFixResults(prev => new Map(prev).set(issueId, result));
-      setFixingIssues(prev => new Map(prev).set(issueId, {
-        status: result.success ? 'completed' : 'failed',
-        progress: 100,
-        currentStep: result.success ? 'Fix complete!' : 'Fix failed',
-      }));
-
-      if (result.success) {
-        toast.success('Issue Fixed!', {
-          description: result.message,
-        });
-        // Rescan after successful fix
-        await handleScan();
-      } else {
-        toast.error('Fix Failed', {
-          description: result.error || result.message,
-        });
-      }
-    } catch (error: any) {
-      setFixingIssues(prev => new Map(prev).set(issueId, {
-        status: 'failed',
-        progress: 100,
-        currentStep: 'Fix failed',
-      }));
-      setFixResults(prev => new Map(prev).set(issueId, {
-        issueId,
-        success: false,
-        message: 'Fix failed unexpectedly',
-        affectedCount: 0,
-        error: error.message,
-      }));
-      toast.error('Fix Failed', {
-        description: error.message,
-      });
-    }
-  };
-
-  // Auto-fix all issues
-  const handleFixAll = async () => {
-    const fixableIssues = displayedIssues.filter(
-      issue => !issue.fixed && issue.severity !== 'info' && getFixFunction(issue.id)
-    );
-
-    if (fixableIssues.length === 0) {
-      toast.info('No Fixable Issues', {
-        description: 'All issues are either fixed or cannot be auto-fixed.',
-      });
-      return;
-    }
-
-    setIsFixingAll(true);
-    
-    try {
-      const issueIds = fixableIssues.map(i => i.id);
-      const results = await fixAllIssues(issueIds);
-      
-      // Update results
-      results.forEach(result => {
-        setFixResults(prev => new Map(prev).set(result.issueId, result));
-        setFixingIssues(prev => new Map(prev).set(result.issueId, {
-          status: result.success ? 'completed' : 'failed',
-          progress: 100,
-          currentStep: result.success ? 'Fixed!' : 'Failed',
-        }));
-      });
-
-      const successCount = results.filter(r => r.success).length;
-      toast.success('Bulk Fix Complete', {
-        description: `${successCount} of ${results.length} issues fixed successfully.`,
-      });
-
-      // Rescan
-      await handleScan();
-    } catch (error: any) {
-      toast.error('Bulk Fix Failed', {
-        description: error.message,
-      });
-    } finally {
-      setIsFixingAll(false);
-    }
-  };
+  // Use shared issue sync hook - syncs with BugsDashboard
+  const {
+    scanResult,
+    isScanning,
+    fixingIssues,
+    fixResults,
+    isFixingAll,
+    displayedIssues,
+    activeIssueCount,
+    fixedIssueCount,
+    fixableIssueCount,
+    showFixed,
+    setShowFixed,
+    handleScan,
+    handleMarkFixed,
+    handleUnmarkFixed,
+    handleClearAllFixed,
+    handleAutoFix,
+    handleFixAll,
+    canAutoFix,
+  } = useIssueSync();
 
   const toggleIssue = (id: string) => {
     setExpandedIssues(prev => {
@@ -254,15 +86,6 @@ export default function Debugger() {
     }
   };
 
-  // Filter issues based on showFixed toggle
-  const displayedIssues = scanResult?.issues.filter(issue => {
-    if (issue.severity === 'info') return true; // Always show info items
-    return showFixed ? true : !issue.fixed;
-  }) || [];
-
-  const activeIssueCount = scanResult?.issues.filter(i => !i.fixed && i.severity !== 'info').length || 0;
-  const fixedIssueCount = scanResult?.issues.filter(i => i.fixed && i.severity !== 'info').length || 0;
-  const fixableIssueCount = displayedIssues.filter(i => !i.fixed && i.severity !== 'info' && getFixFunction(i.id)).length;
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -436,7 +259,7 @@ export default function Debugger() {
             displayedIssues.map((issue) => {
               const fixProgress = fixingIssues.get(issue.id);
               const fixResult = fixResults.get(issue.id);
-              const canAutoFix = getFixFunction(issue.id) !== null;
+              const issueCanAutoFix = canAutoFix(issue.id);
               const isFixing = fixProgress?.status === 'fixing' || fixProgress?.status === 'testing';
 
               return (
@@ -468,7 +291,7 @@ export default function Debugger() {
                                     FIXED
                                   </Badge>
                                 )}
-                                {canAutoFix && !issue.fixed && (
+                                {issueCanAutoFix && !issue.fixed && (
                                   <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/50">
                                     <Wrench className="w-3 h-3 mr-1" />
                                     AUTO-FIXABLE
@@ -484,7 +307,7 @@ export default function Debugger() {
                           {issue.severity !== 'info' && (
                             <div onClick={(e) => e.stopPropagation()} className="flex gap-2">
                               {/* Auto-Fix button */}
-                              {canAutoFix && !issue.fixed && (
+                              {issueCanAutoFix && !issue.fixed && (
                                 <Button
                                   variant="outline"
                                   size="sm"

@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Bug, Search, Zap, CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw, Trash2, DollarSign } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { Bug, Search, Zap, CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw, Trash2, DollarSign, Wrench, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBalanceReconciliation } from '@/hooks/useBalanceReconciliation';
 import { ProfitAuditLogViewer } from '@/components/bugs/ProfitAuditLogViewer';
+import { useIssueSync } from '@/hooks/useIssueSync';
 
 interface BugEntry {
   id: string;
@@ -39,23 +39,25 @@ interface SystemStatus {
 }
 
 export default function BugsDashboard() {
-  const [bugs, setBugs] = useState<BugEntry[]>([]);
-  const [status, setStatus] = useState<SystemStatus>({
-    currentPhase: 'Ready',
-    phaseProgress: 0,
-    totalBugsFound: 0,
-    bugsFixed: 0,
-    criticalBugs: 0,
-    highBugs: 0,
-    mediumBugs: 0,
-    lowBugs: 0,
-    isScanning: false,
-    lastUpdate: new Date().toLocaleTimeString(),
-    currentAction: 'Waiting for input...'
-  });
   const [filter, setFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
   const [problemInput, setProblemInput] = useState('');
   const [isInvestigating, setIsInvestigating] = useState(false);
+
+  // Use shared issue sync hook - syncs with Debugger page
+  const {
+    scanResult,
+    isScanning,
+    fixingIssues,
+    isFixingAll,
+    displayedIssues,
+    activeIssueCount,
+    fixedIssueCount,
+    fixableIssueCount,
+    handleScan,
+    handleAutoFix,
+    handleFixAll,
+    canAutoFix,
+  } = useIssueSync();
 
   // Balance reconciliation hook
   const { 
@@ -67,128 +69,46 @@ export default function BugsDashboard() {
     cleanupOrphanTrades 
   } = useBalanceReconciliation();
 
-  // Fetch audit logs to detect issues
-  const fetchAuditLogs = async () => {
-    const { data, error } = await supabase
-      .from('profit_audit_log')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50);
-    
-    if (data && !error) {
-      const detectedBugs: BugEntry[] = [];
-      
-      // Analyze audit logs for patterns
-      const failedProfitTakes = data.filter(log => log.action === 'profit_take' && !log.success);
-      const successfulProfitTakes = data.filter(log => log.action === 'profit_take_success' && log.success);
-      const zeroBalanceCloses = data.filter(log => log.action === 'auto_close_zero_balance');
-      const dustCloses = data.filter(log => log.action === 'dust_close');
-      
-      if (failedProfitTakes.length > 0) {
-        detectedBugs.push({
-          id: 'BUG-PROFIT-001',
-          timestamp: new Date().toLocaleTimeString(),
-          severity: failedProfitTakes.length > 10 ? 'CRITICAL' : 'HIGH',
-          category: 'Profit-Taking',
-          location: 'check-trade-status/index.ts',
-          description: `${failedProfitTakes.length} failed profit-take attempts detected`,
-          status: 'DETECTED',
-          currentPhase: 'Analysis',
-          rootCause: 'Market sell orders failing due to insufficient balance or OCO conflicts',
-          userReported: false
-        });
-      }
-      
-      if (zeroBalanceCloses.length > 5) {
-        detectedBugs.push({
-          id: 'BUG-BALANCE-001',
-          timestamp: new Date().toLocaleTimeString(),
-          severity: 'HIGH',
-          category: 'Balance Sync',
-          location: 'execute-bot-trade/index.ts',
-          description: `${zeroBalanceCloses.length} trades auto-closed due to zero balance`,
-          status: 'DETECTED',
-          currentPhase: 'Analysis',
-          rootCause: 'Trades created without verifying successful exchange order execution',
-          userReported: false
-        });
-      }
-      
-      if (successfulProfitTakes.length > 0) {
-        detectedBugs.push({
-          id: 'BUG-SUCCESS-001',
-          timestamp: new Date().toLocaleTimeString(),
-          severity: 'LOW',
-          category: 'System Health',
-          location: 'check-trade-status/index.ts',
-          description: `${successfulProfitTakes.length} successful profit-takes recorded`,
-          status: 'FIXED',
-          currentPhase: 'Monitoring',
-          rootCause: 'System working correctly',
-          userReported: false
-        });
-      }
-      
-      setBugs(detectedBugs);
-      setStatus(prev => ({
-        ...prev,
-        totalBugsFound: detectedBugs.length,
-        bugsFixed: detectedBugs.filter(b => b.status === 'FIXED').length,
-        criticalBugs: detectedBugs.filter(b => b.severity === 'CRITICAL').length,
-        highBugs: detectedBugs.filter(b => b.severity === 'HIGH').length,
-        mediumBugs: detectedBugs.filter(b => b.severity === 'MEDIUM').length,
-        lowBugs: detectedBugs.filter(b => b.severity === 'LOW').length,
-        lastUpdate: new Date().toLocaleTimeString()
-      }));
-    }
+  // Convert issues to BugEntry format for display
+  const bugs: BugEntry[] = displayedIssues.map(issue => ({
+    id: issue.id,
+    timestamp: issue.lastOccurrence || new Date().toLocaleTimeString(),
+    severity: issue.severity.toUpperCase() as 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW',
+    category: issue.category,
+    location: issue.affectedExchanges?.join(', ') || 'System',
+    description: issue.description,
+    status: issue.fixed ? 'FIXED' : 'DETECTED',
+    currentPhase: issue.fixed ? 'Resolved' : 'Active',
+    rootCause: issue.impact,
+    userReported: false,
+  }));
+
+  const status: SystemStatus = {
+    currentPhase: isScanning ? 'Scanning...' : 'Ready',
+    phaseProgress: isScanning ? 50 : 100,
+    totalBugsFound: scanResult?.totalCount || 0,
+    bugsFixed: fixedIssueCount,
+    criticalBugs: scanResult?.criticalCount || 0,
+    highBugs: scanResult?.highCount || 0,
+    mediumBugs: scanResult?.mediumCount || 0,
+    lowBugs: scanResult?.issues.filter(i => i.severity === 'info').length || 0,
+    isScanning,
+    lastUpdate: scanResult?.lastScanAt ? new Date(scanResult.lastScanAt).toLocaleTimeString() : new Date().toLocaleTimeString(),
+    currentAction: isScanning ? 'Analyzing database...' : 'Ready for action',
   };
 
-  useEffect(() => {
-    fetchAuditLogs();
-    const interval = setInterval(fetchAuditLogs, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleScanAll = async () => {
-    setStatus(prev => ({ 
-      ...prev, 
-      isScanning: true, 
-      currentPhase: 'Starting Comprehensive Scan...',
-      currentAction: 'Analyzing codebase and database...'
-    }));
+  const handleScanAndFix = async () => {
+    toast.info('🐛 Starting comprehensive bug scan & fix...');
     
-    toast.info('🐛 Starting comprehensive bug scan...');
+    // First scan
+    await handleScan();
     
-    // Simulate scanning phases
-    const phases = [
-      'Scanning Edge Functions...',
-      'Analyzing Database Logs...',
-      'Checking Trade Status...',
-      'Validating P&L Calculations...',
-      'Inspecting OCO Order Logic...',
-      'Complete'
-    ];
-    
-    for (let i = 0; i < phases.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setStatus(prev => ({
-        ...prev,
-        currentPhase: phases[i],
-        phaseProgress: ((i + 1) / phases.length) * 100,
-        currentAction: phases[i]
-      }));
+    // Then fix all fixable issues
+    if (fixableIssueCount > 0) {
+      await handleFixAll();
     }
     
-    await fetchAuditLogs();
-    
-    setStatus(prev => ({ 
-      ...prev, 
-      isScanning: false,
-      currentPhase: 'Scan Complete',
-      currentAction: 'Ready for next action'
-    }));
-    
-    toast.success('✅ Bug scan complete!');
+    toast.success('✅ Scan and fix complete!');
   };
 
   const handleReportProblem = async () => {
@@ -198,47 +118,14 @@ export default function BugsDashboard() {
     }
     
     setIsInvestigating(true);
-    setStatus(prev => ({ 
-      ...prev, 
-      isScanning: true,
-      currentPhase: 'Investigating User Report',
-      currentAction: `Analyzing: "${problemInput}"`
-    }));
-    
-    // Add user-reported bug
-    const newBug: BugEntry = {
-      id: `BUG-USER-${Date.now()}`,
-      timestamp: new Date().toLocaleTimeString(),
-      severity: 'HIGH',
-      category: 'User-Reported',
-      location: 'Investigating...',
-      description: problemInput,
-      status: 'SCANNING',
-      currentPhase: 'User Report Investigation',
-      userReported: true
-    };
-    
-    setBugs(prev => [newBug, ...prev]);
-    
     toast.info(`🔍 Investigating: "${problemInput}"`);
     
-    // Simulate investigation
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setBugs(prev => prev.map(bug => 
-      bug.id === newBug.id 
-        ? { ...bug, status: 'DETECTED' as const, location: 'Analysis in progress...' }
-        : bug
-    ));
+    // Trigger a scan to look for related issues
+    await handleScan();
     
     setProblemInput('');
     setIsInvestigating(false);
-    setStatus(prev => ({ 
-      ...prev, 
-      isScanning: false,
-      currentPhase: 'Investigation Complete',
-      currentAction: 'Review findings above'
-    }));
+    toast.success('Investigation complete - see results above');
   };
 
   const filteredBugs = filter === 'ALL' 
@@ -306,28 +193,50 @@ export default function BugsDashboard() {
             </div>
           </div>
           
-          {/* Big Scan Button */}
-          <div className="flex justify-center">
+          {/* Big Scan & Fix Button */}
+          <div className="flex justify-center gap-4">
             <Button
               size="lg"
-              onClick={handleScanAll}
-              disabled={status.isScanning}
+              onClick={handleScanAndFix}
+              disabled={isScanning || isFixingAll}
               className="text-xl px-8 py-6 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700"
             >
-              {status.isScanning ? (
+              {isScanning || isFixingAll ? (
                 <>
-                  <RefreshCw className="w-6 h-6 mr-2 animate-spin" />
-                  SCANNING...
+                  <Loader2 className="w-6 h-6 mr-2 animate-spin" />
+                  {isFixingAll ? 'FIXING...' : 'SCANNING...'}
                 </>
               ) : (
                 <>
-                  <Bug className="w-6 h-6 mr-2" />
-                  FIX ALL BUGS
+                  <Zap className="w-6 h-6 mr-2" />
+                  SCAN & FIX ALL
                   <Bug className="w-6 h-6 ml-2" />
                 </>
               )}
             </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={handleScan}
+              disabled={isScanning}
+            >
+              <RefreshCw className={`w-5 h-5 mr-2 ${isScanning ? 'animate-spin' : ''}`} />
+              Rescan Only
+            </Button>
           </div>
+          
+          {/* Issue counts */}
+          {scanResult && (
+            <div className="flex justify-center gap-4 text-sm">
+              <span className="text-red-400">{scanResult.criticalCount} Critical</span>
+              <span className="text-orange-400">{scanResult.highCount} High</span>
+              <span className="text-yellow-400">{scanResult.mediumCount} Medium</span>
+              <span className="text-green-400">{fixedIssueCount} Fixed</span>
+              {fixableIssueCount > 0 && (
+                <span className="text-blue-400">{fixableIssueCount} Auto-Fixable</span>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
