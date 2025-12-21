@@ -14,23 +14,30 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronRight,
-  Wrench,
   Bug,
   Loader2,
   CheckCircle2,
   XCircle,
-  Shield
+  Database,
+  Trash2,
+  RotateCcw,
+  Info
 } from 'lucide-react';
-import { scanForIssues, applyAllFixes, type DetectedIssue, type ScanResult } from '@/lib/debugger/issueScanner';
+import { 
+  scanForIssues, 
+  markIssueFixed, 
+  unmarkIssueFixed,
+  clearAllFixedMarkers,
+  type DetectedIssue, 
+  type ScanResult 
+} from '@/lib/debugger/issueScanner';
 import { toast } from 'sonner';
 
 export default function Debugger() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [isFixing, setIsFixing] = useState(false);
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
-  const [fixProgress, setFixProgress] = useState(0);
-  const [fixResults, setFixResults] = useState<string[]>([]);
+  const [showFixed, setShowFixed] = useState(false);
 
   // Auto-scan on mount
   useEffect(() => {
@@ -39,51 +46,47 @@ export default function Debugger() {
 
   const handleScan = async () => {
     setIsScanning(true);
-    setFixResults([]);
     
-    // Simulate scanning delay for UX
-    await new Promise(r => setTimeout(r, 500));
-    
-    const result = scanForIssues();
-    setScanResult(result);
-    setIsScanning(false);
-    
-    toast.success('Scan Complete', {
-      description: `Found ${result.totalCount} unfixed issues (${result.issues.length} total scanned)`,
+    try {
+      const result = await scanForIssues();
+      setScanResult(result);
+      
+      const unfixedCount = result.issues.filter(i => !i.fixed && i.severity !== 'info').length;
+      
+      toast.success('Scan Complete', {
+        description: `Found ${unfixedCount} active issues, ${result.issues.filter(i => i.fixed).length} marked as fixed`,
+      });
+    } catch (error) {
+      toast.error('Scan Failed', {
+        description: 'Could not connect to database. Check your connection.',
+      });
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const handleMarkFixed = async (issueId: string) => {
+    markIssueFixed(issueId);
+    await handleScan(); // Rescan to update UI
+    toast.success('Issue Marked as Fixed', {
+      description: 'This issue will be hidden unless you show fixed issues.',
     });
   };
 
-  const handleFixAll = async () => {
-    if (!scanResult) return;
-    
-    setIsFixing(true);
-    setFixProgress(0);
-    setFixResults([]);
-    
-    const totalIssues = scanResult.issues.length;
-    
-    // Animate progress
-    for (let i = 0; i <= totalIssues; i++) {
-      await new Promise(r => setTimeout(r, 200));
-      setFixProgress((i / totalIssues) * 100);
-    }
-    
-    const result = applyAllFixes();
-    setFixResults(result.details);
-    
-    // Re-scan after fixes
+  const handleUnmarkFixed = async (issueId: string) => {
+    unmarkIssueFixed(issueId);
     await handleScan();
-    setIsFixing(false);
-    
-    if (result.failed === 0) {
-      toast.success('All Issues Fixed!', {
-        description: `${result.applied} fixes verified successfully.`,
-      });
-    } else {
-      toast.warning('Some Issues Remain', {
-        description: `${result.applied} fixed, ${result.failed} need attention.`,
-      });
-    }
+    toast.info('Issue Unmarked', {
+      description: 'This issue is now active again.',
+    });
+  };
+
+  const handleClearAllFixed = async () => {
+    clearAllFixedMarkers();
+    await handleScan();
+    toast.info('All Fixed Markers Cleared', {
+      description: 'All issues are now shown as active.',
+    });
   };
 
   const toggleIssue = (id: string) => {
@@ -103,6 +106,7 @@ export default function Debugger() {
       case 'critical': return 'bg-red-500/20 text-red-400 border-red-500/50';
       case 'high': return 'bg-orange-500/20 text-orange-400 border-orange-500/50';
       case 'medium': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50';
+      case 'info': return 'bg-blue-500/20 text-blue-400 border-blue-500/50';
       default: return 'bg-muted text-muted-foreground';
     }
   };
@@ -112,9 +116,19 @@ export default function Debugger() {
       case 'critical': return 'border-l-4 border-l-red-500';
       case 'high': return 'border-l-4 border-l-orange-500';
       case 'medium': return 'border-l-4 border-l-yellow-500';
+      case 'info': return 'border-l-4 border-l-blue-500';
       default: return '';
     }
   };
+
+  // Filter issues based on showFixed toggle
+  const displayedIssues = scanResult?.issues.filter(issue => {
+    if (issue.severity === 'info') return true; // Always show info items
+    return showFixed ? true : !issue.fixed;
+  }) || [];
+
+  const activeIssueCount = scanResult?.issues.filter(i => !i.fixed && i.severity !== 'info').length || 0;
+  const fixedIssueCount = scanResult?.issues.filter(i => i.fixed && i.severity !== 'info').length || 0;
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -127,15 +141,31 @@ export default function Debugger() {
           <div>
             <h1 className="text-2xl font-bold">Trading Bot Debugger</h1>
             <p className="text-muted-foreground">
-              Automatic detection and fixing of profit calculation issues
+              Real-time detection of trading issues from database
             </p>
           </div>
         </div>
         <div className="flex gap-2">
           <Button 
             variant="outline" 
+            size="sm"
+            onClick={() => setShowFixed(!showFixed)}
+          >
+            {showFixed ? 'Hide Fixed' : 'Show Fixed'}
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={handleClearAllFixed}
+            disabled={fixedIssueCount === 0}
+          >
+            <RotateCcw className="w-4 h-4 mr-1" />
+            Reset All
+          </Button>
+          <Button 
+            variant="outline" 
             onClick={handleScan}
-            disabled={isScanning || isFixing}
+            disabled={isScanning}
           >
             {isScanning ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -144,38 +174,20 @@ export default function Debugger() {
             )}
             Rescan
           </Button>
-          <Button 
-            onClick={handleFixAll}
-            disabled={isScanning || isFixing || !scanResult}
-            className="bg-green-600 hover:bg-green-700"
-          >
-            {isFixing ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Fixing...
-              </>
-            ) : (
-              <>
-                <Wrench className="w-4 h-4 mr-2" />
-                Verify All Fixes ({scanResult?.issues.length || 0})
-              </>
-            )}
-          </Button>
         </div>
       </div>
 
-      {/* Fix Progress */}
-      {isFixing && (
+      {/* Scanning indicator */}
+      {isScanning && (
         <Card className="border-primary/50 bg-primary/5">
           <CardContent className="py-4">
             <div className="flex items-center gap-4">
               <Loader2 className="w-5 h-5 animate-spin text-primary" />
               <div className="flex-1">
                 <div className="flex justify-between mb-1">
-                  <span className="text-sm font-medium">Verifying fixes...</span>
-                  <span className="text-sm text-muted-foreground">{Math.round(fixProgress)}%</span>
+                  <span className="text-sm font-medium">Scanning database for issues...</span>
                 </div>
-                <Progress value={fixProgress} className="h-2" />
+                <Progress value={50} className="h-2 animate-pulse" />
               </div>
             </div>
           </CardContent>
@@ -184,7 +196,7 @@ export default function Debugger() {
 
       {/* Summary Cards */}
       {scanResult && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card className="bg-gradient-to-br from-red-500/10 to-red-600/5 border-red-500/20">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -209,14 +221,24 @@ export default function Debugger() {
             </CardContent>
           </Card>
           
+          <Card className="bg-gradient-to-br from-yellow-500/10 to-yellow-600/5 border-yellow-500/20">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Medium</p>
+                  <p className="text-3xl font-bold text-yellow-400">{scanResult.mediumCount}</p>
+                </div>
+                <Info className="w-10 h-10 text-yellow-500/50" />
+              </div>
+            </CardContent>
+          </Card>
+          
           <Card className="bg-gradient-to-br from-green-500/10 to-green-600/5 border-green-500/20">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Fixed</p>
-                  <p className="text-3xl font-bold text-green-400">
-                    {scanResult.issues.filter(i => i.fixed).length}
-                  </p>
+                  <p className="text-3xl font-bold text-green-400">{fixedIssueCount}</p>
                 </div>
                 <CheckCircle2 className="w-10 h-10 text-green-500/50" />
               </div>
@@ -227,146 +249,150 @@ export default function Debugger() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Scanned Files</p>
-                  <p className="text-3xl font-bold text-blue-400">{scanResult.scannedFiles.length}</p>
+                  <p className="text-sm text-muted-foreground">Tables Scanned</p>
+                  <p className="text-3xl font-bold text-blue-400">{scanResult.scannedTables.length}</p>
                 </div>
-                <FileCode className="w-10 h-10 text-blue-500/50" />
+                <Database className="w-10 h-10 text-blue-500/50" />
               </div>
             </CardContent>
           </Card>
         </div>
       )}
 
-      {/* Fix Results */}
-      {fixResults.length > 0 && (
-        <Card className="border-green-500/30 bg-green-500/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Shield className="w-5 h-5 text-green-400" />
-              Fix Verification Results
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ScrollArea className="h-40">
-              <div className="space-y-1 font-mono text-sm">
-                {fixResults.map((result, idx) => (
-                  <div key={idx} className={result.startsWith('✅') ? 'text-green-400' : 'text-red-400'}>
-                    {result}
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Issues List */}
       {scanResult && (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Activity className="w-5 h-5" />
-            Detected Issues ({scanResult.issues.length})
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Activity className="w-5 h-5" />
+              {showFixed ? 'All Issues' : 'Active Issues'} ({displayedIssues.length})
+            </h2>
+            {activeIssueCount > 0 && (
+              <Badge variant="destructive" className="animate-pulse">
+                {activeIssueCount} Need Attention
+              </Badge>
+            )}
+          </div>
           
-          {scanResult.issues.map((issue) => (
-            <Collapsible
-              key={issue.id}
-              open={expandedIssues.has(issue.id)}
-              onOpenChange={() => toggleIssue(issue.id)}
-            >
-              <Card className={`${getSeverityBorder(issue.severity)} ${issue.fixed ? 'opacity-75' : ''}`}>
-                <CollapsibleTrigger asChild>
-                  <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-3">
-                        {expandedIssues.has(issue.id) ? (
-                          <ChevronDown className="w-5 h-5 mt-0.5 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="w-5 h-5 mt-0.5 text-muted-foreground" />
-                        )}
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <Badge className={getSeverityColor(issue.severity)}>
-                              {issue.severity.toUpperCase()}
-                            </Badge>
-                            {issue.fixed && (
-                              <Badge className="bg-green-500/20 text-green-400 border-green-500/50">
-                                <Check className="w-3 h-3 mr-1" />
-                                FIXED
+          {displayedIssues.length === 0 ? (
+            <Card className="border-green-500/30 bg-green-500/5">
+              <CardContent className="py-8 text-center">
+                <CheckCircle2 className="w-12 h-12 text-green-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-green-400">All Clear!</h3>
+                <p className="text-muted-foreground">No active issues detected in the database.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            displayedIssues.map((issue) => (
+              <Collapsible
+                key={issue.id}
+                open={expandedIssues.has(issue.id)}
+                onOpenChange={() => toggleIssue(issue.id)}
+              >
+                <Card className={`${getSeverityBorder(issue.severity)} ${issue.fixed ? 'opacity-60' : ''}`}>
+                  <CollapsibleTrigger asChild>
+                    <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors pb-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-3">
+                          {expandedIssues.has(issue.id) ? (
+                            <ChevronDown className="w-5 h-5 mt-0.5 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="w-5 h-5 mt-0.5 text-muted-foreground" />
+                          )}
+                          <div>
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <Badge className={getSeverityColor(issue.severity)}>
+                                {issue.severity.toUpperCase()}
                               </Badge>
+                              <Badge variant="outline">{issue.category}</Badge>
+                              <Badge variant="secondary">{issue.count} occurrence(s)</Badge>
+                              {issue.fixed && (
+                                <Badge className="bg-green-500/20 text-green-400 border-green-500/50">
+                                  <Check className="w-3 h-3 mr-1" />
+                                  FIXED
+                                </Badge>
+                              )}
+                            </div>
+                            <CardTitle className="text-base">{issue.title}</CardTitle>
+                            <p className="text-sm text-muted-foreground mt-1">{issue.description}</p>
+                          </div>
+                        </div>
+                        
+                        {/* Mark as Fixed / Unfix button */}
+                        {issue.severity !== 'info' && (
+                          <div onClick={(e) => e.stopPropagation()}>
+                            {issue.fixed ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleUnmarkFixed(issue.id)}
+                                className="text-muted-foreground hover:text-foreground"
+                              >
+                                <RotateCcw className="w-4 h-4 mr-1" />
+                                Unfix
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleMarkFixed(issue.id)}
+                                className="text-green-400 border-green-500/50 hover:bg-green-500/10"
+                              >
+                                <Check className="w-4 h-4 mr-1" />
+                                Mark Fixed
+                              </Button>
                             )}
                           </div>
-                          <CardTitle className="text-base">{issue.title}</CardTitle>
-                          <p className="text-sm text-muted-foreground mt-1">{issue.description}</p>
-                        </div>
+                        )}
                       </div>
-                      <div className="text-right text-sm text-muted-foreground">
-                        {issue.locations.length} location(s)
+                    </CardHeader>
+                  </CollapsibleTrigger>
+                  
+                  <CollapsibleContent>
+                    <CardContent className="pt-0 space-y-4">
+                      {/* Impact */}
+                      <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                        <p className="text-sm font-medium text-destructive mb-1">Impact:</p>
+                        <p className="text-sm text-muted-foreground">{issue.impact}</p>
                       </div>
-                    </div>
-                  </CardHeader>
-                </CollapsibleTrigger>
-                
-                <CollapsibleContent>
-                  <CardContent className="pt-0 space-y-4">
-                    {/* Impact */}
-                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
-                      <p className="text-sm font-medium text-destructive mb-1">Impact:</p>
-                      <p className="text-sm text-muted-foreground">{issue.impact}</p>
-                    </div>
 
-                    {/* Locations */}
-                    <div>
-                      <p className="text-sm font-medium mb-2">Found in:</p>
-                      <div className="space-y-1">
-                        {issue.locations.map((loc, idx) => (
-                          <div key={idx} className="flex items-center gap-2 text-sm font-mono bg-muted/50 p-2 rounded">
-                            <FileCode className="w-4 h-4 text-muted-foreground" />
-                            <span className="text-primary">{loc.file}</span>
-                            <span className="text-muted-foreground">- line {loc.line}</span>
+                      {/* Details Grid */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {issue.affectedPairs && issue.affectedPairs.length > 0 && (
+                          <div className="bg-muted/50 rounded-lg p-3">
+                            <p className="text-xs text-muted-foreground mb-1">Affected Pairs</p>
+                            <p className="text-sm font-medium">{issue.affectedPairs.join(', ')}</p>
                           </div>
-                        ))}
+                        )}
+                        {issue.affectedExchanges && issue.affectedExchanges.length > 0 && (
+                          <div className="bg-muted/50 rounded-lg p-3">
+                            <p className="text-xs text-muted-foreground mb-1">Exchanges</p>
+                            <p className="text-sm font-medium">{issue.affectedExchanges.join(', ')}</p>
+                          </div>
+                        )}
+                        {issue.lastOccurrence && (
+                          <div className="bg-muted/50 rounded-lg p-3">
+                            <p className="text-xs text-muted-foreground mb-1">Last Seen</p>
+                            <p className="text-sm font-medium">
+                              {new Date(issue.lastOccurrence).toLocaleString()}
+                            </p>
+                          </div>
+                        )}
+                        {issue.fixedAt && (
+                          <div className="bg-green-500/10 rounded-lg p-3 border border-green-500/20">
+                            <p className="text-xs text-green-400 mb-1">Marked Fixed</p>
+                            <p className="text-sm font-medium text-green-300">
+                              {new Date(issue.fixedAt).toLocaleString()}
+                            </p>
+                          </div>
+                        )}
                       </div>
-                    </div>
-
-                    {/* Fix Applied */}
-                    {issue.fixed && issue.fixApplied && (
-                      <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                        <p className="text-sm font-medium text-green-400 mb-1">Fix Applied:</p>
-                        <p className="text-sm text-muted-foreground">{issue.fixApplied}</p>
-                      </div>
-                    )}
-
-                    {/* Side-by-side code comparison */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm font-medium mb-2 flex items-center gap-2">
-                          <X className="w-4 h-4 text-red-400" />
-                          Broken Code
-                        </p>
-                        <ScrollArea className="h-48">
-                          <pre className="p-4 rounded-lg bg-red-950/30 border border-red-900/50 text-sm overflow-x-auto">
-                            <code className="text-red-200">{issue.brokenCode}</code>
-                          </pre>
-                        </ScrollArea>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium mb-2 flex items-center gap-2">
-                          <Check className="w-4 h-4 text-green-400" />
-                          Fixed Code
-                        </p>
-                        <ScrollArea className="h-48">
-                          <pre className="p-4 rounded-lg bg-green-950/30 border border-green-900/50 text-sm overflow-x-auto">
-                            <code className="text-green-200">{issue.fixedCode}</code>
-                          </pre>
-                        </ScrollArea>
-                      </div>
-                    </div>
-                  </CardContent>
-                </CollapsibleContent>
-              </Card>
-            </Collapsible>
-          ))}
+                    </CardContent>
+                  </CollapsibleContent>
+                </Card>
+              </Collapsible>
+            ))
+          )}
         </div>
       )}
 
@@ -377,7 +403,9 @@ export default function Debugger() {
             <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
               <span>Scan time: {scanResult.scanTime}ms</span>
               <span>•</span>
-              <span>Files scanned: {scanResult.scannedFiles.join(', ')}</span>
+              <span>Tables scanned: {scanResult.scannedTables.join(', ')}</span>
+              <span>•</span>
+              <span>Last scan: {new Date(scanResult.lastScanAt).toLocaleTimeString()}</span>
             </div>
           </CardContent>
         </Card>

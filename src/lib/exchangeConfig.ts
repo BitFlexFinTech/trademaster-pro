@@ -25,14 +25,15 @@ export const EXCHANGE_CONFIGS: ExchangeConfig[] = [
 export const TOP_PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'DOT', 'LINK'];
 
 // Centralized minimum trade amounts per exchange (in USDT)
+// Lowered to $1 to allow trading with smaller balances
 export const EXCHANGE_MINIMUMS: Record<string, number> = {
-  Binance: 10,
-  Bybit: 10,
-  OKX: 10,
-  Kraken: 10,
-  Nexo: 10,
-  KuCoin: 10,
-  Hyperliquid: 10,
+  Binance: 1,
+  Bybit: 1,
+  OKX: 1,
+  Kraken: 1,
+  Nexo: 1,
+  KuCoin: 1,
+  Hyperliquid: 1,
 };
 
 // Helper function to get minimum trade amount for an exchange
