@@ -1175,6 +1175,20 @@ export function BotCard({
         }
       }
 
+      // ===== REGIME DIRECTION ENFORCEMENT =====
+      // Block trades that don't match the current regime when sync is enabled
+      if (regimeDirectionSync && regime) {
+        const regimeBlocked = 
+          (regime === 'BULL' && direction === 'short') ||
+          (regime === 'BEAR' && direction === 'long');
+        
+        if (regimeBlocked) {
+          console.log(`🚫 Trade blocked by regime: ${direction} not allowed in ${regime} regime`);
+          return; // Skip this trade, wait for next cycle
+        }
+        console.log(`✅ Regime check passed: ${direction} allowed in ${regime}`);
+      }
+
       const leverage = botType === 'leverage' ? (leveragesRef.current[currentExchange] || 1) : 1;
       
       // ===== ADAPTIVE POSITION SIZING based on hit rate =====

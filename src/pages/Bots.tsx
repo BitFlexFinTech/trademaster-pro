@@ -1710,6 +1710,9 @@ export default function Bots() {
               {/* Regime History Summary Card */}
               <RegimeHistorySummaryCard />
 
+              {/* Regime Performance Chart - P&L Trends per Regime */}
+              <RegimePerformanceChart />
+
               {/* Profit Withdrawal History Chart */}
               <ProfitWithdrawalChart className="max-h-[400px] overflow-y-auto" />
 
