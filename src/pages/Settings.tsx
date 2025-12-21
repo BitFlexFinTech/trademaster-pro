@@ -8,6 +8,7 @@ import { Settings as SettingsIcon, Link, AlertTriangle, CheckCircle2, Unlink, Re
 import { ExchangeConnectModal } from '@/components/exchange/ExchangeConnectModal';
 import { SecurityConfigPanel } from '@/components/settings/SecurityConfigPanel';
 import { SoundNotificationSettings } from '@/components/settings/SoundNotificationSettings';
+import { JarvisSettingsPanel } from '@/components/settings/JarvisSettingsPanel';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -398,6 +399,9 @@ export default function Settings() {
 
       {/* Sound Notification Settings */}
       <SoundNotificationSettings />
+
+      {/* JARVIS Engine Settings */}
+      <JarvisSettingsPanel />
 
       {/* Exchange Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -455,6 +455,274 @@ function calculateSLPrice(
     : entryPrice * (1 + slDistance);
 }
 
+// ============ JARVIS FUTURES CONFIG ============
+const JARVIS_FUTURES_CONFIG = {
+  default_leverage: 4,
+  effective_multiplier: 4,
+  margin_type: 'ISOLATED' as const,
+  hedge_mode_enabled: true,
+  maintenance_margin_rate: 0.004,  // 0.4% for most symbols
+  futures_base_url: 'https://fapi.binance.com',
+};
+
+// ============ BINANCE FUTURES API FUNCTIONS ============
+
+// Set margin type (ISOLATED or CROSSED) for Binance Futures
+async function setBinanceFuturesMarginType(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  marginType: 'ISOLATED' | 'CROSSED'
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const timestamp = Date.now();
+    const params = `symbol=${symbol}&marginType=${marginType}&timestamp=${timestamp}`;
+    const signature = await hmacSha256(apiSecret, params);
+
+    const response = await fetch(
+      `${JARVIS_FUTURES_CONFIG.futures_base_url}/fapi/v1/marginType?${params}&signature=${signature}`,
+      { method: 'POST', headers: { 'X-MBX-APIKEY': apiKey } }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      // Error -4046 means margin type already set - not an error
+      if (error.code === -4046) {
+        console.log(`ℹ️ Margin type already ${marginType} for ${symbol}`);
+        return { success: true };
+      }
+      return { success: false, error: error.msg || 'Failed to set margin type' };
+    }
+    
+    console.log(`✅ Set margin type to ${marginType} for ${symbol}`);
+    return { success: true };
+  } catch (e) {
+    console.error('setBinanceFuturesMarginType error:', e);
+    return { success: false, error: e instanceof Error ? e.message : 'Unknown error' };
+  }
+}
+
+// Enable/disable hedge mode (dual position mode) for Binance Futures
+async function setBinanceFuturesPositionMode(
+  apiKey: string,
+  apiSecret: string,
+  dualSidePosition: boolean
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const timestamp = Date.now();
+    const params = `dualSidePosition=${dualSidePosition}&timestamp=${timestamp}`;
+    const signature = await hmacSha256(apiSecret, params);
+
+    const response = await fetch(
+      `${JARVIS_FUTURES_CONFIG.futures_base_url}/fapi/v1/positionSide/dual?${params}&signature=${signature}`,
+      { method: 'POST', headers: { 'X-MBX-APIKEY': apiKey } }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      // Error -4059 means position mode already set
+      if (error.code === -4059) {
+        console.log(`ℹ️ Position mode already ${dualSidePosition ? 'hedge' : 'one-way'}`);
+        return { success: true };
+      }
+      return { success: false, error: error.msg || 'Failed to set position mode' };
+    }
+    
+    console.log(`✅ Set position mode to ${dualSidePosition ? 'Hedge Mode' : 'One-way Mode'}`);
+    return { success: true };
+  } catch (e) {
+    console.error('setBinanceFuturesPositionMode error:', e);
+    return { success: false, error: e instanceof Error ? e.message : 'Unknown error' };
+  }
+}
+
+// Set leverage for a symbol on Binance Futures
+async function setBinanceFuturesLeverage(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  leverage: number
+): Promise<{ success: boolean; maxLeverage?: number; error?: string }> {
+  try {
+    const timestamp = Date.now();
+    const params = `symbol=${symbol}&leverage=${leverage}&timestamp=${timestamp}`;
+    const signature = await hmacSha256(apiSecret, params);
+
+    const response = await fetch(
+      `${JARVIS_FUTURES_CONFIG.futures_base_url}/fapi/v1/leverage?${params}&signature=${signature}`,
+      { method: 'POST', headers: { 'X-MBX-APIKEY': apiKey } }
+    );
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      return { success: false, error: data.msg || 'Failed to set leverage' };
+    }
+    
+    console.log(`✅ Set leverage to ${data.leverage}x for ${symbol} (max: ${data.maxNotionalValue})`);
+    return { success: true, maxLeverage: data.maxNotionalValue };
+  } catch (e) {
+    console.error('setBinanceFuturesLeverage error:', e);
+    return { success: false, error: e instanceof Error ? e.message : 'Unknown error' };
+  }
+}
+
+// Place a futures order with positionSide for hedge mode
+async function placeBinanceFuturesOrder(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  side: 'BUY' | 'SELL',
+  positionSide: 'LONG' | 'SHORT',
+  quantity: string,
+  clientOrderId?: string
+): Promise<{ success: boolean; orderId?: string; avgPrice?: number; executedQty?: string; error?: string }> {
+  try {
+    const timestamp = Date.now();
+    let params = `symbol=${symbol}&side=${side}&positionSide=${positionSide}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+    if (clientOrderId) params += `&newClientOrderId=${clientOrderId}`;
+    const signature = await hmacSha256(apiSecret, params);
+
+    const response = await fetch(
+      `${JARVIS_FUTURES_CONFIG.futures_base_url}/fapi/v1/order?${params}&signature=${signature}`,
+      { method: 'POST', headers: { 'X-MBX-APIKEY': apiKey } }
+    );
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error('Futures order failed:', data);
+      return { success: false, error: data.msg || 'Order failed' };
+    }
+    
+    console.log(`✅ Futures ${side} ${positionSide} order filled: ${data.executedQty} @ ${data.avgPrice}`);
+    return { 
+      success: true, 
+      orderId: data.orderId?.toString(),
+      avgPrice: parseFloat(data.avgPrice),
+      executedQty: data.executedQty
+    };
+  } catch (e) {
+    console.error('placeBinanceFuturesOrder error:', e);
+    return { success: false, error: e instanceof Error ? e.message : 'Unknown error' };
+  }
+}
+
+// Get position risk data including liquidation price
+async function getBinanceFuturesPositionRisk(
+  apiKey: string,
+  apiSecret: string,
+  symbol?: string
+): Promise<{ 
+  success: boolean; 
+  positions?: Array<{
+    symbol: string;
+    positionSide: 'LONG' | 'SHORT' | 'BOTH';
+    liquidationPrice: number;
+    unRealizedProfit: number;
+    positionAmt: number;
+    entryPrice: number;
+    leverage: number;
+    marginType: string;
+  }>;
+  error?: string;
+}> {
+  try {
+    const timestamp = Date.now();
+    let params = `timestamp=${timestamp}`;
+    if (symbol) params += `&symbol=${symbol}`;
+    const signature = await hmacSha256(apiSecret, params);
+
+    const response = await fetch(
+      `${JARVIS_FUTURES_CONFIG.futures_base_url}/fapi/v2/positionRisk?${params}&signature=${signature}`,
+      { method: 'GET', headers: { 'X-MBX-APIKEY': apiKey } }
+    );
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      return { success: false, error: data.msg || 'Failed to get position risk' };
+    }
+    
+    const positions = data
+      .filter((p: any) => parseFloat(p.positionAmt) !== 0)
+      .map((p: any) => ({
+        symbol: p.symbol,
+        positionSide: p.positionSide,
+        liquidationPrice: parseFloat(p.liquidationPrice),
+        unRealizedProfit: parseFloat(p.unRealizedProfit),
+        positionAmt: parseFloat(p.positionAmt),
+        entryPrice: parseFloat(p.entryPrice),
+        leverage: parseInt(p.leverage),
+        marginType: p.marginType,
+      }));
+    
+    return { success: true, positions };
+  } catch (e) {
+    console.error('getBinanceFuturesPositionRisk error:', e);
+    return { success: false, error: e instanceof Error ? e.message : 'Unknown error' };
+  }
+}
+
+// Get Binance Futures lot size for proper quantity formatting
+async function getBinanceFuturesLotSize(symbol: string): Promise<{ stepSize: string; minQty: string; minNotional: number }> {
+  try {
+    const response = await fetch(`${JARVIS_FUTURES_CONFIG.futures_base_url}/fapi/v1/exchangeInfo`);
+    const data = await response.json();
+    
+    const symbolInfo = data.symbols?.find((s: any) => s.symbol === symbol);
+    if (!symbolInfo) {
+      return { stepSize: '0.001', minQty: '0.001', minNotional: 5 };
+    }
+    
+    const lotSizeFilter = symbolInfo.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+    const minNotionalFilter = symbolInfo.filters.find((f: any) => f.filterType === 'MIN_NOTIONAL');
+    
+    return {
+      stepSize: lotSizeFilter?.stepSize || '0.001',
+      minQty: lotSizeFilter?.minQty || '0.001',
+      minNotional: parseFloat(minNotionalFilter?.notional || '5') || 5
+    };
+  } catch (e) {
+    console.error('Failed to fetch Binance Futures lot size:', e);
+    return { stepSize: '0.001', minQty: '0.001', minNotional: 5 };
+  }
+}
+
+// Initialize Binance Futures account for JARVIS trading
+async function initializeBinanceFuturesAccount(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  leverage: number = JARVIS_FUTURES_CONFIG.default_leverage,
+  marginType: 'ISOLATED' | 'CROSSED' = JARVIS_FUTURES_CONFIG.margin_type,
+  enableHedgeMode: boolean = JARVIS_FUTURES_CONFIG.hedge_mode_enabled
+): Promise<{ success: boolean; errors: string[] }> {
+  const errors: string[] = [];
+  
+  // 1. Enable hedge mode if requested
+  if (enableHedgeMode) {
+    const hedgeResult = await setBinanceFuturesPositionMode(apiKey, apiSecret, true);
+    if (!hedgeResult.success && hedgeResult.error) {
+      errors.push(`Hedge mode: ${hedgeResult.error}`);
+    }
+  }
+  
+  // 2. Set margin type
+  const marginResult = await setBinanceFuturesMarginType(apiKey, apiSecret, symbol, marginType);
+  if (!marginResult.success && marginResult.error) {
+    errors.push(`Margin type: ${marginResult.error}`);
+  }
+  
+  // 3. Set leverage
+  const leverageResult = await setBinanceFuturesLeverage(apiKey, apiSecret, symbol, leverage);
+  if (!leverageResult.success && leverageResult.error) {
+    errors.push(`Leverage: ${leverageResult.error}`);
+  }
+  
+  return { success: errors.length === 0, errors };
+}
+
 interface BotTradeRequest {
   botId: string;
   mode: 'spot' | 'leverage';
@@ -463,7 +731,13 @@ interface BotTradeRequest {
   leverages?: Record<string, number>;
   isSandbox: boolean;
   maxPositionSize?: number;
-  stopLossPercent?: number; // 0.2 = 20% of profit (80% lower)
+  stopLossPercent?: number;
+  // JARVIS Futures fields
+  hedgeMode?: boolean;
+  useFutures?: boolean;
+  marginType?: 'ISOLATED' | 'CROSSED';
+  positionSide?: 'LONG' | 'SHORT';
+  futuresLeverage?: number;
 }
 
 // Get market momentum from 1h price change
