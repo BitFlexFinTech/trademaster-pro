@@ -348,7 +348,17 @@ export default function BugsDashboard() {
               <RefreshCw className="w-4 h-4 animate-spin" />
               Checking balances...
             </div>
-          ) : reconciliation ? (
+          ) : !reconciliation ? (
+            <div className="text-center py-8">
+              <CheckCircle className="w-12 h-12 mx-auto mb-4 text-green-500" />
+              <h3 className="font-semibold text-green-500 mb-2">All Clear!</h3>
+              <p className="text-muted-foreground text-sm mb-4">No open positions to reconcile. Your balances are synced.</p>
+              <Button variant="outline" size="sm" onClick={fetchReconciliation}>
+                <RefreshCw className="w-4 h-4 mr-1" />
+                Check Again
+              </Button>
+            </div>
+          ) : (
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-card rounded-lg p-3 border">
@@ -447,8 +457,6 @@ export default function BugsDashboard() {
                 )}
               </div>
             </>
-          ) : (
-            <p className="text-muted-foreground">No reconciliation data available. Click refresh to check.</p>
           )}
         </CardContent>
       </Card>

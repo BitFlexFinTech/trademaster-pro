@@ -34,6 +34,7 @@ import Arbitrage from "./pages/Arbitrage";
 import PairPerformance from "./pages/PairPerformance";
 import BugsDashboardPage from "./pages/BugsDashboard";
 import Debugger from "./pages/Debugger";
+import TradesHistory from "./pages/TradesHistory";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -79,6 +80,7 @@ const App = () => (
                     <Route path="/demo-account" element={<DemoAccount />} />
                     <Route path="/bugs-dashboard" element={<BugsDashboardPage />} />
                     <Route path="/debugger" element={<Debugger />} />
+                    <Route path="/trades-history" element={<TradesHistory />} />
                     <Route path="/admin" element={<Admin />} />
                   </Route>
                   <Route path="*" element={<NotFound />} />

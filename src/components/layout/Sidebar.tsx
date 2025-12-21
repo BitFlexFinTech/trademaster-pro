@@ -37,6 +37,7 @@ const navItems = [
   { to: '/auto-earn', icon: Zap, label: 'Auto Earn' },
   { to: '/bots', icon: Bot, label: 'Bots' },
   { to: '/bot-analytics', icon: Brain, label: 'Bot Analytics' },
+  { to: '/trades-history', icon: BarChart3, label: 'Trades History' },
   { to: '/pair-performance', icon: BarChart3, label: 'Pair Analytics' },
   { to: '/arbitrage', icon: ArrowRightLeft, label: 'Arbitrage' },
   { to: '/airdrops', icon: Gift, label: 'Airdrops' },
