@@ -209,7 +209,7 @@ export default function BotAnalytics() {
 
           <TabsContent value="regime" className="m-0 space-y-4">
             <JarvisPerformanceAnalytics />
-            <RegimeTransitionChart timeframe="7d" />
+            <RegimeTransitionChart timeframeDays={7} />
           </TabsContent>
 
           <TabsContent value="spreads" className="m-0 space-y-4">
