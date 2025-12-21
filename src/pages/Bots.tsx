@@ -1063,6 +1063,7 @@ export default function Bots() {
                   dailyStopLoss={botConfig.dailyStopLoss}
                   perTradeStopLoss={botConfig.perTradeStopLoss}
                   onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+                  refetch={refetch}
                 />
               )}
             </div>
@@ -1590,6 +1591,7 @@ export default function Bots() {
                       configDailyTarget={botConfig.dailyTarget}
                       configProfitPerTrade={botConfig.profitPerTrade}
                       configMinProfitThreshold={botConfig.minProfitThreshold}
+                      refetch={refetch}
                     />
                     <BotCard
                       botType="leverage"
@@ -1614,6 +1616,7 @@ export default function Bots() {
                       configDailyTarget={botConfig.dailyTarget}
                       configProfitPerTrade={botConfig.profitPerTrade}
                       configMinProfitThreshold={botConfig.minProfitThreshold}
+                      refetch={refetch}
                     />
                   </>
                 )}

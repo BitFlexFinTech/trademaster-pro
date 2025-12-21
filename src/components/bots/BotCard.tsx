@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -56,6 +56,8 @@ interface BotCardProps {
   configDailyTarget?: number;
   configProfitPerTrade?: number;
   configMinProfitThreshold?: number;
+  // NEW: Force refresh callback
+  refetch?: () => Promise<void>;
 }
 
 export function BotCard({
@@ -79,6 +81,8 @@ export function BotCard({
   configDailyTarget,
   configProfitPerTrade,
   configMinProfitThreshold,
+  // NEW: Force refresh callback
+  refetch,
 }: BotCardProps) {
   const { user } = useAuth();
   // Use separate triggers: resetTrigger for full reset, dailyResetTrigger for 24h P&L reset, syncTrigger for data sync
@@ -163,6 +167,7 @@ export function BotCard({
   const [tradingStrategy, setTradingStrategy] = useState<TradingStrategy>('profit');
   const [isExecutingTrade, setIsExecutingTrade] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [connectionHealth, setConnectionHealth] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
   const [pendingTrades, setPendingTrades] = useState<Array<{ orderId: string; exchange: string; symbol: string; tradeId?: string }>>([]);
   
@@ -279,7 +284,79 @@ export function BotCard({
     }
   }, [syncTrigger]);
 
-  // CRITICAL: Update pricesRef when prices change (no re-render of main useEffect)
+  // ===== REAL-TIME WEBSOCKET for trades - instant updates =====
+  useEffect(() => {
+    if (!user || !existingBot?.id) return;
+
+    const tradesChannel = supabase
+      .channel(`bot-trades-realtime-${existingBot.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'trades',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const newTrade = payload.new as {
+            id: string;
+            pair: string;
+            direction: string;
+            entry_price: number;
+            exit_price: number | null;
+            profit_loss: number | null;
+            is_sandbox: boolean;
+            created_at: string;
+          };
+          
+          // Only process live trades (not sandbox)
+          if (newTrade.is_sandbox) return;
+          
+          console.log('📊 Real-time trade update:', newTrade.pair, 'P&L:', newTrade.profit_loss);
+          
+          // Update metrics immediately from real-time data
+          if (newTrade.profit_loss !== null) {
+            setMetrics(prev => {
+              const newPnl = prev.currentPnL + newTrade.profit_loss!;
+              const newTrades = prev.tradesExecuted + 1;
+              const isWin = newTrade.profit_loss! > 0;
+              const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
+              const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
+              
+              metricsRef.current = { currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate, winsCount: wins };
+              
+              return {
+                ...prev,
+                currentPnL: newPnl,
+                tradesExecuted: newTrades,
+                hitRate: newHitRate,
+                maxDrawdown: Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown),
+              };
+            });
+            
+            // Add to recent trades for display
+            setRecentTrades(prev => [{
+              id: newTrade.id,
+              pair: newTrade.pair,
+              direction: newTrade.direction as 'long' | 'short',
+              entryPrice: newTrade.entry_price,
+              exitPrice: newTrade.exit_price || newTrade.entry_price,
+              pnl: newTrade.profit_loss || 0,
+              holdTimeMs: 0,
+              timestamp: Date.now(),
+              isWin: (newTrade.profit_loss || 0) > 0,
+            }, ...prev].slice(0, 5));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(tradesChannel);
+    };
+  }, [user, existingBot?.id]);
+
   useEffect(() => {
     pricesRef.current = prices;
   }, [prices]);
@@ -629,14 +706,27 @@ export function BotCard({
                       ? (statusData.avgPrice - data.entryPrice) / data.entryPrice * data.positionSize
                       : (data.entryPrice - statusData.avgPrice) / data.entryPrice * data.positionSize;
                     
-                    setMetrics(prev => ({
-                      ...prev,
-                      currentPnL: prev.currentPnL + pnl,
-                      tradesExecuted: prev.tradesExecuted + 1,
-                      hitRate: prev.tradesExecuted > 0 
-                        ? ((prev.hitRate * prev.tradesExecuted / 100) + (pnl > 0 ? 1 : 0)) / (prev.tradesExecuted + 1) * 100
-                        : pnl > 0 ? 100 : 0,
-                    }));
+                    // FIXED: Update metrics and sync CUMULATIVE values to database
+                    setMetrics(prev => {
+                      const newPnl = prev.currentPnL + pnl;
+                      const newTrades = prev.tradesExecuted + 1;
+                      const isWin = pnl > 0;
+                      const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
+                      const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
+                      
+                      // Update metricsRef for consistency
+                      metricsRef.current = { currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate, winsCount: wins };
+                      
+                      // Sync CUMULATIVE values to database (not incremental)
+                      onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
+                      
+                      return {
+                        ...prev,
+                        currentPnL: newPnl,
+                        tradesExecuted: newTrades,
+                        hitRate: newHitRate,
+                      };
+                    });
                     
           if (data?.exchange && data?.pair && data?.direction && Number.isFinite(pnl)) {
             notifyTrade(data.exchange, data.pair, data.direction, pnl);
@@ -667,12 +757,19 @@ export function BotCard({
           }
           
           if (data?.success && data?.pnl !== undefined) {
+            // FIXED: Update metrics and sync CUMULATIVE values to database
             setMetrics(prev => {
               const newPnl = prev.currentPnL + data.pnl;
               const newTrades = prev.tradesExecuted + 1;
               const isWin = data.pnl > 0;
               const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
               const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
+              
+              // Update metricsRef for consistency
+              metricsRef.current = { currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate, winsCount: wins };
+              
+              // Sync CUMULATIVE values to database (not incremental!)
+              onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
               
               return {
                 ...prev,
@@ -682,8 +779,6 @@ export function BotCard({
                 maxDrawdown: Math.min(prev.maxDrawdown, newPnl < 0 ? newPnl : prev.maxDrawdown),
               };
             });
-            
-            onUpdateBotPnl(existingBot.id, data.pnl, 1, data.pnl > 0 ? 100 : 0);
           }
           
           if (data?.pair && data?.direction) {
@@ -1507,6 +1602,75 @@ export function BotCard({
               </TooltipTrigger>
               <TooltipContent>
                 {soundEnabled ? 'Sound On - Click to mute' : 'Sound Off - Click to enable'}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          {/* Force Refresh Button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={isRefreshing}
+                  onClick={async () => {
+                    if (!refetch) return;
+                    setIsRefreshing(true);
+                    try {
+                      await refetch();
+                      // Also refresh trades from database
+                      if (user && existingBot?.id) {
+                        const { data: trades } = await supabase
+                          .from('trades')
+                          .select('*')
+                          .eq('user_id', user.id)
+                          .eq('is_sandbox', false)
+                          .order('created_at', { ascending: false })
+                          .limit(20);
+                        
+                        if (trades && trades.length > 0) {
+                          // Recalculate P&L from actual trades
+                          const totalPnl = trades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
+                          const wins = trades.filter(t => (t.profit_loss || 0) > 0).length;
+                          const hitRate = trades.length > 0 ? (wins / trades.length) * 100 : 0;
+                          
+                          setMetrics(prev => ({
+                            ...prev,
+                            currentPnL: totalPnl,
+                            tradesExecuted: trades.length,
+                            hitRate,
+                          }));
+                          metricsRef.current = { currentPnL: totalPnl, tradesExecuted: trades.length, hitRate, winsCount: wins };
+                          
+                          // Update recent trades list
+                          setRecentTrades(trades.slice(0, 5).map(t => ({
+                            id: t.id,
+                            pair: t.pair,
+                            direction: t.direction as 'long' | 'short',
+                            entryPrice: t.entry_price,
+                            exitPrice: t.exit_price || t.entry_price,
+                            pnl: t.profit_loss || 0,
+                            holdTimeMs: 0,
+                            timestamp: new Date(t.created_at).getTime(),
+                            isWin: (t.profit_loss || 0) > 0,
+                          })));
+                        }
+                      }
+                      toast.success('Data synced');
+                    } catch (err) {
+                      console.error('Refresh failed:', err);
+                      toast.error('Failed to sync data');
+                    } finally {
+                      setIsRefreshing(false);
+                    }
+                  }}
+                  className="h-6 w-6 p-0"
+                >
+                  <RefreshCw className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Force refresh data from database
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
