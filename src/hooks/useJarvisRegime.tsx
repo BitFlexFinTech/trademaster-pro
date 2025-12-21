@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
 import { useJarvisSettings } from '@/hooks/useJarvisSettings';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 import { calculateEMA } from '@/lib/technicalAnalysis';
 
 export type RegimeType = 'BULL' | 'BEAR' | 'CHOP';
@@ -32,6 +34,7 @@ const DEFAULT_CHOP_TARGET = 1.00;
 export function useJarvisRegime(symbol: string = 'BTCUSDT'): UseJarvisRegimeReturn {
   const { tickers } = useBinanceWebSocket();
   const { settings } = useJarvisSettings();
+  const { user } = useAuth();
   
   const [state, setState] = useState<RegimeState>({
     regime: 'CHOP',
@@ -50,11 +53,70 @@ export function useJarvisRegime(symbol: string = 'BTCUSDT'): UseJarvisRegimeRetu
   const lastTransitionRef = useRef<Date | null>(null);
   const ema200Ref = useRef<number>(0);
   const priceHistoryRef = useRef<number[]>([]);
+  const currentRegimeIdRef = useRef<string | null>(null);
+  const tradesInRegimeRef = useRef<number>(0);
+  const pnlInRegimeRef = useRef<number>(0);
+
+  // Persist regime transition to database
+  const persistRegimeTransition = useCallback(async (
+    newRegime: RegimeType,
+    price: number,
+    ema200: number,
+    deviation: number
+  ) => {
+    if (!user?.id) return;
+
+    try {
+      // Close previous regime if exists
+      if (currentRegimeIdRef.current) {
+        const previousTransition = lastTransitionRef.current;
+        const durationMinutes = previousTransition 
+          ? Math.floor((Date.now() - previousTransition.getTime()) / 60000)
+          : 0;
+
+        await supabase
+          .from('regime_history')
+          .update({
+            ended_at: new Date().toISOString(),
+            duration_minutes: durationMinutes,
+            trades_during_regime: tradesInRegimeRef.current,
+            pnl_during_regime: pnlInRegimeRef.current,
+          })
+          .eq('id', currentRegimeIdRef.current);
+
+        console.log(`[useJarvisRegime] Closed regime ${lastRegimeRef.current}: ${durationMinutes}min, ${tradesInRegimeRef.current} trades, $${pnlInRegimeRef.current.toFixed(2)} P&L`);
+      }
+
+      // Insert new regime record
+      const { data, error } = await supabase
+        .from('regime_history')
+        .insert({
+          user_id: user.id,
+          symbol,
+          regime: newRegime,
+          ema200,
+          price,
+          deviation,
+          started_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+
+      if (error) throw error;
+
+      currentRegimeIdRef.current = data.id;
+      tradesInRegimeRef.current = 0;
+      pnlInRegimeRef.current = 0;
+
+      console.log(`[useJarvisRegime] Started new regime ${newRegime}: ID ${data.id}`);
+    } catch (error) {
+      console.error('[useJarvisRegime] Failed to persist regime transition:', error);
+    }
+  }, [user?.id, symbol]);
 
   // Fetch historical data for EMA calculation
   const fetchHistoricalData = useCallback(async () => {
     try {
-      const symbolLower = symbol.toLowerCase();
       const response = await fetch(
         `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=1h&limit=200`
       );
@@ -64,11 +126,10 @@ export function useJarvisRegime(symbol: string = 'BTCUSDT'): UseJarvisRegimeRetu
       }
       
       const klines = await response.json();
-      const closePrices = klines.map((k: any[]) => parseFloat(k[4])); // Close price is index 4
+      const closePrices = klines.map((k: any[]) => parseFloat(k[4]));
       
       priceHistoryRef.current = closePrices;
       
-      // Calculate 200 EMA - the function returns a single number
       const ema = calculateEMA(closePrices, 200);
       ema200Ref.current = typeof ema === 'number' ? ema : 0;
       
@@ -95,7 +156,6 @@ export function useJarvisRegime(symbol: string = 'BTCUSDT'): UseJarvisRegimeRetu
   useEffect(() => {
     fetchHistoricalData();
     
-    // Refresh EMA every hour
     const interval = setInterval(fetchHistoricalData, 60 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchHistoricalData]);
@@ -111,14 +171,12 @@ export function useJarvisRegime(symbol: string = 'BTCUSDT'): UseJarvisRegimeRetu
     const ema200 = ema200Ref.current;
     const deviation = (currentPrice - ema200) / ema200;
     
-    // Get thresholds from settings or use defaults
     const bullThreshold = settings?.regime_bull_ema_deviation ?? DEFAULT_BULL_DEVIATION;
     const bearThreshold = settings?.regime_bear_ema_deviation ?? DEFAULT_BEAR_DEVIATION;
     const bullTarget = settings?.target_bull_profit ?? DEFAULT_BULL_TARGET;
     const bearTarget = settings?.target_bear_profit ?? DEFAULT_BEAR_TARGET;
     const chopTarget = settings?.target_chop_profit ?? DEFAULT_CHOP_TARGET;
     
-    // Determine regime
     let regime: RegimeType;
     let adaptiveTarget: number;
     let focusDirection: 'long' | 'short' | 'scalp';
@@ -140,11 +198,14 @@ export function useJarvisRegime(symbol: string = 'BTCUSDT'): UseJarvisRegimeRetu
     // Check for regime transition
     if (regime !== lastRegimeRef.current) {
       console.log(`[useJarvisRegime] Regime transition: ${lastRegimeRef.current} → ${regime}`);
+      
+      // Persist to database
+      persistRegimeTransition(regime, currentPrice, ema200, deviation);
+      
       lastRegimeRef.current = regime;
       lastTransitionRef.current = new Date();
     }
     
-    // Calculate regime age in minutes
     const regimeAge = lastTransitionRef.current 
       ? Math.floor((Date.now() - lastTransitionRef.current.getTime()) / 60000)
       : 0;
@@ -153,7 +214,7 @@ export function useJarvisRegime(symbol: string = 'BTCUSDT'): UseJarvisRegimeRetu
       regime,
       ema200,
       currentPrice,
-      deviation: deviation * 100, // Convert to percentage
+      deviation: deviation * 100,
       adaptiveTarget,
       focusDirection,
       regimeAge,
@@ -162,7 +223,7 @@ export function useJarvisRegime(symbol: string = 'BTCUSDT'): UseJarvisRegimeRetu
       error: null,
     });
     
-  }, [tickers, symbol, settings]);
+  }, [tickers, symbol, settings, persistRegimeTransition]);
 
   return {
     ...state,

@@ -3,6 +3,9 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Slider } from '@/components/ui/slider';
+import { Label } from '@/components/ui/label';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { 
   Activity, 
   AlertTriangle, 
@@ -14,7 +17,10 @@ import {
   RefreshCw,
   StopCircle,
   Brain,
-  Wallet
+  Wallet,
+  Settings,
+  Save,
+  X
 } from 'lucide-react';
 import { useJarvisRegime } from '@/hooks/useJarvisRegime';
 import { useJarvisSentinels } from '@/hooks/useJarvisSentinels';
@@ -23,18 +29,43 @@ import { useJarvisAIAdvisor } from '@/hooks/useJarvisAIAdvisor';
 import { useJarvisSettings } from '@/hooks/useJarvisSettings';
 import { useEmergencyKillSwitch } from '@/hooks/useEmergencyKillSwitch';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 export function JarvisEngineDashboard() {
   const [symbol] = useState('BTCUSDT');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   
   const { regime, ema200, currentPrice, deviation, adaptiveTarget, isLoading: regimeLoading } = useJarvisRegime(symbol);
   const { rate, liquidation, alerts } = useJarvisSentinels();
   const { longPosition, shortPosition, marginBalance, availableBalance, isLoading: positionsLoading, refetch } = useJarvisFuturesPositions();
   const { suggestions, currentAnalysis, isLoading: advisorLoading } = useJarvisAIAdvisor(symbol);
-  const { settings } = useJarvisSettings();
+  const { settings, updateSettings, isSaving } = useJarvisSettings();
   
   const currentPnL = (longPosition?.unrealizedProfit ?? 0) + (shortPosition?.unrealizedProfit ?? 0);
   const { killStatus, triggerKill, isKilling } = useEmergencyKillSwitch({ currentPnL });
+
+  // Quick settings state
+  const [quickSettings, setQuickSettings] = useState({
+    target_bull_profit: settings?.target_bull_profit ?? 2.10,
+    target_bear_profit: settings?.target_bear_profit ?? 2.10,
+    liquidation_warning_threshold: settings?.liquidation_warning_threshold ?? 25,
+    rate_cooldown_threshold: (settings?.rate_cooldown_threshold ?? 0.80) * 100,
+  });
+
+  const handleQuickSettingsSave = async () => {
+    try {
+      await updateSettings({
+        target_bull_profit: quickSettings.target_bull_profit,
+        target_bear_profit: quickSettings.target_bear_profit,
+        liquidation_warning_threshold: quickSettings.liquidation_warning_threshold,
+        rate_cooldown_threshold: quickSettings.rate_cooldown_threshold / 100,
+      });
+      toast.success('Settings saved');
+      setSettingsOpen(false);
+    } catch (error) {
+      toast.error('Failed to save settings');
+    }
+  };
 
   const getRegimeIcon = () => {
     switch (regime) {
@@ -58,15 +89,8 @@ export function JarvisEngineDashboard() {
     return 'bg-red-500';
   };
 
-  const getLiquidationColor = (distance: number | null) => {
-    if (!distance) return 'bg-muted';
-    if (distance > 25) return 'bg-emerald-500';
-    if (distance > 22) return 'bg-amber-500';
-    return 'bg-red-500';
-  };
-
   return (
-    <Card className="bg-slate-950 border-slate-800 font-mono text-sm overflow-hidden">
+    <Card className="bg-slate-950 border-slate-800 font-mono text-sm overflow-hidden relative">
       {/* Header */}
       <div className="border-b border-slate-800 px-4 py-3 flex items-center justify-between bg-slate-900/50">
         <div className="flex items-center gap-3">
@@ -85,6 +109,102 @@ export function JarvisEngineDashboard() {
             {getRegimeIcon()}
             <span className="ml-1">{regime}</span>
           </Badge>
+          
+          {/* Quick Settings Button */}
+          <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <CollapsibleTrigger asChild>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className={cn("h-7 text-slate-400 hover:text-slate-200", settingsOpen && "bg-slate-800")}
+              >
+                <Settings className="h-3.5 w-3.5" />
+              </Button>
+            </CollapsibleTrigger>
+            
+            {/* Quick Settings Panel */}
+            <CollapsibleContent className="absolute right-4 top-14 z-50 w-72 bg-slate-900 border border-slate-700 rounded-lg p-4 shadow-xl">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-sm font-semibold text-slate-200">Quick Settings</span>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setSettingsOpen(false)}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-slate-400">BULL Target Profit</Label>
+                    <span className="text-xs text-emerald-400">${quickSettings.target_bull_profit.toFixed(2)}</span>
+                  </div>
+                  <Slider
+                    value={[quickSettings.target_bull_profit]}
+                    onValueChange={([v]) => setQuickSettings(s => ({ ...s, target_bull_profit: v }))}
+                    min={0.5}
+                    max={5.0}
+                    step={0.10}
+                    className="w-full"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-slate-400">BEAR Target Profit</Label>
+                    <span className="text-xs text-red-400">${quickSettings.target_bear_profit.toFixed(2)}</span>
+                  </div>
+                  <Slider
+                    value={[quickSettings.target_bear_profit]}
+                    onValueChange={([v]) => setQuickSettings(s => ({ ...s, target_bear_profit: v }))}
+                    min={0.5}
+                    max={5.0}
+                    step={0.10}
+                    className="w-full"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-slate-400">Liquidation Warning %</Label>
+                    <span className="text-xs text-amber-400">{quickSettings.liquidation_warning_threshold}%</span>
+                  </div>
+                  <Slider
+                    value={[quickSettings.liquidation_warning_threshold]}
+                    onValueChange={([v]) => setQuickSettings(s => ({ ...s, liquidation_warning_threshold: v }))}
+                    min={20}
+                    max={35}
+                    step={1}
+                    className="w-full"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-slate-400">API Cooldown Threshold</Label>
+                    <span className="text-xs text-cyan-400">{quickSettings.rate_cooldown_threshold}%</span>
+                  </div>
+                  <Slider
+                    value={[quickSettings.rate_cooldown_threshold]}
+                    onValueChange={([v]) => setQuickSettings(s => ({ ...s, rate_cooldown_threshold: v }))}
+                    min={60}
+                    max={95}
+                    step={5}
+                    className="w-full"
+                  />
+                </div>
+                
+                <Button 
+                  size="sm" 
+                  className="w-full bg-emerald-600 hover:bg-emerald-700"
+                  onClick={handleQuickSettingsSave}
+                  disabled={isSaving}
+                >
+                  <Save className="h-3.5 w-3.5 mr-1.5" />
+                  {isSaving ? 'Saving...' : 'Save Settings'}
+                </Button>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+          
           <Button 
             variant="ghost" 
             size="sm" 
