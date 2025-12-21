@@ -21,6 +21,9 @@ const URGENT_ALARM_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAA
 // WARNING ALERT - Approaching thresholds (liquidation 22-25%, API 80-95%)
 const WARNING_ALERT_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAESsAACJWAAABAAgAZGF0YSgAAAD/AAD/AAD/AAD/AAD/AAD/AAD/AAD/AAD/AAD/AAD/AAD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8=';
 
+// REGIME CHANGE - Distinctive transition chime
+const REGIME_CHANGE_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAESsAACJWAAABAAgAZGF0YSgAAP///wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/';
+
 interface NotificationSettings {
   soundEnabled: boolean;
   pushEnabled: boolean;
@@ -36,6 +39,7 @@ export function useNotifications() {
   const targetAudioRef = useRef<HTMLAudioElement | null>(null);
   const urgentAlarmRef = useRef<HTMLAudioElement | null>(null);
   const warningAlertRef = useRef<HTMLAudioElement | null>(null);
+  const regimeChangeRef = useRef<HTMLAudioElement | null>(null);
   
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const stored = localStorage.getItem('notificationSoundEnabled');
@@ -68,6 +72,9 @@ export function useNotifications() {
 
     warningAlertRef.current = new Audio(WARNING_ALERT_SOUND);
     warningAlertRef.current.volume = 0.7;
+
+    regimeChangeRef.current = new Audio(REGIME_CHANGE_SOUND);
+    regimeChangeRef.current.volume = 0.6;
   }, []);
 
   // Keep ref in sync with state
@@ -142,6 +149,13 @@ export function useNotifications() {
     if (soundEnabledRef.current && settingsRef.current.soundEnabled && warningAlertRef.current) {
       warningAlertRef.current.currentTime = 0;
       warningAlertRef.current.play().catch(() => {});
+    }
+  }, []);
+
+  const playRegimeChangeSound = useCallback(() => {
+    if (soundEnabledRef.current && settingsRef.current.soundEnabled && regimeChangeRef.current) {
+      regimeChangeRef.current.currentTime = 0;
+      regimeChangeRef.current.play().catch(() => {});
     }
   }, []);
 
@@ -382,6 +396,7 @@ export function useNotifications() {
     playTargetSound,
     playUrgentAlarmSound,
     playWarningAlertSound,
+    playRegimeChangeSound,
     requestPushPermission,
     saveAlert,
     soundEnabled,

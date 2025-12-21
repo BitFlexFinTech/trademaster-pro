@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw, CheckCircle2, XCircle, Radio, SlidersHorizontal, Check } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw, CheckCircle2, XCircle, Radio, SlidersHorizontal, Check, Gauge } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -8,11 +8,13 @@ import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useOrderBookScanning } from '@/hooks/useOrderBookScanning';
+import { useJarvisRegime } from '@/hooks/useJarvisRegime';
 import { supabase } from '@/integrations/supabase/client';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
 import { calculateNetProfit, MIN_NET_PROFIT, getFeeRate, hasMinimumEdge, calculateRequiredTPPercent } from '@/lib/exchangeFees';
@@ -208,13 +210,71 @@ export function BotCard({
     isRunning,
   });
 
-  // Position auto-scaling based on consecutive wins/losses
+  // JARVIS Regime Detection
+  const { 
+    regime, 
+    deviation, 
+    focusDirection,
+    adaptiveTarget,
+    isLoading: regimeLoading 
+  } = useJarvisRegime('BTCUSDT');
+
+  // Regime direction sync state
+  const [regimeDirectionSync, setRegimeDirectionSync] = useState(false);
+
+  // Position auto-scaling based on consecutive wins/losses + regime
   const { 
     scaledPositionSize, 
     scalingReason, 
     currentMultiplier,
-    recentPerformance 
-  } = usePositionAutoScaling({ config: { basePositionSize: localAmountPerTrade } });
+    recentPerformance,
+    regimeMultiplier,
+    regimeConfidence,
+    combinedScalingReason,
+  } = usePositionAutoScaling({ 
+    config: { basePositionSize: localAmountPerTrade },
+    regime,
+    deviation: Math.abs(deviation),
+  });
+
+  // Load regime direction sync from database
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    const loadRegimeSync = async () => {
+      const { data } = await supabase
+        .from('bot_config')
+        .select('regime_direction_sync')
+        .eq('user_id', user.id)
+        .single();
+      
+      if (data) {
+        setRegimeDirectionSync(data.regime_direction_sync ?? false);
+      }
+    };
+    
+    loadRegimeSync();
+  }, [user?.id]);
+
+  // Save regime direction sync to database
+  const handleRegimeDirectionSyncChange = useCallback(async (enabled: boolean) => {
+    setRegimeDirectionSync(enabled);
+    
+    if (!user?.id) return;
+    
+    await supabase
+      .from('bot_config')
+      .upsert({
+        user_id: user.id,
+        regime_direction_sync: enabled,
+      }, { onConflict: 'user_id' });
+    
+    toast.success(enabled ? 'Regime sync enabled' : 'Regime sync disabled', {
+      description: enabled 
+        ? `Trades will follow ${regime} regime (${focusDirection})`
+        : 'Both long and short trades allowed',
+    });
+  }, [user?.id, regime, focusDirection]);
 
   const [recentTrades, setRecentTrades] = useState<Array<{
     id: string;
@@ -1977,6 +2037,107 @@ export function BotCard({
               )}
               Apply Changes
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Regime-Based Scaling Indicator - Show when bot is running */}
+      {isRunning && regime && !regimeLoading && (
+        <div className="mb-3 p-2 bg-slate-800/50 rounded-lg border border-slate-700">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Regime Badge */}
+            <Badge 
+              variant="outline" 
+              className={cn(
+                "text-[9px] px-1.5",
+                regime === 'BULL' && "border-green-500 text-green-400 bg-green-500/10",
+                regime === 'BEAR' && "border-red-500 text-red-400 bg-red-500/10",
+                regime === 'CHOP' && "border-amber-500 text-amber-400 bg-amber-500/10"
+              )}
+            >
+              {regime === 'BULL' && '🐂'}
+              {regime === 'BEAR' && '🐻'}
+              {regime === 'CHOP' && '🌊'}
+              {' '}{regime}
+            </Badge>
+            
+            {/* Regime Multiplier */}
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] text-muted-foreground">Regime:</span>
+              <span className={cn(
+                "text-[10px] font-mono font-bold",
+                regimeMultiplier > 1 && "text-green-400",
+                regimeMultiplier < 1 && "text-amber-400",
+                regimeMultiplier === 1 && "text-slate-400"
+              )}>
+                {regimeMultiplier.toFixed(2)}x
+              </span>
+            </div>
+            
+            {/* Confidence Gauge */}
+            <div className="flex items-center gap-1">
+              <Gauge className="w-3 h-3 text-muted-foreground" />
+              <div className="w-12 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                <div 
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    regimeConfidence >= 0.7 && "bg-green-500",
+                    regimeConfidence >= 0.5 && regimeConfidence < 0.7 && "bg-amber-500",
+                    regimeConfidence < 0.5 && "bg-slate-500"
+                  )}
+                  style={{ width: `${regimeConfidence * 100}%` }}
+                />
+              </div>
+              <span className="text-[9px] text-muted-foreground">
+                {(regimeConfidence * 100).toFixed(0)}%
+              </span>
+            </div>
+            
+            {/* Combined Multiplier */}
+            <div className="ml-auto flex items-center gap-1">
+              <span className="text-[9px] text-muted-foreground">Total:</span>
+              <span className={cn(
+                "text-[10px] font-mono font-bold",
+                currentMultiplier > 1 && "text-green-400",
+                currentMultiplier < 1 && "text-red-400",
+                currentMultiplier === 1 && "text-slate-400"
+              )}>
+                {currentMultiplier.toFixed(2)}x
+              </span>
+            </div>
+          </div>
+          
+          {/* Scaling Reason */}
+          {combinedScalingReason && (
+            <div className="mt-1.5 text-[9px] text-muted-foreground">
+              {combinedScalingReason}
+            </div>
+          )}
+          
+          {/* Direction Sync Toggle */}
+          <div className="mt-2 flex items-center justify-between pt-2 border-t border-slate-700">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] text-muted-foreground">Sync Direction to Regime</span>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Brain className="w-3 h-3 text-purple-500" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-[200px]">
+                    <p className="text-xs">
+                      BULL = Long only<br/>
+                      BEAR = Short only<br/>
+                      CHOP = Both directions
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <Switch
+              checked={regimeDirectionSync}
+              onCheckedChange={handleRegimeDirectionSyncChange}
+              className="scale-75"
+            />
           </div>
         </div>
       )}
