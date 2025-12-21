@@ -17,7 +17,7 @@ interface BotsMobileDrawerProps {
   prices: any[];
   startBot: (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number, isSandbox: boolean, amountPerTrade?: number, tradeIntervalMs?: number) => Promise<any>;
   stopBot: (botId: string, botName: string) => Promise<void>;
-  updateBotPnl: (botId: string, pnl: number, trades: number, hitRate: number) => Promise<void>;
+  updateBotPnl: (botId: string, pnl: number, trades: number, hitRate: number) => Promise<{ success: boolean; error?: string } | void>;
   analyzeBot: (botId: string, botName: string) => Promise<void>;
   suggestedUSDT: number;
   usdtFloat: Array<{ exchange: string; amount: number; warning: boolean }>;
