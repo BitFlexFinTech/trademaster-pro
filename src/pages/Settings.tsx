@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Settings as SettingsIcon, Link, AlertTriangle, CheckCircle2, Unlink, RefreshCw, Loader2 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Settings as SettingsIcon, Link, AlertTriangle, CheckCircle2, Unlink, RefreshCw, Loader2, Bell, DollarSign, TrendingDown, Target } from 'lucide-react';
 import { ExchangeConnectModal } from '@/components/exchange/ExchangeConnectModal';
 import { SecurityConfigPanel } from '@/components/settings/SecurityConfigPanel';
 import { supabase } from '@/integrations/supabase/client';
@@ -25,6 +29,28 @@ interface ExchangeConnection {
   encrypted_api_key?: string | null;
 }
 
+interface AlertThresholds {
+  pnlWarning: number;
+  pnlDanger: number;
+  hitRateWarning: number;
+  largeProfitCelebration: number;
+  enablePnlAlerts: boolean;
+  enableHitRateAlerts: boolean;
+  enableLargeProfitAlerts: boolean;
+  enableLossStreakAlerts: boolean;
+}
+
+const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
+  pnlWarning: -5,
+  pnlDanger: -10,
+  hitRateWarning: 60,
+  largeProfitCelebration: 5,
+  enablePnlAlerts: true,
+  enableHitRateAlerts: true,
+  enableLargeProfitAlerts: true,
+  enableLossStreakAlerts: true,
+};
+
 export default function Settings() {
   const [connections, setConnections] = useState<Record<string, ExchangeConnection>>({});
   const [selectedExchange, setSelectedExchange] = useState<typeof EXCHANGES[0] | null>(null);
@@ -32,8 +58,21 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [alertThresholds, setAlertThresholds] = useState<AlertThresholds>(DEFAULT_ALERT_THRESHOLDS);
+  const [savingAlerts, setSavingAlerts] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
+
+  // Load alert thresholds from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('greenback-alert-thresholds');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setAlertThresholds({ ...DEFAULT_ALERT_THRESHOLDS, ...parsed });
+      } catch { /* ignore */ }
+    }
+  }, []);
 
   const handleSyncBalances = async () => {
     if (!user) return;
@@ -136,16 +175,36 @@ export default function Settings() {
     }
   };
 
+  const handleSaveAlertThresholds = async () => {
+    setSavingAlerts(true);
+    try {
+      localStorage.setItem('greenback-alert-thresholds', JSON.stringify(alertThresholds));
+      toast({
+        title: 'Alert Settings Saved',
+        description: 'Your alert thresholds have been updated.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Save Failed',
+        description: 'Failed to save alert settings',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingAlerts(false);
+    }
+  };
+
   const connectedCount = Object.values(connections).filter(c => c.is_connected).length;
   const exchangesNeedingReconnect = Object.values(connections).filter(
     c => c.is_connected && !c.encrypted_api_key
   );
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <SettingsIcon className="w-6 h-6 text-primary" />
-          <h1 className="text-xl font-bold text-foreground">Exchange Settings</h1>
+          <h1 className="text-xl font-bold text-foreground">Settings</h1>
         </div>
         <div className="flex items-center gap-3">
           <Button 
@@ -185,6 +244,156 @@ export default function Settings() {
           </div>
         </div>
       )}
+
+      {/* Alert Thresholds Configuration */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Bell className="w-5 h-5 text-primary" />
+            <CardTitle>Alert Thresholds</CardTitle>
+          </div>
+          <CardDescription>
+            Configure when you receive notifications for P&L, hit rate, and trading events.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* P&L Alerts */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-yellow-500" />
+                <Label className="text-sm font-medium">P&L Alerts</Label>
+              </div>
+              <Switch
+                checked={alertThresholds.enablePnlAlerts}
+                onCheckedChange={(checked) => setAlertThresholds(prev => ({ ...prev, enablePnlAlerts: checked }))}
+              />
+            </div>
+            
+            {alertThresholds.enablePnlAlerts && (
+              <div className="pl-6 space-y-4">
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-muted-foreground">Warning threshold</span>
+                    <span className="font-medium text-yellow-500">${alertThresholds.pnlWarning}</span>
+                  </div>
+                  <Slider
+                    value={[alertThresholds.pnlWarning]}
+                    onValueChange={([val]) => setAlertThresholds(prev => ({ ...prev, pnlWarning: val }))}
+                    min={-20}
+                    max={0}
+                    step={1}
+                    className="w-full"
+                  />
+                </div>
+                
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-muted-foreground">Danger threshold</span>
+                    <span className="font-medium text-red-500">${alertThresholds.pnlDanger}</span>
+                  </div>
+                  <Slider
+                    value={[alertThresholds.pnlDanger]}
+                    onValueChange={([val]) => setAlertThresholds(prev => ({ ...prev, pnlDanger: val }))}
+                    min={-50}
+                    max={-5}
+                    step={1}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Hit Rate Alerts */}
+          <div className="space-y-4 pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-blue-500" />
+                <Label className="text-sm font-medium">Hit Rate Alerts</Label>
+              </div>
+              <Switch
+                checked={alertThresholds.enableHitRateAlerts}
+                onCheckedChange={(checked) => setAlertThresholds(prev => ({ ...prev, enableHitRateAlerts: checked }))}
+              />
+            </div>
+            
+            {alertThresholds.enableHitRateAlerts && (
+              <div className="pl-6">
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-muted-foreground">Alert when hit rate drops below</span>
+                  <span className="font-medium text-blue-500">{alertThresholds.hitRateWarning}%</span>
+                </div>
+                <Slider
+                  value={[alertThresholds.hitRateWarning]}
+                  onValueChange={([val]) => setAlertThresholds(prev => ({ ...prev, hitRateWarning: val }))}
+                  min={40}
+                  max={80}
+                  step={5}
+                  className="w-full"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Large Profit Celebration */}
+          <div className="space-y-4 pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingDown className="w-4 h-4 text-green-500 rotate-180" />
+                <Label className="text-sm font-medium">Large Profit Celebration</Label>
+              </div>
+              <Switch
+                checked={alertThresholds.enableLargeProfitAlerts}
+                onCheckedChange={(checked) => setAlertThresholds(prev => ({ ...prev, enableLargeProfitAlerts: checked }))}
+              />
+            </div>
+            
+            {alertThresholds.enableLargeProfitAlerts && (
+              <div className="pl-6">
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-muted-foreground">Celebrate profits above</span>
+                  <span className="font-medium text-green-500">${alertThresholds.largeProfitCelebration}</span>
+                </div>
+                <Slider
+                  value={[alertThresholds.largeProfitCelebration]}
+                  onValueChange={([val]) => setAlertThresholds(prev => ({ ...prev, largeProfitCelebration: val }))}
+                  min={1}
+                  max={50}
+                  step={1}
+                  className="w-full"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Loss Streak Alerts */}
+          <div className="space-y-4 pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-orange-500" />
+                <Label className="text-sm font-medium">Loss Streak Alerts</Label>
+              </div>
+              <Switch
+                checked={alertThresholds.enableLossStreakAlerts}
+                onCheckedChange={(checked) => setAlertThresholds(prev => ({ ...prev, enableLossStreakAlerts: checked }))}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground pl-6">
+              Get notified when 3+ consecutive losing trades occur.
+            </p>
+          </div>
+
+          <Button 
+            onClick={handleSaveAlertThresholds}
+            disabled={savingAlerts}
+            className="w-full"
+          >
+            {savingAlerts ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+            Save Alert Settings
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Exchange Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
