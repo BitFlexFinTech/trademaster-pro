@@ -409,20 +409,31 @@ export function BotCard({
 
     // ===== LIVE MODE: Execute real trades via edge function =====
     if (tradingMode === 'live') {
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`🔴 LIVE MODE: Executing real trades via edge function every ${localTradeIntervalMs}ms`);
-      }
+      // COMPREHENSIVE LOGGING: Trading loop initialization
+      console.log(`🔴 LIVE MODE: Starting trading loop for ${botName}`);
+      console.log(`   Bot ID: ${existingBot?.id}`);
+      console.log(`   User ID: ${user?.id}`);
+      console.log(`   Profit Target: $${profitPerTrade}`);
+      console.log(`   Trade Interval: ${localTradeIntervalMs}ms`);
+      console.log(`   Amount Per Trade: $${localAmountPerTrade}`);
+      console.log(`   Trading Loop ID: ${tradingLoopIdRef.current}`);
       
       const exchangeCooldowns = new Map<string, number>();
       let consecutiveErrors = 0;
       const MAX_CONSECUTIVE_ERRORS = 3;
       
       const executeLiveTrade = async () => {
+        const tradeStartTime = Date.now();
+        console.log(`\n📊 ========== TRADE CYCLE START [${new Date().toISOString()}] ==========`);
+        console.log(`   Bot: ${botName}`);
+        console.log(`   Running: ${isRunning}`);
+        console.log(`   Cancelled: ${isCancelledRef.current}`);
+        console.log(`   Stopping: ${isStoppingRef.current}`);
+        console.log(`   Executing: ${isExecutingRef.current}`);
+        
         // CRITICAL: Check stop flags FIRST
         if (isCancelledRef.current || isStoppingRef.current) {
-          if (process.env.NODE_ENV === 'development') {
-            console.log('🛑 Stop flag detected in live trade, exiting');
-          }
+          console.log('🛑 Stop flag detected in live trade, exiting');
           if (intervalRef.current) {
             clearInterval(intervalRef.current);
             intervalRef.current = null;
@@ -432,13 +443,12 @@ export function BotCard({
         
         // CRITICAL: Prevent concurrent executions - wait if already executing
         if (isExecutingRef.current) {
-          if (process.env.NODE_ENV === 'development') {
-            console.log('⏳ Previous trade still executing, skipping this cycle');
-          }
+          console.log('⏳ Previous trade still executing, skipping this cycle');
           return;
         }
         
         isExecutingRef.current = true;
+        console.log('🔒 Acquired execution lock');
         
         try {
           const now = Date.now();
@@ -456,9 +466,15 @@ export function BotCard({
             return;
           }
           
-          if (process.env.NODE_ENV === 'development') {
-            console.log('📤 Calling execute-bot-trade edge function...');
-          }
+          console.log('📤 Calling execute-bot-trade edge function...');
+          console.log('   Request payload:', JSON.stringify({
+            botId: existingBot.id,
+            mode: botType,
+            profitTarget: profitPerTrade,
+            exchanges: availableExchanges,
+            isSandbox: false,
+            maxPositionSize: localAmountPerTrade,
+          }, null, 2));
           
           let data, error;
           try {
@@ -519,7 +535,8 @@ export function BotCard({
           }
           
           consecutiveErrors = 0;
-          console.log('✅ Live trade result:', data);
+          console.log('✅ Live trade result:', JSON.stringify(data, null, 2));
+          console.log(`   Trade cycle took: ${Date.now() - tradeStartTime}ms`);
           
           if (data?.success === false) {
             console.warn('⚠️ Trade not executed:', data.reason || data.error);
