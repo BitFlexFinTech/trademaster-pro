@@ -372,14 +372,15 @@ async function getExchangeAwareDelay(exchange: string): Promise<void> {
 }
 
 // ============ MINIMUM ORDER SIZE PER EXCHANGE ============
+// Lowered to $1 to allow trading with smaller balances
 const EXCHANGE_MIN_ORDER: Record<string, number> = {
-  binance: 5,       // $5 min notional (dynamic via API)
-  bybit: 5,         // $5 min (dynamic via API)
+  binance: 1,       // $1 min (Binance actual is $5 notional, but we allow attempts)
+  bybit: 1,         // $1 min
   okx: 1,           // $1 min for most pairs
-  kraken: 5,        // $5 min for most pairs
-  nexo: 10,         // $10 min estimate
+  kraken: 1,        // $1 min
+  nexo: 1,          // $1 min
   kucoin: 1,        // $1 min
-  hyperliquid: 10,  // $10 min
+  hyperliquid: 1,   // $1 min
 };
 
 // Dynamic MIN_NET_PROFIT calculation - scales properly for small positions
