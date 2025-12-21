@@ -12,6 +12,7 @@ import { useDailyTargetRecommendation } from '@/hooks/useDailyTargetRecommendati
 import { useEmergencyKillSwitch } from '@/hooks/useEmergencyKillSwitch';
 import { useMLConfidence } from '@/hooks/useMLConfidence';
 import { useOpenPositionMonitor } from '@/hooks/useOpenPositionMonitor';
+import { useOnboardingTips } from '@/hooks/useOnboardingTips';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,6 +47,7 @@ import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
 import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
 import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
 import { TradeExecutionStatus } from '@/components/bots/TradeExecutionStatus';
+import { BotsOnboardingTips } from '@/components/bots/BotsOnboardingTips';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -119,6 +121,9 @@ export default function Bots() {
   // Collapsible sections state - collapsed by default per user request
   const [usdtFloatOpen, setUsdtFloatOpen] = useState(false);
   const [aiRecommendationOpen, setAiRecommendationOpen] = useState(false);
+  
+  // Onboarding tips for first-time visitors
+  const { hasSeenBotsTips, markAsSeen } = useOnboardingTips();
   
   // AI Daily Target Recommendation
   const { 
@@ -1137,6 +1142,14 @@ export default function Bots() {
               )}
             </div>
           </div>
+
+          {/* Onboarding Tips - First-time visitors only */}
+          {!hasSeenBotsTips && (
+            <BotsOnboardingTips
+              onDismiss={markAsSeen}
+              className="mb-3"
+            />
+          )}
 
           {/* Exchange Re-Connection Warning - Live Mode Only */}
           {tradingMode === 'live' && needsReconnection.length > 0 && (
