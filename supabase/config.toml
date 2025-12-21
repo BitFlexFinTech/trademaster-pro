@@ -98,3 +98,6 @@ verify_jwt = true
 
 [functions.ai-trailing-stop-manager]
 verify_jwt = true
+
+[functions.ai-code-analyzer]
+verify_jwt = true

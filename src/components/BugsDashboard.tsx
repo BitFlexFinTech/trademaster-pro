@@ -4,11 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Bug, Search, Zap, CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw, Trash2, DollarSign, Wrench, Loader2 } from 'lucide-react';
+import { Bug, Search, Zap, CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw, Trash2, DollarSign, Wrench, Loader2, Brain, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBalanceReconciliation } from '@/hooks/useBalanceReconciliation';
 import { ProfitAuditLogViewer } from '@/components/bugs/ProfitAuditLogViewer';
 import { useIssueSync } from '@/hooks/useIssueSync';
+import { supabase } from '@/integrations/supabase/client';
 
 interface BugEntry {
   id: string;
@@ -38,10 +39,28 @@ interface SystemStatus {
   currentAction: string;
 }
 
+interface AIRecommendation {
+  id: string;
+  title: string;
+  priority: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  confidence: number;
+  rootCause: string;
+  action: string;
+  estimatedImpact: string;
+}
+
+interface AIAnalysisResult {
+  recommendations: AIRecommendation[];
+  summary: string;
+  healthScore: number;
+}
+
 export default function BugsDashboard() {
   const [filter, setFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
   const [problemInput, setProblemInput] = useState('');
   const [isInvestigating, setIsInvestigating] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Use shared issue sync hook - syncs with Debugger page
   const {
@@ -95,6 +114,57 @@ export default function BugsDashboard() {
     isScanning,
     lastUpdate: scanResult?.lastScanAt ? new Date(scanResult.lastScanAt).toLocaleTimeString() : new Date().toLocaleTimeString(),
     currentAction: isScanning ? 'Analyzing database...' : 'Ready for action',
+  };
+
+  // Run AI Code Analysis
+  const handleAIAnalysis = async () => {
+    setIsAnalyzing(true);
+    toast.info('🤖 Running AI code analysis...');
+    
+    try {
+      // First ensure we have the latest issues
+      if (!scanResult || displayedIssues.length === 0) {
+        await handleScan();
+      }
+
+      // Prepare data for AI analysis
+      const issuesForAI = displayedIssues.map(issue => ({
+        id: issue.id,
+        title: issue.title,
+        description: issue.description,
+        severity: issue.severity,
+        category: issue.category,
+        count: issue.count,
+      }));
+
+      // Get trade metrics
+      const tradeMetrics = {
+        hitRate: 0,
+        zeroProfitCount: displayedIssues.filter(i => i.id.includes('zero-profit')).reduce((sum, i) => sum + (i.count || 0), 0),
+        failedProfitTakes: displayedIssues.filter(i => i.id.includes('failed-profit')).reduce((sum, i) => sum + (i.count || 0), 0),
+        stuckTrades: displayedIssues.filter(i => i.id.includes('stuck')).reduce((sum, i) => sum + (i.count || 0), 0),
+        totalTrades: 0,
+      };
+
+      const { data, error } = await supabase.functions.invoke('ai-code-analyzer', {
+        body: {
+          issues: issuesForAI,
+          tradeMetrics,
+        }
+      });
+
+      if (error) throw error;
+
+      if (data) {
+        setAiAnalysis(data);
+        toast.success(`✅ AI analysis complete: ${data.recommendations?.length || 0} recommendations`);
+      }
+    } catch (err) {
+      console.error('AI analysis failed:', err);
+      toast.error('AI analysis failed. Please try again.');
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleScanAndFix = async () => {
@@ -151,6 +221,15 @@ export default function BugsDashboard() {
       case 'DEPLOYED': return <Zap className="w-4 h-4 text-emerald-400" />;
       case 'FAILED': return <XCircle className="w-4 h-4 text-red-400" />;
       default: return null;
+    }
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch(priority) {
+      case 'CRITICAL': return 'border-destructive text-destructive';
+      case 'HIGH': return 'border-orange-500 text-orange-500';
+      case 'MEDIUM': return 'border-yellow-500 text-yellow-500';
+      default: return 'border-muted-foreground text-muted-foreground';
     }
   };
 
@@ -235,6 +314,86 @@ export default function BugsDashboard() {
               {fixableIssueCount > 0 && (
                 <span className="text-blue-400">{fixableIssueCount} Auto-Fixable</span>
               )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* AI Code Analysis Card */}
+      <Card className="border-purple-500/30 bg-gradient-to-r from-purple-500/5 to-pink-500/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Brain className="w-5 h-5 text-purple-400" />
+            AI Code Analysis
+            {isAnalyzing && <Loader2 className="w-4 h-4 animate-spin text-purple-400" />}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-4">
+            <Button
+              onClick={handleAIAnalysis}
+              disabled={isAnalyzing}
+              className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Run AI Analysis
+                </>
+              )}
+            </Button>
+            {aiAnalysis && (
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="border-purple-500 text-purple-400">
+                  Health Score: {aiAnalysis.healthScore}%
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                  {aiAnalysis.recommendations?.length || 0} recommendations
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* AI Recommendations */}
+          {aiAnalysis && aiAnalysis.recommendations?.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">{aiAnalysis.summary}</p>
+              
+              {aiAnalysis.recommendations.map((rec) => (
+                <div key={rec.id} className="p-4 bg-card/50 rounded-lg border border-border">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className={getPriorityColor(rec.priority)}>
+                        {rec.priority}
+                      </Badge>
+                      <span className="font-medium">{rec.title}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      Confidence: {rec.confidence}%
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-2 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Root Cause: </span>
+                      <span>{rec.rootCause}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Action: </span>
+                      <span className="text-primary">{rec.action}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Impact: </span>
+                      <span className="text-green-400">{rec.estimatedImpact}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
@@ -463,6 +622,11 @@ export default function BugsDashboard() {
                       <Badge className={getSeverityColor(bug.severity)}>
                         {bug.severity}
                       </Badge>
+                      {canAutoFix(bug.id) && bug.status !== 'FIXED' && (
+                        <Badge variant="outline" className="border-blue-500 text-blue-400">
+                          AUTO-FIXABLE
+                        </Badge>
+                      )}
                       <span className="text-xs text-muted-foreground">{bug.id}</span>
                       <div className="flex items-center gap-1">
                         {getStatusIcon(bug.status)}
@@ -489,6 +653,31 @@ export default function BugsDashboard() {
                     <div className="mt-2 p-2 bg-muted/50 rounded text-sm">
                       <span className="text-muted-foreground">Root Cause:</span>
                       <span className="ml-2">{bug.rootCause}</span>
+                    </div>
+                  )}
+
+                  {/* Individual Auto Fix Button */}
+                  {canAutoFix(bug.id) && bug.status !== 'FIXED' && (
+                    <div className="mt-3 pt-3 border-t border-border">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleAutoFix(bug.id)}
+                        disabled={isFixingAll || fixingIssues.get(bug.id)?.status === 'fixing'}
+                        className="text-blue-400 border-blue-500/50 hover:bg-blue-500/10"
+                      >
+                        {fixingIssues.get(bug.id)?.status === 'fixing' ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                            Fixing...
+                          </>
+                        ) : (
+                          <>
+                            <Wrench className="w-4 h-4 mr-1" />
+                            Auto Fix This Issue
+                          </>
+                        )}
+                      </Button>
                     </div>
                   )}
                 </CardContent>

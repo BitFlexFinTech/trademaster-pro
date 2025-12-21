@@ -1,12 +1,16 @@
 import { useBotRuns } from '@/hooks/useBotRuns';
+import { useTradingDataSync } from '@/hooks/useTradingDataSync';
 import { Zap, TrendingUp, Target, Activity } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 export function BotSummaryCard() {
   const { bots, stats, loading, getSpotBot, getLeverageBot } = useBotRuns();
+  
+  // Real-time synced metrics - same source as BotCard
+  const { metrics: syncedMetrics, isLoading: metricsLoading } = useTradingDataSync();
 
-  if (loading) {
+  if (loading || metricsLoading) {
     return (
       <div className="card-terminal p-3 h-full flex flex-col">
         <Skeleton className="h-4 w-24 mb-2" />
@@ -21,12 +25,10 @@ export function BotSummaryCard() {
   const leverageBot = getLeverageBot();
   const runningCount = (spotBot ? 1 : 0) + (leverageBot ? 1 : 0);
   
-  // Combined metrics
-  const combinedPnL = (spotBot?.currentPnl || 0) + (leverageBot?.currentPnl || 0);
-  const combinedTrades = (spotBot?.tradesExecuted || 0) + (leverageBot?.tradesExecuted || 0);
-  const combinedHitRate = combinedTrades > 0 
-    ? ((spotBot?.tradesExecuted || 0) * (spotBot?.hitRate || 0) + (leverageBot?.tradesExecuted || 0) * (leverageBot?.hitRate || 0)) / combinedTrades
-    : stats.totalTrades > 0 ? bots.reduce((sum, b) => sum + b.hitRate, 0) / Math.max(bots.length, 1) : 0;
+  // Use synced metrics for real-time data
+  const combinedPnL = syncedMetrics.currentPnL;
+  const combinedTrades = syncedMetrics.tradesExecuted;
+  const combinedHitRate = syncedMetrics.hitRate;
 
   return (
     <div className="card-terminal p-3 h-full flex flex-col">
