@@ -1108,6 +1108,11 @@ export type Database = {
           notification_sounds: boolean | null
           profit_threshold: number | null
           push_notifications: boolean | null
+          regime_alert_cooldown_seconds: number | null
+          regime_alert_push_types: string[] | null
+          regime_alert_sound: string | null
+          regime_alert_volume: number | null
+          regime_alerts_enabled: boolean | null
           theme: string | null
           updated_at: string
           user_id: string
@@ -1118,6 +1123,11 @@ export type Database = {
           notification_sounds?: boolean | null
           profit_threshold?: number | null
           push_notifications?: boolean | null
+          regime_alert_cooldown_seconds?: number | null
+          regime_alert_push_types?: string[] | null
+          regime_alert_sound?: string | null
+          regime_alert_volume?: number | null
+          regime_alerts_enabled?: boolean | null
           theme?: string | null
           updated_at?: string
           user_id: string
@@ -1128,6 +1138,11 @@ export type Database = {
           notification_sounds?: boolean | null
           profit_threshold?: number | null
           push_notifications?: boolean | null
+          regime_alert_cooldown_seconds?: number | null
+          regime_alert_push_types?: string[] | null
+          regime_alert_sound?: string | null
+          regime_alert_volume?: number | null
+          regime_alerts_enabled?: boolean | null
           theme?: string | null
           updated_at?: string
           user_id?: string

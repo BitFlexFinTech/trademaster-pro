@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Volume2, VolumeX, Play, Check, Shield, AlertTriangle } from 'lucide-react';
+import { Volume2, VolumeX, Play, Check, Shield, AlertTriangle, Activity, Clock, Bell, BellOff } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
@@ -7,6 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 
 // Sound files - Base64 encoded for instant playback
 const WIN_SOUNDS = {
@@ -31,6 +33,13 @@ const WARNING_SOUNDS = {
   tone: 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAESsAACJWAAABAAgAZGF0YQoGAACBhYqFbF1fdJKVmZydnZ2dm5qYlpSSkI6MioiGhIKAfn17eXd1c3FvbWtpZ2VjYV9dW1lXVVNRUE5MS0lHRURCQD8+PDs6ODc2NDMyMTAvLi0sKyopKCcmJSQjIiEgHx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA=',
 };
 
+// Regime-specific sounds
+const REGIME_SOUNDS = {
+  chime: 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAESsAACJWAAABAAgAZGF0YQoGAACBhYqFbF1fdJKVmZydnZ2dm5qYlpSSkI6MioiGhIKAfn17eXd1c3FvbWtpZ2VjYV9dW1lXVVNRUE5MS0lHRURCQD8+PDs6ODc2NDMyMTAvLi0sKyopKCcmJSQjIiEgHx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQBCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKTlJWWl5iZmpucnZ6foKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr/AwcLDxMXGx8jJysvMzc7P0NHS09TV1tfY2drb3N3e3+Dh4uPk5ebn6Onq6+zt7u/w8fLz9PX29/j5+vv8/f7/',
+  pulse: 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2Onpx2VFF+joqMhYF9gX+Dg4N/fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+',
+  announce: 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAESsAACJWAAABAAgAZGF0YQoGAAABBQoQFR0mMTxIVGFvfIqWoqyztbe3t7Ovp5yRhXdpXE9DOS4jGREKBQEAAQULEhojLzpIVmRyfIeRmqClpqakn5mQhXpuYVNGOi8kGhEJBAEAAQYMFB8sOkZTYW9/ipOan6KjoZ2Xj4N5bV9STj0zJxsRCQMAAAQKEhodJC0yNTo9Pz4+Ozo2LykkHBcRDAcDAAABBgsRFhweISMkJCQjIR4bFhEMCAQBAAABBQoQFh0kLDVARk1UWl9jZmdnZWJdV1BJQTkxKCAdFxMNCAQBAAEFCQ0REhMTExIQDgsHAwAAAQQHCg0QERIRERAQEA8ODQsIBQMBAAEDBAUGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYFBQQDAgEA',
+};
+
 interface SoundSettings {
   enabled: boolean;
   volume: number;
@@ -40,6 +49,12 @@ interface SoundSettings {
   sentinelAlertsEnabled: boolean;
   warningSound: keyof typeof WARNING_SOUNDS;
   urgentSound: keyof typeof URGENT_SOUNDS;
+  // Regime alerts
+  regimeAlertsEnabled: boolean;
+  regimeAlertVolume: number;
+  regimeAlertPushTypes: ('toast' | 'push')[];
+  regimeAlertCooldownSeconds: number;
+  regimeAlertSound: keyof typeof REGIME_SOUNDS;
 }
 
 interface SoundNotificationSettingsProps {
@@ -52,7 +67,22 @@ export function SoundNotificationSettings({ settings: externalSettings, onSettin
     const stored = localStorage.getItem('soundNotificationSettings');
     if (stored) {
       try {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        return {
+          enabled: parsed.enabled ?? true,
+          volume: parsed.volume ?? 50,
+          winSound: parsed.winSound ?? 'chime',
+          lossSound: parsed.lossSound ?? 'buzz',
+          sentinelAlertsEnabled: parsed.sentinelAlertsEnabled ?? true,
+          warningSound: parsed.warningSound ?? 'beep',
+          urgentSound: parsed.urgentSound ?? 'alarm',
+          // Regime defaults
+          regimeAlertsEnabled: parsed.regimeAlertsEnabled ?? true,
+          regimeAlertVolume: parsed.regimeAlertVolume ?? 50,
+          regimeAlertPushTypes: parsed.regimeAlertPushTypes ?? ['toast', 'push'],
+          regimeAlertCooldownSeconds: parsed.regimeAlertCooldownSeconds ?? 30,
+          regimeAlertSound: parsed.regimeAlertSound ?? 'chime',
+        };
       } catch {
         // Fall through to defaults
       }
@@ -65,6 +95,11 @@ export function SoundNotificationSettings({ settings: externalSettings, onSettin
       sentinelAlertsEnabled: true,
       warningSound: 'beep',
       urgentSound: 'alarm',
+      regimeAlertsEnabled: true,
+      regimeAlertVolume: 50,
+      regimeAlertPushTypes: ['toast', 'push'],
+      regimeAlertCooldownSeconds: 30,
+      regimeAlertSound: 'chime',
     };
   });
 
@@ -72,6 +107,7 @@ export function SoundNotificationSettings({ settings: externalSettings, onSettin
   const lossAudioRef = useRef<HTMLAudioElement | null>(null);
   const warningAudioRef = useRef<HTMLAudioElement | null>(null);
   const urgentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const regimeAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (externalSettings) {
@@ -104,6 +140,11 @@ export function SoundNotificationSettings({ settings: externalSettings, onSettin
     urgentAudioRef.current.volume = settings.volume / 100;
   }, [settings.urgentSound, settings.volume]);
 
+  useEffect(() => {
+    regimeAudioRef.current = new Audio(REGIME_SOUNDS[settings.regimeAlertSound]);
+    regimeAudioRef.current.volume = settings.regimeAlertVolume / 100;
+  }, [settings.regimeAlertSound, settings.regimeAlertVolume]);
+
   const previewWinSound = () => {
     if (winAudioRef.current) {
       winAudioRef.current.currentTime = 0;
@@ -132,8 +173,26 @@ export function SoundNotificationSettings({ settings: externalSettings, onSettin
     }
   };
 
+  const previewRegimeSound = () => {
+    if (regimeAudioRef.current) {
+      regimeAudioRef.current.currentTime = 0;
+      regimeAudioRef.current.play().catch(() => {});
+    }
+  };
+
   const updateSetting = <K extends keyof SoundSettings>(key: K, value: SoundSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
+  };
+
+  const togglePushType = (type: 'toast' | 'push') => {
+    setSettings(prev => {
+      const currentTypes = prev.regimeAlertPushTypes;
+      const hasType = currentTypes.includes(type);
+      const newTypes = hasType 
+        ? currentTypes.filter(t => t !== type)
+        : [...currentTypes, type];
+      return { ...prev, regimeAlertPushTypes: newTypes };
+    });
   };
 
   return (
@@ -305,6 +364,122 @@ export function SoundNotificationSettings({ settings: externalSettings, onSettin
                       variant="outline" 
                       size="icon"
                       onClick={previewUrgentSound}
+                      className="shrink-0"
+                    >
+                      <Play className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <Separator className="my-4" />
+
+          {/* Regime Transition Alerts Section */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4 text-primary" />
+                <Label className="text-sm font-medium">Regime Alerts</Label>
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">BULL/BEAR/CHOP</Badge>
+              </div>
+              <Switch
+                checked={settings.regimeAlertsEnabled}
+                onCheckedChange={(checked) => updateSetting('regimeAlertsEnabled', checked)}
+              />
+            </div>
+
+            {settings.regimeAlertsEnabled && (
+              <>
+                {/* Regime Alert Volume */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm">Regime Alert Volume</Label>
+                    <span className="text-xs text-muted-foreground">{settings.regimeAlertVolume}%</span>
+                  </div>
+                  <Slider
+                    value={[settings.regimeAlertVolume]}
+                    onValueChange={([value]) => updateSetting('regimeAlertVolume', value)}
+                    min={0}
+                    max={100}
+                    step={5}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Cooldown Period */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm flex items-center gap-2">
+                      <Clock className="h-3 w-3 text-muted-foreground" />
+                      Cooldown Period
+                    </Label>
+                    <span className="text-xs text-muted-foreground">{settings.regimeAlertCooldownSeconds}s</span>
+                  </div>
+                  <Slider
+                    value={[settings.regimeAlertCooldownSeconds]}
+                    onValueChange={([value]) => updateSetting('regimeAlertCooldownSeconds', value)}
+                    min={10}
+                    max={300}
+                    step={10}
+                    className="w-full"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Prevents duplicate alerts during volatile transitions
+                  </p>
+                </div>
+
+                {/* Push Types */}
+                <div className="space-y-2">
+                  <Label className="text-sm">Notification Types</Label>
+                  <div className="flex gap-4">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="toast-type"
+                        checked={settings.regimeAlertPushTypes.includes('toast')}
+                        onCheckedChange={() => togglePushType('toast')}
+                      />
+                      <label htmlFor="toast-type" className="text-xs text-muted-foreground cursor-pointer">
+                        Toast
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="push-type"
+                        checked={settings.regimeAlertPushTypes.includes('push')}
+                        onCheckedChange={() => togglePushType('push')}
+                      />
+                      <label htmlFor="push-type" className="text-xs text-muted-foreground cursor-pointer">
+                        Push
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Regime Sound Selection */}
+                <div className="space-y-2">
+                  <Label className="text-sm flex items-center gap-2">
+                    🔔 Transition Sound
+                  </Label>
+                  <div className="flex gap-2">
+                    <Select
+                      value={settings.regimeAlertSound}
+                      onValueChange={(value) => updateSetting('regimeAlertSound', value as keyof typeof REGIME_SOUNDS)}
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="chime">Chime</SelectItem>
+                        <SelectItem value="pulse">Pulse</SelectItem>
+                        <SelectItem value="announce">Announce</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button 
+                      variant="outline" 
+                      size="icon"
+                      onClick={previewRegimeSound}
                       className="shrink-0"
                     >
                       <Play className="h-4 w-4" />
