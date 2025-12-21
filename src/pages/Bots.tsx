@@ -75,6 +75,7 @@ export default function Bots() {
     stopBotWithAnalysis,
     updateBotPnl, 
     updateBotConfig,
+    recalculateBotPnl,
     refetch,
     analyzeBot,
     analysisData,
@@ -1592,6 +1593,7 @@ export default function Bots() {
                       configProfitPerTrade={botConfig.profitPerTrade}
                       configMinProfitThreshold={botConfig.minProfitThreshold}
                       refetch={refetch}
+                      onRecalculatePnl={recalculateBotPnl}
                     />
                     <BotCard
                       botType="leverage"
@@ -1617,6 +1619,7 @@ export default function Bots() {
                       configProfitPerTrade={botConfig.profitPerTrade}
                       configMinProfitThreshold={botConfig.minProfitThreshold}
                       refetch={refetch}
+                      onRecalculatePnl={recalculateBotPnl}
                     />
                   </>
                 )}

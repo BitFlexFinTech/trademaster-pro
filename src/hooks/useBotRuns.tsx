@@ -199,18 +199,23 @@ export function useBotRuns() {
     }
   };
 
-  const updateBotPnl = async (botId: string, pnl: number, trades: number, hitRate: number): Promise<{ success: boolean; error?: string }> => {
+  const updateBotPnl = async (botId: string, pnl: number, trades: number, hitRate: number): Promise<{ success: boolean; savedPnl?: number; error?: string }> => {
     if (!user) {
       console.warn('[updateBotPnl] No user, skipping update');
       return { success: false, error: 'No user' };
     }
 
-    // Debug logging - log the values being sent to database
+    // Get current values BEFORE update for verification
+    const { data: before } = await supabase
+      .from('bot_runs')
+      .select('current_pnl, trades_executed, hit_rate')
+      .eq('id', botId)
+      .single();
+
     console.log(`[updateBotPnl] 📤 Syncing to DB:`, {
       botId,
-      pnl: pnl.toFixed(4),
-      trades,
-      hitRate: hitRate.toFixed(2),
+      before: { pnl: before?.current_pnl, trades: before?.trades_executed },
+      sending: { pnl: pnl.toFixed(4), trades, hitRate: hitRate.toFixed(2) },
     });
 
     try {
@@ -232,7 +237,29 @@ export function useBotRuns() {
         return { success: false, error: error.message };
       }
 
-      // Verify the update was successful by checking returned data
+      // VERIFY: Check if values actually changed
+      const pnlMismatch = data && Math.abs(data.current_pnl - pnl) > 0.0001;
+      if (pnlMismatch) {
+        console.warn('[updateBotPnl] ⚠️ P&L MISMATCH! Sent:', pnl, 'Got:', data.current_pnl, '- Retrying...');
+        
+        // Retry once with explicit values
+        const { data: retryData, error: retryError } = await supabase
+          .from('bot_runs')
+          .update({ current_pnl: pnl, trades_executed: trades, hit_rate: hitRate })
+          .eq('id', botId)
+          .eq('user_id', user.id)
+          .select()
+          .single();
+          
+        if (retryError) {
+          console.error('[updateBotPnl] ❌ Retry failed:', retryError);
+          return { success: false, savedPnl: data?.current_pnl, error: 'Retry failed' };
+        }
+        
+        console.log('[updateBotPnl] ✅ Retry succeeded:', retryData?.current_pnl);
+        return { success: true, savedPnl: retryData?.current_pnl };
+      }
+
       console.log(`[updateBotPnl] ✅ DB updated successfully:`, {
         botId,
         savedPnl: data?.current_pnl,
@@ -240,16 +267,92 @@ export function useBotRuns() {
         savedHitRate: data?.hit_rate,
       });
 
-      return { success: true };
+      return { success: true, savedPnl: data?.current_pnl };
     } catch (error: any) {
       console.error('[updateBotPnl] ❌ Exception:', error);
       return { success: false, error: error?.message || 'Unknown error' };
     }
   };
 
+  // Cleanup orphan bot runs (running > 24 hours)
+  const cleanupOrphanBots = useCallback(async () => {
+    if (!user) return;
+    
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from('bot_runs')
+      .update({ status: 'stopped', stopped_at: new Date().toISOString() })
+      .eq('status', 'running')
+      .lt('created_at', yesterday)
+      .eq('user_id', user.id)
+      .select();
+      
+    if (data && data.length > 0) {
+      console.log(`[cleanupOrphanBots] ✅ Cleaned up ${data.length} orphan bot(s)`);
+      toast.info(`Cleaned up ${data.length} stale bot session(s)`);
+    }
+    if (error) {
+      console.error('[cleanupOrphanBots] ❌ Error:', error);
+    }
+  }, [user]);
+
+  // Force recalculate P&L from actual trades
+  const recalculateBotPnl = async (botId: string): Promise<{ success: boolean; newPnl: number; tradeCount: number }> => {
+    if (!user) return { success: false, newPnl: 0, tradeCount: 0 };
+    
+    // Get bot's start time
+    const { data: bot } = await supabase
+      .from('bot_runs')
+      .select('started_at, is_sandbox')
+      .eq('id', botId)
+      .single();
+      
+    if (!bot?.started_at) {
+      return { success: false, newPnl: 0, tradeCount: 0 };
+    }
+    
+    // Query all trades since bot started
+    const { data: trades, error } = await supabase
+      .from('trades')
+      .select('profit_loss')
+      .eq('user_id', user.id)
+      .eq('is_sandbox', bot.is_sandbox ?? false)
+      .gte('created_at', bot.started_at)
+      .not('profit_loss', 'is', null);
+      
+    if (error) {
+      console.error('[recalculateBotPnl] ❌ Error fetching trades:', error);
+      return { success: false, newPnl: 0, tradeCount: 0 };
+    }
+    
+    const totalPnl = trades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
+    const tradeCount = trades?.length || 0;
+    const wins = trades?.filter(t => (t.profit_loss || 0) > 0).length || 0;
+    const hitRate = tradeCount > 0 ? (wins / tradeCount) * 100 : 0;
+    
+    // Update bot with recalculated values
+    const { error: updateError } = await supabase
+      .from('bot_runs')
+      .update({ current_pnl: totalPnl, trades_executed: tradeCount, hit_rate: hitRate })
+      .eq('id', botId)
+      .eq('user_id', user.id);
+      
+    if (updateError) {
+      console.error('[recalculateBotPnl] ❌ Error updating bot:', updateError);
+      return { success: false, newPnl: totalPnl, tradeCount };
+    }
+    
+    console.log(`[recalculateBotPnl] ✅ Recalculated: $${totalPnl.toFixed(2)} from ${tradeCount} trades`);
+    toast.success(`P&L recalculated: $${totalPnl.toFixed(2)} from ${tradeCount} trades`);
+    
+    await fetchBots(); // Refresh UI
+    return { success: true, newPnl: totalPnl, tradeCount };
+  };
+
   useEffect(() => {
     fetchBots();
-  }, [fetchBots]);
+    cleanupOrphanBots(); // Clean up stale bots on mount
+  }, [fetchBots, cleanupOrphanBots]);
 
   // Listen to FULL RESET trigger - clear bots completely (manual demo reset)
   useEffect(() => {
@@ -451,6 +554,8 @@ export function useBotRuns() {
     stopBotWithAnalysis,
     updateBotPnl,
     updateBotConfig,
+    recalculateBotPnl,
+    cleanupOrphanBots,
     refetch: fetchBots,
     getSpotBot,
     getLeverageBot,

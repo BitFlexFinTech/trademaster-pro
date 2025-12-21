@@ -42,7 +42,7 @@ interface BotCardProps {
   prices: Array<{ symbol: string; price: number; change_24h?: number }>;
   onStartBot: (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number, isSandbox: boolean, amountPerTrade?: number, tradeIntervalMs?: number) => Promise<any>;
   onStopBot: (botId: string) => Promise<void>;
-  onUpdateBotPnl: (botId: string, pnl: number, trades: number, hitRate: number) => Promise<{ success: boolean; error?: string } | void>;
+  onUpdateBotPnl: (botId: string, pnl: number, trades: number, hitRate: number) => Promise<{ success: boolean; savedPnl?: number; error?: string } | void>;
   suggestedUSDT: number;
   usdtFloat: Array<{ exchange: string; amount: number }>;
   dailyStopLoss?: number;
@@ -59,6 +59,8 @@ interface BotCardProps {
   configMinProfitThreshold?: number;
   // NEW: Force refresh callback
   refetch?: () => Promise<void>;
+  // NEW: Recalculate P&L from trades
+  onRecalculatePnl?: (botId: string) => Promise<{ success: boolean; newPnl: number; tradeCount: number }>;
 }
 
 export function BotCard({
@@ -84,6 +86,8 @@ export function BotCard({
   configMinProfitThreshold,
   // NEW: Force refresh callback
   refetch,
+  // NEW: Recalculate P&L
+  onRecalculatePnl,
 }: BotCardProps) {
   const { user } = useAuth();
   // Use separate triggers: resetTrigger for full reset, dailyResetTrigger for 24h P&L reset, syncTrigger for data sync
@@ -210,25 +214,42 @@ export function BotCard({
     isWin: boolean;
   }>>([]);
 
-  // Last trade indicator state
+  // Last trade indicator state - with direction and auto-hide
   const [lastTradeInfo, setLastTradeInfo] = useState<{
     pair: string;
     pnl: number;
     timestamp: Date;
     syncStatus: 'syncing' | 'synced' | 'failed';
+    direction?: 'long' | 'short';
   } | null>(null);
   const lastTradeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [, forceUpdate] = useState(0); // For re-rendering the time ago display
   
-  // Update "time ago" display every 10 seconds
+  // Auto-hide last trade indicator after 5 minutes
   useEffect(() => {
     if (!lastTradeInfo) return;
     
+    // Clear existing timer
+    if (lastTradeTimerRef.current) {
+      clearTimeout(lastTradeTimerRef.current);
+    }
+    
+    // Set 5-minute auto-hide timer
+    lastTradeTimerRef.current = setTimeout(() => {
+      setLastTradeInfo(null);
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    // Update "time ago" display every 10 seconds
     const interval = setInterval(() => {
       forceUpdate(prev => prev + 1);
     }, 10000);
     
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (lastTradeTimerRef.current) {
+        clearTimeout(lastTradeTimerRef.current);
+      }
+    };
   }, [lastTradeInfo]);
   
   // Refs for trading loop - CRITICAL: Use refs to avoid dependency issues
@@ -335,18 +356,27 @@ export function BotCard({
           // Only process live trades (not sandbox)
           if (newTrade.is_sandbox) return;
           
-          console.log('📊 Real-time trade update:', newTrade.pair, 'P&L:', newTrade.profit_loss);
+          // CRITICAL: Guard against null existingBot.id
+          if (!existingBot?.id) {
+            console.warn('[WebSocket] No existingBot.id, cannot sync');
+            return;
+          }
           
-          // Set last trade info immediately with syncing status
+          console.log('📊 Real-time trade update:', newTrade.pair, 'P&L:', newTrade.profit_loss, 'Direction:', newTrade.direction);
+          
+          // Set last trade info immediately with syncing status and direction
           setLastTradeInfo({
             pair: newTrade.pair,
             pnl: newTrade.profit_loss || 0,
             timestamp: new Date(),
             syncStatus: 'syncing',
+            direction: newTrade.direction as 'long' | 'short',
           });
           
           // Update metrics immediately from real-time data
           if (newTrade.profit_loss !== null) {
+            const botId = existingBot.id; // Capture for async closure
+            
             setMetrics(prev => {
               const newPnl = prev.currentPnL + newTrade.profit_loss!;
               const newTrades = prev.tradesExecuted + 1;
@@ -356,13 +386,23 @@ export function BotCard({
               
               metricsRef.current = { currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate, winsCount: wins };
               
-              // Sync to database and update sync status
-              onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate).then((result) => {
-                const success = result && typeof result === 'object' && 'success' in result ? result.success : true;
-                setLastTradeInfo(prev => prev ? { ...prev, syncStatus: success ? 'synced' : 'failed' } : null);
-              }).catch(() => {
-                setLastTradeInfo(prev => prev ? { ...prev, syncStatus: 'failed' } : null);
-              });
+              // FIXED: Use async/await with proper error handling
+              (async () => {
+                try {
+                  const result = await onUpdateBotPnl(botId, newPnl, newTrades, newHitRate);
+                  const success = result && typeof result === 'object' && 'success' in result ? result.success : true;
+                  setLastTradeInfo(prev => prev ? { ...prev, syncStatus: success ? 'synced' : 'failed' } : null);
+                  
+                  if (!success) {
+                    console.warn('[WebSocket] DB sync failed, result:', result);
+                    toast.error('Failed to sync trade to database');
+                  }
+                } catch (err) {
+                  console.error('[WebSocket] DB sync exception:', err);
+                  setLastTradeInfo(prev => prev ? { ...prev, syncStatus: 'failed' } : null);
+                  toast.error('Database sync error');
+                }
+              })();
               
               return {
                 ...prev,
@@ -1738,6 +1778,47 @@ export function BotCard({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          
+          {/* Force Recalculate P&L Button - only show when bot exists */}
+          {existingBot?.id && onRecalculatePnl && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={isRefreshing}
+                    onClick={async () => {
+                      setIsRefreshing(true);
+                      try {
+                        const result = await onRecalculatePnl(existingBot.id);
+                        if (result.success) {
+                          setMetrics(prev => ({
+                            ...prev,
+                            currentPnL: result.newPnl,
+                            tradesExecuted: result.tradeCount,
+                          }));
+                          metricsRef.current.currentPnL = result.newPnl;
+                          metricsRef.current.tradesExecuted = result.tradeCount;
+                        }
+                      } catch (err) {
+                        console.error('Recalculate failed:', err);
+                        toast.error('Failed to recalculate P&L');
+                      } finally {
+                        setIsRefreshing(false);
+                      }
+                    }}
+                    className="h-6 w-6 p-0"
+                  >
+                    <History className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Recalculate P&L from actual trades
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       </div>
 
@@ -1755,13 +1836,19 @@ export function BotCard({
         <div className="mb-3 px-2 py-1.5 bg-secondary/30 rounded-lg border border-border/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {/* Pulsing dot for recent trades */}
-              <span className={cn(
-                "w-2 h-2 rounded-full",
-                Date.now() - lastTradeInfo.timestamp.getTime() < 10000 
-                  ? "bg-primary animate-pulse" 
-                  : "bg-muted-foreground"
-              )} />
+              {/* Direction icon - long (up) or short (down) */}
+              {lastTradeInfo.direction === 'long' ? (
+                <TrendingUp className="w-3 h-3 text-primary" />
+              ) : lastTradeInfo.direction === 'short' ? (
+                <TrendingDown className="w-3 h-3 text-destructive" />
+              ) : (
+                <span className={cn(
+                  "w-2 h-2 rounded-full",
+                  Date.now() - lastTradeInfo.timestamp.getTime() < 10000 
+                    ? "bg-primary animate-pulse" 
+                    : "bg-muted-foreground"
+                )} />
+              )}
               <span className="text-[10px] text-muted-foreground">Last trade:</span>
               <span className="text-[10px] font-mono text-foreground">
                 {formatDistanceToNow(lastTradeInfo.timestamp, { addSuffix: true })}
@@ -1775,7 +1862,7 @@ export function BotCard({
                 "text-[10px] font-mono font-bold",
                 lastTradeInfo.pnl >= 0 ? "text-primary" : "text-destructive"
               )}>
-                {lastTradeInfo.pnl >= 0 ? '+' : ''}{lastTradeInfo.pnl.toFixed(4)}
+                {lastTradeInfo.pnl >= 0 ? '+' : ''}${lastTradeInfo.pnl.toFixed(4)}
               </span>
               {/* Sync status indicator */}
               <TooltipProvider>
