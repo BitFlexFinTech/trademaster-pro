@@ -156,6 +156,7 @@ export type Database = {
           min_profit_threshold: number
           per_trade_stop_loss: number
           profit_per_trade: number
+          regime_direction_sync: boolean | null
           trade_interval_ms: number
           updated_at: string | null
           user_id: string
@@ -172,6 +173,7 @@ export type Database = {
           min_profit_threshold?: number
           per_trade_stop_loss?: number
           profit_per_trade?: number
+          regime_direction_sync?: boolean | null
           trade_interval_ms?: number
           updated_at?: string | null
           user_id: string
@@ -188,6 +190,7 @@ export type Database = {
           min_profit_threshold?: number
           per_trade_stop_loss?: number
           profit_per_trade?: number
+          regime_direction_sync?: boolean | null
           trade_interval_ms?: number
           updated_at?: string | null
           user_id?: string

@@ -45,6 +45,8 @@ import { StuckTradesBanner } from '@/components/bots/StuckTradesBanner';
 import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
 import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
 import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
+import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummaryCard';
+import { useRegimeTransitionNotifier } from '@/hooks/useRegimeTransitionNotifier';
 import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
 import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
 import { TradeExecutionStatus } from '@/components/bots/TradeExecutionStatus';
@@ -358,6 +360,10 @@ export default function Bots() {
 
   // Current running bot metrics for AI strategy monitor
   const activeBot = spotBot || leverageBot;
+  
+  // Regime transition notifier - alerts when regime changes (must be after activeBot is defined)
+  useRegimeTransitionNotifier('BTCUSDT', !!activeBot);
+  
   const currentPnL = (spotBot?.currentPnl || 0) + (leverageBot?.currentPnl || 0);
   const tradesExecuted = (spotBot?.tradesExecuted || 0) + (leverageBot?.tradesExecuted || 0);
   const combinedHitRate = tradesExecuted > 0
@@ -1699,6 +1705,9 @@ export default function Bots() {
                   <RegimeTransitionChart timeframeDays={7} />
                 </CollapsibleContent>
               </Collapsible>
+
+              {/* Regime History Summary Card */}
+              <RegimeHistorySummaryCard />
 
               {/* Profit Withdrawal History Chart */}
               <ProfitWithdrawalChart className="max-h-[400px] overflow-y-auto" />
