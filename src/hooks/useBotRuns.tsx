@@ -180,18 +180,27 @@ export function useBotRuns() {
     if (!user) return;
 
     try {
+      // FIXED: Auto-recalculate P&L from actual trades before stopping
+      // This ensures final P&L matches the database
+      console.log(`[stopBot] Recalculating P&L before stopping bot ${botId}...`);
+      const recalcResult = await recalculateBotPnl(botId);
+      console.log(`[stopBot] Recalculated: $${recalcResult.newPnl.toFixed(2)} from ${recalcResult.tradeCount} trades`);
+      
       const { error } = await supabase
         .from('bot_runs')
         .update({ 
           status: 'stopped',
           stopped_at: new Date().toISOString(),
+          // Use recalculated P&L for accurate final value
+          current_pnl: recalcResult.newPnl,
+          trades_executed: recalcResult.tradeCount,
         })
         .eq('id', botId)
         .eq('user_id', user.id);
 
       if (error) throw error;
       
-      toast.success('Bot stopped');
+      toast.success(`Bot stopped | Final P&L: $${recalcResult.newPnl.toFixed(2)}`);
       fetchBots();
     } catch (error) {
       console.error('Error stopping bot:', error);
