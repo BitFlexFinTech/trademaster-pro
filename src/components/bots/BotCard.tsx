@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw, CheckCircle2, XCircle, Radio } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -41,7 +42,7 @@ interface BotCardProps {
   prices: Array<{ symbol: string; price: number; change_24h?: number }>;
   onStartBot: (botName: string, mode: 'spot' | 'leverage', dailyTarget: number, profitPerTrade: number, isSandbox: boolean, amountPerTrade?: number, tradeIntervalMs?: number) => Promise<any>;
   onStopBot: (botId: string) => Promise<void>;
-  onUpdateBotPnl: (botId: string, pnl: number, trades: number, hitRate: number) => Promise<void>;
+  onUpdateBotPnl: (botId: string, pnl: number, trades: number, hitRate: number) => Promise<{ success: boolean; error?: string } | void>;
   suggestedUSDT: number;
   usdtFloat: Array<{ exchange: string; amount: number }>;
   dailyStopLoss?: number;
@@ -208,6 +209,27 @@ export function BotCard({
     timestamp: number;
     isWin: boolean;
   }>>([]);
+
+  // Last trade indicator state
+  const [lastTradeInfo, setLastTradeInfo] = useState<{
+    pair: string;
+    pnl: number;
+    timestamp: Date;
+    syncStatus: 'syncing' | 'synced' | 'failed';
+  } | null>(null);
+  const lastTradeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [, forceUpdate] = useState(0); // For re-rendering the time ago display
+  
+  // Update "time ago" display every 10 seconds
+  useEffect(() => {
+    if (!lastTradeInfo) return;
+    
+    const interval = setInterval(() => {
+      forceUpdate(prev => prev + 1);
+    }, 10000);
+    
+    return () => clearInterval(interval);
+  }, [lastTradeInfo]);
   
   // Refs for trading loop - CRITICAL: Use refs to avoid dependency issues
   const lastPricesRef = useRef<Record<string, number>>({});
@@ -298,7 +320,7 @@ export function BotCard({
           table: 'trades',
           filter: `user_id=eq.${user.id}`,
         },
-        (payload) => {
+        async (payload) => {
           const newTrade = payload.new as {
             id: string;
             pair: string;
@@ -315,6 +337,14 @@ export function BotCard({
           
           console.log('📊 Real-time trade update:', newTrade.pair, 'P&L:', newTrade.profit_loss);
           
+          // Set last trade info immediately with syncing status
+          setLastTradeInfo({
+            pair: newTrade.pair,
+            pnl: newTrade.profit_loss || 0,
+            timestamp: new Date(),
+            syncStatus: 'syncing',
+          });
+          
           // Update metrics immediately from real-time data
           if (newTrade.profit_loss !== null) {
             setMetrics(prev => {
@@ -325,6 +355,14 @@ export function BotCard({
               const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
               
               metricsRef.current = { currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate, winsCount: wins };
+              
+              // Sync to database and update sync status
+              onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate).then((result) => {
+                const success = result && typeof result === 'object' && 'success' in result ? result.success : true;
+                setLastTradeInfo(prev => prev ? { ...prev, syncStatus: success ? 'synced' : 'failed' } : null);
+              }).catch(() => {
+                setLastTradeInfo(prev => prev ? { ...prev, syncStatus: 'failed' } : null);
+              });
               
               return {
                 ...prev,
@@ -355,7 +393,7 @@ export function BotCard({
     return () => {
       supabase.removeChannel(tradesChannel);
     };
-  }, [user, existingBot?.id]);
+  }, [user, existingBot?.id, onUpdateBotPnl]);
 
   useEffect(() => {
     pricesRef.current = prices;
@@ -717,8 +755,21 @@ export function BotCard({
                       // Update metricsRef for consistency
                       metricsRef.current = { currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate, winsCount: wins };
                       
+                      // Set last trade info with syncing status
+                      setLastTradeInfo({
+                        pair: data.symbol || data.pair || 'UNKNOWN',
+                        pnl: pnl,
+                        timestamp: new Date(),
+                        syncStatus: 'syncing',
+                      });
+                      
                       // Sync CUMULATIVE values to database (not incremental)
-                      onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
+                      onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate).then((result) => {
+                        const success = result && typeof result === 'object' && 'success' in result ? result.success : true;
+                        setLastTradeInfo(prev => prev ? { ...prev, syncStatus: success ? 'synced' : 'failed' } : null);
+                      }).catch(() => {
+                        setLastTradeInfo(prev => prev ? { ...prev, syncStatus: 'failed' } : null);
+                      });
                       
                       return {
                         ...prev,
@@ -768,8 +819,21 @@ export function BotCard({
               // Update metricsRef for consistency
               metricsRef.current = { currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate, winsCount: wins };
               
+              // Set last trade info with syncing status
+              setLastTradeInfo({
+                pair: data.pair || 'UNKNOWN',
+                pnl: data.pnl,
+                timestamp: new Date(),
+                syncStatus: 'syncing',
+              });
+              
               // Sync CUMULATIVE values to database (not incremental!)
-              onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate);
+              onUpdateBotPnl(existingBot.id, newPnl, newTrades, newHitRate).then((result) => {
+                const success = result && typeof result === 'object' && 'success' in result ? result.success : true;
+                setLastTradeInfo(prev => prev ? { ...prev, syncStatus: success ? 'synced' : 'failed' } : null);
+              }).catch(() => {
+                setLastTradeInfo(prev => prev ? { ...prev, syncStatus: 'failed' } : null);
+              });
               
               return {
                 ...prev,
@@ -1685,6 +1749,59 @@ export function BotCard({
         </div>
         <Progress value={Math.min(progressPercent, 100)} className="h-2" />
       </div>
+
+      {/* Last Trade Indicator - shows when trade was received via WebSocket */}
+      {lastTradeInfo && (
+        <div className="mb-3 px-2 py-1.5 bg-secondary/30 rounded-lg border border-border/50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {/* Pulsing dot for recent trades */}
+              <span className={cn(
+                "w-2 h-2 rounded-full",
+                Date.now() - lastTradeInfo.timestamp.getTime() < 10000 
+                  ? "bg-primary animate-pulse" 
+                  : "bg-muted-foreground"
+              )} />
+              <span className="text-[10px] text-muted-foreground">Last trade:</span>
+              <span className="text-[10px] font-mono text-foreground">
+                {formatDistanceToNow(lastTradeInfo.timestamp, { addSuffix: true })}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-muted-foreground">
+                {lastTradeInfo.pair}
+              </span>
+              <span className={cn(
+                "text-[10px] font-mono font-bold",
+                lastTradeInfo.pnl >= 0 ? "text-primary" : "text-destructive"
+              )}>
+                {lastTradeInfo.pnl >= 0 ? '+' : ''}{lastTradeInfo.pnl.toFixed(4)}
+              </span>
+              {/* Sync status indicator */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    {lastTradeInfo.syncStatus === 'syncing' && (
+                      <Loader2 className="w-3 h-3 text-muted-foreground animate-spin" />
+                    )}
+                    {lastTradeInfo.syncStatus === 'synced' && (
+                      <CheckCircle2 className="w-3 h-3 text-primary" />
+                    )}
+                    {lastTradeInfo.syncStatus === 'failed' && (
+                      <XCircle className="w-3 h-3 text-destructive" />
+                    )}
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {lastTradeInfo.syncStatus === 'syncing' && 'Syncing to database...'}
+                    {lastTradeInfo.syncStatus === 'synced' && 'Synced to database'}
+                    {lastTradeInfo.syncStatus === 'failed' && 'Failed to sync - click refresh to retry'}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Metrics Grid - 5 columns with adaptive position size */}
       <div className="grid grid-cols-5 gap-1.5 mb-2">

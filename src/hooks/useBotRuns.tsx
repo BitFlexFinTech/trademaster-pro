@@ -199,23 +199,51 @@ export function useBotRuns() {
     }
   };
 
-  const updateBotPnl = async (botId: string, pnl: number, trades: number, hitRate: number) => {
-    if (!user) return;
+  const updateBotPnl = async (botId: string, pnl: number, trades: number, hitRate: number): Promise<{ success: boolean; error?: string }> => {
+    if (!user) {
+      console.warn('[updateBotPnl] No user, skipping update');
+      return { success: false, error: 'No user' };
+    }
+
+    // Debug logging - log the values being sent to database
+    console.log(`[updateBotPnl] 📤 Syncing to DB:`, {
+      botId,
+      pnl: pnl.toFixed(4),
+      trades,
+      hitRate: hitRate.toFixed(2),
+    });
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('bot_runs')
         .update({ 
           current_pnl: pnl,
           trades_executed: trades,
           hit_rate: hitRate,
+          updated_at: new Date().toISOString(),
         })
         .eq('id', botId)
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .select()
+        .single();
 
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error updating bot P&L:', error);
+      if (error) {
+        console.error('[updateBotPnl] ❌ Database error:', error);
+        return { success: false, error: error.message };
+      }
+
+      // Verify the update was successful by checking returned data
+      console.log(`[updateBotPnl] ✅ DB updated successfully:`, {
+        botId,
+        savedPnl: data?.current_pnl,
+        savedTrades: data?.trades_executed,
+        savedHitRate: data?.hit_rate,
+      });
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('[updateBotPnl] ❌ Exception:', error);
+      return { success: false, error: error?.message || 'Unknown error' };
     }
   };
 
