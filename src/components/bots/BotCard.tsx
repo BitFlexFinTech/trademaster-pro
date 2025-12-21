@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw, CheckCircle2, XCircle, Radio } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw, CheckCircle2, XCircle, Radio, SlidersHorizontal, Check } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -173,6 +173,12 @@ export function BotCard({
   const [isExecutingTrade, setIsExecutingTrade] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // Quick settings state
+  const [showQuickSettings, setShowQuickSettings] = useState(false);
+  const [tempDailyTarget, setTempDailyTarget] = useState(dailyTarget);
+  const [tempProfitPerTrade, setTempProfitPerTrade] = useState(profitPerTrade);
+  const [isSavingQuickSettings, setIsSavingQuickSettings] = useState(false);
   const [connectionHealth, setConnectionHealth] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
   const [pendingTrades, setPendingTrades] = useState<Array<{ orderId: string; exchange: string; symbol: string; tradeId?: string }>>([]);
   
@@ -1694,6 +1700,31 @@ export function BotCard({
           <Badge variant={isRunning ? 'default' : 'secondary'} className="text-[10px]">
             {isRunning ? 'Running' : 'Stopped'}
           </Badge>
+          {/* Quick Settings Toggle */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={showQuickSettings ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => {
+                    setShowQuickSettings(!showQuickSettings);
+                    if (!showQuickSettings) {
+                      setTempDailyTarget(dailyTarget);
+                      setTempProfitPerTrade(profitPerTrade);
+                    }
+                  }}
+                  disabled={isRunning}
+                  className={cn("h-6 w-6 p-0", isRunning && "opacity-50")}
+                >
+                  <SlidersHorizontal className="w-3 h-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isRunning ? 'Stop bot to adjust settings' : 'Quick adjust targets'}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {/* Sound Toggle */}
           <TooltipProvider>
             <Tooltip>
@@ -1824,6 +1855,82 @@ export function BotCard({
           )}
         </div>
       </div>
+
+      {/* Quick Settings Panel - Collapsible */}
+      {showQuickSettings && !isRunning && (
+        <div className="mb-3 p-2.5 bg-secondary/30 rounded-lg border border-primary/20 animate-in slide-in-from-top-2 duration-200">
+          <div className="space-y-2.5">
+            {/* Daily Target Slider */}
+            <div className="flex items-center gap-2">
+              <Target className="w-3.5 h-3.5 text-primary shrink-0" />
+              <span className="text-[10px] text-muted-foreground w-20 shrink-0">Target: ${tempDailyTarget}</span>
+              <Slider
+                value={[tempDailyTarget]}
+                min={10}
+                max={200}
+                step={5}
+                onValueChange={([v]) => setTempDailyTarget(v)}
+                className="flex-1"
+              />
+            </div>
+            
+            {/* Profit Per Trade Slider */}
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-3.5 h-3.5 text-primary shrink-0" />
+              <span className="text-[10px] text-muted-foreground w-20 shrink-0">Profit: ${tempProfitPerTrade.toFixed(2)}</span>
+              <Slider
+                value={[tempProfitPerTrade * 100]}
+                min={10}
+                max={200}
+                step={5}
+                onValueChange={([v]) => setTempProfitPerTrade(v / 100)}
+                className="flex-1"
+              />
+            </div>
+            
+            {/* Apply Button */}
+            <Button
+              size="sm"
+              className="w-full h-7 text-xs gap-1"
+              disabled={isSavingQuickSettings || (tempDailyTarget === dailyTarget && tempProfitPerTrade === profitPerTrade)}
+              onClick={async () => {
+                setIsSavingQuickSettings(true);
+                try {
+                  setDailyTarget(tempDailyTarget);
+                  setProfitPerTrade(tempProfitPerTrade);
+                  onConfigChange?.('dailyTarget', tempDailyTarget);
+                  onConfigChange?.('profitPerTrade', tempProfitPerTrade);
+                  onConfigChange?.('perTradeStopLoss', tempProfitPerTrade * 0.2);
+                  
+                  // Broadcast via realtime
+                  await supabase.channel('bot-config-sync').send({
+                    type: 'broadcast',
+                    event: 'config_changed',
+                    payload: { dailyTarget: tempDailyTarget, profitPerTrade: tempProfitPerTrade },
+                  });
+                  
+                  toast.success('Settings applied!', {
+                    description: `Target: $${tempDailyTarget} | Profit: $${tempProfitPerTrade.toFixed(2)}`,
+                  });
+                  setShowQuickSettings(false);
+                } catch (err) {
+                  console.error('Failed to save quick settings:', err);
+                  toast.error('Failed to save settings');
+                } finally {
+                  setIsSavingQuickSettings(false);
+                }
+              }}
+            >
+              {isSavingQuickSettings ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Check className="w-3 h-3" />
+              )}
+              Apply Changes
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Progress */}
       <div className="mb-3">
