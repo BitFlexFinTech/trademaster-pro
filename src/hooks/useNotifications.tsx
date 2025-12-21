@@ -15,6 +15,12 @@ const LOSS_SOUND = 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAESsAAC
 // Target reached sound - celebration fanfare
 const TARGET_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAESsAACJWAAABAAgAZGF0YQoGAACBhYqFbF1fdJKVmZydnZ2dm5qYlpSSkI6MioiGhIKAfn17eXd1c3FvbWtpZ2VjYV9dW1lXVVNRUE5MS0lHRURCQD8+PDs6ODc2NDMyMTAvLi0sKyopKCcmJSQjIiEgHx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQBCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKTlJWWl5iZmpucnZ6foKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr/AwcLDxMXGx8jJysvMzc7P0NHS09TV1tfY2drb3N3e3+Dh4uPk5ebn6Onq6+zt7u/w8fLz9PX29/j5+vv8/f7/';
 
+// URGENT ALARM - Critical alerts (liquidation < 22%, API cooldown)
+const URGENT_ALARM_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAESsAACJWAAABAAgAZGF0YSgAAP//////////////////////////////////////////////////////////////////////////AAAA//////////////////////////////////////////////////////////////////////////////////8AAAD///8AAAD///8AAAD///8AAAD///8AAAD///8AAAD///8AAAD///8AAAD///8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//';
+
+// WARNING ALERT - Approaching thresholds (liquidation 22-25%, API 80-95%)
+const WARNING_ALERT_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAESsAACJWAAABAAgAZGF0YSgAAAD/AAD/AAD/AAD/AAD/AAD/AAD/AAD/AAD/AAD/AAD/AAD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8=';
+
 interface NotificationSettings {
   soundEnabled: boolean;
   pushEnabled: boolean;
@@ -28,6 +34,8 @@ export function useNotifications() {
   const winAudioRef = useRef<HTMLAudioElement | null>(null);
   const lossAudioRef = useRef<HTMLAudioElement | null>(null);
   const targetAudioRef = useRef<HTMLAudioElement | null>(null);
+  const urgentAlarmRef = useRef<HTMLAudioElement | null>(null);
+  const warningAlertRef = useRef<HTMLAudioElement | null>(null);
   
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const stored = localStorage.getItem('notificationSoundEnabled');
@@ -54,6 +62,12 @@ export function useNotifications() {
     
     targetAudioRef.current = new Audio(TARGET_SOUND);
     targetAudioRef.current.volume = 0.7;
+
+    urgentAlarmRef.current = new Audio(URGENT_ALARM_SOUND);
+    urgentAlarmRef.current.volume = 0.9;
+
+    warningAlertRef.current = new Audio(WARNING_ALERT_SOUND);
+    warningAlertRef.current.volume = 0.7;
   }, []);
 
   // Keep ref in sync with state
@@ -114,6 +128,20 @@ export function useNotifications() {
     if (soundEnabledRef.current && settingsRef.current.soundEnabled && targetAudioRef.current) {
       targetAudioRef.current.currentTime = 0;
       targetAudioRef.current.play().catch(() => {});
+    }
+  }, []);
+
+  const playUrgentAlarmSound = useCallback(() => {
+    if (soundEnabledRef.current && settingsRef.current.soundEnabled && urgentAlarmRef.current) {
+      urgentAlarmRef.current.currentTime = 0;
+      urgentAlarmRef.current.play().catch(() => {});
+    }
+  }, []);
+
+  const playWarningAlertSound = useCallback(() => {
+    if (soundEnabledRef.current && settingsRef.current.soundEnabled && warningAlertRef.current) {
+      warningAlertRef.current.currentTime = 0;
+      warningAlertRef.current.play().catch(() => {});
     }
   }, []);
 
@@ -312,6 +340,33 @@ export function useNotifications() {
     notifiedThresholdsRef.current.clear();
   }, []);
 
+  // Sentinel-specific alert notification
+  const notifySentinelAlert = useCallback((
+    type: 'liquidation' | 'rate',
+    severity: 'warning' | 'critical',
+    message: string
+  ) => {
+    if (severity === 'critical') {
+      playUrgentAlarmSound();
+    } else {
+      playWarningAlertSound();
+    }
+
+    toast({
+      title: type === 'liquidation' 
+        ? (severity === 'critical' ? '🚨 Liquidation Critical' : '⚠️ Liquidation Warning')
+        : (severity === 'critical' ? '🔴 API Rate Limit' : '⚠️ API Load Warning'),
+      description: message,
+      variant: 'destructive',
+      duration: severity === 'critical' ? 10000 : 5000,
+    });
+
+    sendPushNotification(
+      severity === 'critical' ? '🚨 CRITICAL ALERT' : '⚠️ Warning',
+      message
+    );
+  }, [playUrgentAlarmSound, playWarningAlertSound, toast, sendPushNotification]);
+
   return {
     notify,
     notifyHighProfit,
@@ -320,10 +375,13 @@ export function useNotifications() {
     notifyTakeProfit,
     notifyDailyProgress,
     resetProgressNotifications,
+    notifySentinelAlert,
     playSound,
     playWinSound,
     playLossSound,
     playTargetSound,
+    playUrgentAlarmSound,
+    playWarningAlertSound,
     requestPushPermission,
     saveAlert,
     soundEnabled,

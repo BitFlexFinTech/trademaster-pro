@@ -49,7 +49,7 @@ const MAX_REQUESTS_PER_MINUTE = 1200; // Binance limit
 export function useJarvisSentinels(): UseJarvisSentinelsReturn {
   const { settings } = useJarvisSettings();
   const { longPosition, shortPosition } = useJarvisFuturesPositions();
-  const { notify, playTargetSound } = useNotifications();
+  const { notify, notifySentinelAlert } = useNotifications();
   
   const [rateState, setRateState] = useState<RateSentinelState>({
     load: 0,
@@ -129,8 +129,7 @@ export function useJarvisSentinels(): UseJarvisSentinelsReturn {
             timestamp: new Date(),
           };
           setAlerts(prev => [...prev.slice(-9), alert]);
-          playTargetSound();
-          notify('⚠️ Rate Limit Alert', alert.message, 'error');
+          notifySentinelAlert('rate', 'critical', alert.message);
           lastAlertRef.current.rate = now;
         }
       } else if (load >= 50) {
@@ -146,7 +145,7 @@ export function useJarvisSentinels(): UseJarvisSentinelsReturn {
             timestamp: new Date(),
           };
           setAlerts(prev => [...prev.slice(-9), alert]);
-          notify('⚠️ API Load Warning', alert.message, 'warning');
+          notifySentinelAlert('rate', 'warning', alert.message);
           lastAlertRef.current.rate = now;
         }
       } else {
@@ -165,7 +164,7 @@ export function useJarvisSentinels(): UseJarvisSentinelsReturn {
     }, 1000);
     
     return () => clearInterval(interval);
-  }, [settings, rateState.cooldownEndsAt, rateState.isInCooldown, notify, playTargetSound]);
+  }, [settings, rateState.cooldownEndsAt, rateState.isInCooldown, notifySentinelAlert]);
 
   // Liquidation sentinel monitoring
   useEffect(() => {
@@ -204,8 +203,7 @@ export function useJarvisSentinels(): UseJarvisSentinelsReturn {
         timestamp: new Date(),
       };
       setAlerts(prev => [...prev.slice(-9), alert]);
-      playTargetSound();
-      notify(severity === 'critical' ? '🚨 Liquidation Critical' : '⚠️ Liquidation Warning', alert.message, severity === 'critical' ? 'error' : 'warning');
+      notifySentinelAlert('liquidation', severity, alert.message);
       lastAlertRef.current.liquidation = now;
     }
     
@@ -217,7 +215,7 @@ export function useJarvisSentinels(): UseJarvisSentinelsReturn {
       longLiqPrice,
       shortLiqPrice,
     });
-  }, [longPosition, shortPosition, settings, notify, playTargetSound]);
+  }, [longPosition, shortPosition, settings, notifySentinelAlert]);
 
   const clearAlerts = useCallback(() => {
     setAlerts([]);
