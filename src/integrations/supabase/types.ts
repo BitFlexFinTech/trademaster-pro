@@ -374,6 +374,87 @@ export type Database = {
         }
         Relationships: []
       }
+      jarvis_settings: {
+        Row: {
+          base_capital: number | null
+          created_at: string | null
+          hedge_mode_enabled: boolean | null
+          id: string
+          leverage: number | null
+          liquidation_critical_threshold: number | null
+          liquidation_min_distance_percent: number | null
+          liquidation_warning_threshold: number | null
+          margin_type: string | null
+          rate_cooldown_duration_ms: number | null
+          rate_cooldown_threshold: number | null
+          rate_request_interval_ms: number | null
+          regime_bear_ema_deviation: number | null
+          regime_bull_ema_deviation: number | null
+          target_bear_profit: number | null
+          target_bull_profit: number | null
+          target_chop_profit: number | null
+          updated_at: string | null
+          user_id: string
+          yield_auto_apply: boolean | null
+          yield_fast_close_threshold_ms: number | null
+          yield_stall_threshold_ms: number | null
+          yield_suggest_decrease_pct: number | null
+          yield_suggest_increase_pct: number | null
+        }
+        Insert: {
+          base_capital?: number | null
+          created_at?: string | null
+          hedge_mode_enabled?: boolean | null
+          id?: string
+          leverage?: number | null
+          liquidation_critical_threshold?: number | null
+          liquidation_min_distance_percent?: number | null
+          liquidation_warning_threshold?: number | null
+          margin_type?: string | null
+          rate_cooldown_duration_ms?: number | null
+          rate_cooldown_threshold?: number | null
+          rate_request_interval_ms?: number | null
+          regime_bear_ema_deviation?: number | null
+          regime_bull_ema_deviation?: number | null
+          target_bear_profit?: number | null
+          target_bull_profit?: number | null
+          target_chop_profit?: number | null
+          updated_at?: string | null
+          user_id: string
+          yield_auto_apply?: boolean | null
+          yield_fast_close_threshold_ms?: number | null
+          yield_stall_threshold_ms?: number | null
+          yield_suggest_decrease_pct?: number | null
+          yield_suggest_increase_pct?: number | null
+        }
+        Update: {
+          base_capital?: number | null
+          created_at?: string | null
+          hedge_mode_enabled?: boolean | null
+          id?: string
+          leverage?: number | null
+          liquidation_critical_threshold?: number | null
+          liquidation_min_distance_percent?: number | null
+          liquidation_warning_threshold?: number | null
+          margin_type?: string | null
+          rate_cooldown_duration_ms?: number | null
+          rate_cooldown_threshold?: number | null
+          rate_request_interval_ms?: number | null
+          regime_bear_ema_deviation?: number | null
+          regime_bull_ema_deviation?: number | null
+          target_bear_profit?: number | null
+          target_bull_profit?: number | null
+          target_chop_profit?: number | null
+          updated_at?: string | null
+          user_id?: string
+          yield_auto_apply?: boolean | null
+          yield_fast_close_threshold_ms?: number | null
+          yield_stall_threshold_ms?: number | null
+          yield_suggest_decrease_pct?: number | null
+          yield_suggest_increase_pct?: number | null
+        }
+        Relationships: []
+      }
       kill_events: {
         Row: {
           bots_killed: number | null
