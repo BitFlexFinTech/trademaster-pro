@@ -1873,6 +1873,7 @@ serve(async (req) => {
                 exchange_name: selectedExchange.exchange_name,
                 is_sandbox: isSandbox,
                 status: "open", // Trade is open, waiting for TP/SL
+                bot_run_id: botId, // Link trade to bot session for accurate P&L tracking
               }).select().single();
               
               if (insertError) {

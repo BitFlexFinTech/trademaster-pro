@@ -225,6 +225,9 @@ export function BotCard({
   const lastTradeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [, forceUpdate] = useState(0); // For re-rendering the time ago display
   
+  // State to show/hide the recent trades panel
+  const [showRecentTrades, setShowRecentTrades] = useState(false);
+  
   // Auto-hide last trade indicator after 5 minutes
   useEffect(() => {
     if (!lastTradeInfo) return;
@@ -1833,60 +1836,108 @@ export function BotCard({
 
       {/* Last Trade Indicator - shows when trade was received via WebSocket */}
       {lastTradeInfo && (
-        <div className="mb-3 px-2 py-1.5 bg-secondary/30 rounded-lg border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {/* Direction icon - long (up) or short (down) */}
-              {lastTradeInfo.direction === 'long' ? (
-                <TrendingUp className="w-3 h-3 text-primary" />
-              ) : lastTradeInfo.direction === 'short' ? (
-                <TrendingDown className="w-3 h-3 text-destructive" />
-              ) : (
+        <div className="mb-3">
+          {/* Clickable Last Trade Indicator */}
+          <div 
+            onClick={() => recentTrades.length > 0 && setShowRecentTrades(!showRecentTrades)}
+            className={cn(
+              "px-2 py-1.5 bg-secondary/30 rounded-lg border border-border/50 transition-colors",
+              recentTrades.length > 0 && "cursor-pointer hover:bg-secondary/50"
+            )}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {/* Direction icon - long (up) or short (down) */}
+                {lastTradeInfo.direction === 'long' ? (
+                  <TrendingUp className="w-3 h-3 text-primary" />
+                ) : lastTradeInfo.direction === 'short' ? (
+                  <TrendingDown className="w-3 h-3 text-destructive" />
+                ) : (
+                  <span className={cn(
+                    "w-2 h-2 rounded-full",
+                    Date.now() - lastTradeInfo.timestamp.getTime() < 10000 
+                      ? "bg-primary animate-pulse" 
+                      : "bg-muted-foreground"
+                  )} />
+                )}
+                <span className="text-[10px] text-muted-foreground">Last trade:</span>
+                <span className="text-[10px] font-mono text-foreground">
+                  {formatDistanceToNow(lastTradeInfo.timestamp, { addSuffix: true })}
+                </span>
+                {recentTrades.length > 0 && (
+                  <span className="text-[9px] text-muted-foreground">
+                    ({showRecentTrades ? '▲' : '▼'} {recentTrades.length} trades)
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  {lastTradeInfo.pair}
+                </span>
                 <span className={cn(
-                  "w-2 h-2 rounded-full",
-                  Date.now() - lastTradeInfo.timestamp.getTime() < 10000 
-                    ? "bg-primary animate-pulse" 
-                    : "bg-muted-foreground"
-                )} />
-              )}
-              <span className="text-[10px] text-muted-foreground">Last trade:</span>
-              <span className="text-[10px] font-mono text-foreground">
-                {formatDistanceToNow(lastTradeInfo.timestamp, { addSuffix: true })}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono text-muted-foreground">
-                {lastTradeInfo.pair}
-              </span>
-              <span className={cn(
-                "text-[10px] font-mono font-bold",
-                lastTradeInfo.pnl >= 0 ? "text-primary" : "text-destructive"
-              )}>
-                {lastTradeInfo.pnl >= 0 ? '+' : ''}${lastTradeInfo.pnl.toFixed(4)}
-              </span>
-              {/* Sync status indicator */}
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger>
-                    {lastTradeInfo.syncStatus === 'syncing' && (
-                      <Loader2 className="w-3 h-3 text-muted-foreground animate-spin" />
-                    )}
-                    {lastTradeInfo.syncStatus === 'synced' && (
-                      <CheckCircle2 className="w-3 h-3 text-primary" />
-                    )}
-                    {lastTradeInfo.syncStatus === 'failed' && (
-                      <XCircle className="w-3 h-3 text-destructive" />
-                    )}
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {lastTradeInfo.syncStatus === 'syncing' && 'Syncing to database...'}
-                    {lastTradeInfo.syncStatus === 'synced' && 'Synced to database'}
-                    {lastTradeInfo.syncStatus === 'failed' && 'Failed to sync - click refresh to retry'}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+                  "text-[10px] font-mono font-bold",
+                  lastTradeInfo.pnl >= 0 ? "text-primary" : "text-destructive"
+                )}>
+                  {lastTradeInfo.pnl >= 0 ? '+' : ''}${lastTradeInfo.pnl.toFixed(4)}
+                </span>
+                {/* Sync status indicator */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      {lastTradeInfo.syncStatus === 'syncing' && (
+                        <Loader2 className="w-3 h-3 text-muted-foreground animate-spin" />
+                      )}
+                      {lastTradeInfo.syncStatus === 'synced' && (
+                        <CheckCircle2 className="w-3 h-3 text-primary" />
+                      )}
+                      {lastTradeInfo.syncStatus === 'failed' && (
+                        <XCircle className="w-3 h-3 text-destructive" />
+                      )}
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {lastTradeInfo.syncStatus === 'syncing' && 'Syncing to database...'}
+                      {lastTradeInfo.syncStatus === 'synced' && 'Synced to database'}
+                      {lastTradeInfo.syncStatus === 'failed' && 'Failed to sync - click refresh to retry'}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
             </div>
           </div>
+          
+          {/* Expandable Last 5 Trades Panel */}
+          {showRecentTrades && recentTrades.length > 0 && (
+            <div className="mt-1 bg-muted/30 rounded-lg border border-border/30 overflow-hidden animate-in slide-in-from-top-2 duration-200">
+              <div className="px-2 py-1 border-b border-border/30 bg-muted/20">
+                <span className="text-[9px] font-medium text-muted-foreground">Last 5 Trades</span>
+              </div>
+              <div className="divide-y divide-border/20">
+                {recentTrades.slice(0, 5).map((trade, i) => (
+                  <div key={trade.id || i} className="flex items-center justify-between px-2 py-1 hover:bg-muted/20">
+                    <div className="flex items-center gap-2">
+                      {trade.direction === 'long' ? (
+                        <TrendingUp className="w-3 h-3 text-primary" />
+                      ) : (
+                        <TrendingDown className="w-3 h-3 text-destructive" />
+                      )}
+                      <span className="text-[10px] font-mono text-foreground">{trade.pair}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        "text-[10px] font-mono font-medium",
+                        trade.pnl >= 0 ? "text-primary" : "text-destructive"
+                      )}>
+                        {trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(4)}
+                      </span>
+                      <span className="text-[9px] text-muted-foreground">
+                        {formatDistanceToNow(trade.timestamp, { addSuffix: true })}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
