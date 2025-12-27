@@ -387,16 +387,24 @@ export type Database = {
           liquidation_critical_threshold: number | null
           liquidation_min_distance_percent: number | null
           liquidation_warning_threshold: number | null
+          manual_futures_balance: number | null
+          manual_spot_balance: number | null
           margin_type: string | null
           rate_cooldown_duration_ms: number | null
           rate_cooldown_threshold: number | null
           rate_request_interval_ms: number | null
           regime_bear_ema_deviation: number | null
           regime_bull_ema_deviation: number | null
+          regime_trailing_adjustments: Json | null
+          risk_tolerance: string | null
           target_bear_profit: number | null
           target_bull_profit: number | null
           target_chop_profit: number | null
+          trailing_activation_pct: number | null
+          trailing_distance_pct: number | null
+          trailing_stop_enabled: boolean | null
           updated_at: string | null
+          use_manual_balance: boolean | null
           user_id: string
           yield_auto_apply: boolean | null
           yield_fast_close_threshold_ms: number | null
@@ -413,16 +421,24 @@ export type Database = {
           liquidation_critical_threshold?: number | null
           liquidation_min_distance_percent?: number | null
           liquidation_warning_threshold?: number | null
+          manual_futures_balance?: number | null
+          manual_spot_balance?: number | null
           margin_type?: string | null
           rate_cooldown_duration_ms?: number | null
           rate_cooldown_threshold?: number | null
           rate_request_interval_ms?: number | null
           regime_bear_ema_deviation?: number | null
           regime_bull_ema_deviation?: number | null
+          regime_trailing_adjustments?: Json | null
+          risk_tolerance?: string | null
           target_bear_profit?: number | null
           target_bull_profit?: number | null
           target_chop_profit?: number | null
+          trailing_activation_pct?: number | null
+          trailing_distance_pct?: number | null
+          trailing_stop_enabled?: boolean | null
           updated_at?: string | null
+          use_manual_balance?: boolean | null
           user_id: string
           yield_auto_apply?: boolean | null
           yield_fast_close_threshold_ms?: number | null
@@ -439,16 +455,24 @@ export type Database = {
           liquidation_critical_threshold?: number | null
           liquidation_min_distance_percent?: number | null
           liquidation_warning_threshold?: number | null
+          manual_futures_balance?: number | null
+          manual_spot_balance?: number | null
           margin_type?: string | null
           rate_cooldown_duration_ms?: number | null
           rate_cooldown_threshold?: number | null
           rate_request_interval_ms?: number | null
           regime_bear_ema_deviation?: number | null
           regime_bull_ema_deviation?: number | null
+          regime_trailing_adjustments?: Json | null
+          risk_tolerance?: string | null
           target_bear_profit?: number | null
           target_bull_profit?: number | null
           target_chop_profit?: number | null
+          trailing_activation_pct?: number | null
+          trailing_distance_pct?: number | null
+          trailing_stop_enabled?: boolean | null
           updated_at?: string | null
+          use_manual_balance?: boolean | null
           user_id?: string
           yield_auto_apply?: boolean | null
           yield_fast_close_threshold_ms?: number | null
@@ -989,17 +1013,23 @@ export type Database = {
           closed_at: string | null
           created_at: string
           direction: string
+          emotion: string | null
           entry_price: number
           exchange_name: string | null
           exit_price: number | null
           id: string
           is_sandbox: boolean | null
+          lessons_learned: string | null
           leverage: number | null
+          market_context: string | null
+          notes: string | null
           pair: string
           profit_loss: number | null
           profit_percentage: number | null
           regime_at_entry: string | null
+          setup_quality: number | null
           status: string | null
+          tags: string[] | null
           user_id: string
         }
         Insert: {
@@ -1008,17 +1038,23 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           direction: string
+          emotion?: string | null
           entry_price: number
           exchange_name?: string | null
           exit_price?: number | null
           id?: string
           is_sandbox?: boolean | null
+          lessons_learned?: string | null
           leverage?: number | null
+          market_context?: string | null
+          notes?: string | null
           pair: string
           profit_loss?: number | null
           profit_percentage?: number | null
           regime_at_entry?: string | null
+          setup_quality?: number | null
           status?: string | null
+          tags?: string[] | null
           user_id: string
         }
         Update: {
@@ -1027,17 +1063,23 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           direction?: string
+          emotion?: string | null
           entry_price?: number
           exchange_name?: string | null
           exit_price?: number | null
           id?: string
           is_sandbox?: boolean | null
+          lessons_learned?: string | null
           leverage?: number | null
+          market_context?: string | null
+          notes?: string | null
           pair?: string
           profit_loss?: number | null
           profit_percentage?: number | null
           regime_at_entry?: string | null
+          setup_quality?: number | null
           status?: string | null
+          tags?: string[] | null
           user_id?: string
         }
         Relationships: [
@@ -1111,6 +1153,7 @@ export type Database = {
           regime_alert_cooldown_seconds: number | null
           regime_alert_push_types: string[] | null
           regime_alert_sound: string | null
+          regime_alert_thresholds: Json | null
           regime_alert_volume: number | null
           regime_alerts_enabled: boolean | null
           theme: string | null
@@ -1126,6 +1169,7 @@ export type Database = {
           regime_alert_cooldown_seconds?: number | null
           regime_alert_push_types?: string[] | null
           regime_alert_sound?: string | null
+          regime_alert_thresholds?: Json | null
           regime_alert_volume?: number | null
           regime_alerts_enabled?: boolean | null
           theme?: string | null
@@ -1141,6 +1185,7 @@ export type Database = {
           regime_alert_cooldown_seconds?: number | null
           regime_alert_push_types?: string[] | null
           regime_alert_sound?: string | null
+          regime_alert_thresholds?: Json | null
           regime_alert_volume?: number | null
           regime_alerts_enabled?: boolean | null
           theme?: string | null
