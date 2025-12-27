@@ -65,6 +65,46 @@
     --badge-defi: 270 100% 60%;
     --badge-long: 152 100% 50%;
     --badge-short: 0 84% 60%;
+
+    /* === VIBRANT FLAT SPECTRUM (Tekashi 69 Inspired) === */
+    --neon-pink: 328 100% 54%;
+    --electric-blue: 195 100% 50%;
+    --hot-orange: 18 100% 60%;
+    --lime-green: 152 100% 50%;
+    --cyber-purple: 270 50% 53%;
+    --golden-yellow: 51 100% 50%;
+    --turquoise: 174 72% 56%;
+    --coral-red: 0 100% 71%;
+    --lavender: 240 67% 94%;
+    --mint: 120 100% 80%;
+
+    /* Bot Card Accent Colors */
+    --accent-spot: 195 100% 50%;
+    --accent-leverage: 328 100% 54%;
+    --accent-portfolio: 51 100% 50%;
+    --accent-ai: 270 50% 53%;
+    --accent-risk: 0 100% 71%;
+    --accent-hitrate: 174 72% 56%;
+  }
+
+  /* Rainbow theme (default) */
+  [data-color-theme="rainbow"] {
+    --accent-spot: 195 100% 50%;
+    --accent-leverage: 328 100% 54%;
+    --accent-portfolio: 51 100% 50%;
+    --accent-ai: 270 50% 53%;
+    --accent-risk: 0 100% 71%;
+    --accent-hitrate: 174 72% 56%;
+  }
+
+  /* Monochrome theme */
+  [data-color-theme="monochrome"] {
+    --accent-spot: 152 100% 50%;
+    --accent-leverage: 152 100% 50%;
+    --accent-portfolio: 152 100% 50%;
+    --accent-ai: 152 100% 50%;
+    --accent-risk: 152 100% 50%;
+    --accent-hitrate: 152 100% 50%;
   }
 }
 
@@ -168,6 +208,80 @@
   .live-indicator::before {
     content: '';
     @apply w-2 h-2 bg-primary rounded-full animate-pulse;
+  }
+
+  /* Glassmorphism Cards - Flat design with frosted glass */
+  .card-glass {
+    background: rgba(15, 15, 15, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+  }
+
+  .card-glass-accent {
+    background: rgba(15, 15, 15, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-left: 4px solid var(--card-accent-color, hsl(var(--primary)));
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+  }
+
+  /* Vibrant accent borders */
+  .border-accent-spot {
+    border-color: hsl(var(--accent-spot));
+  }
+  .border-accent-leverage {
+    border-color: hsl(var(--accent-leverage));
+  }
+  .border-accent-portfolio {
+    border-color: hsl(var(--accent-portfolio));
+  }
+  .border-accent-ai {
+    border-color: hsl(var(--accent-ai));
+  }
+  .border-accent-risk {
+    border-color: hsl(var(--accent-risk));
+  }
+  .border-accent-hitrate {
+    border-color: hsl(var(--accent-hitrate));
+  }
+
+  /* Vibrant text colors */
+  .text-accent-spot {
+    color: hsl(var(--accent-spot));
+  }
+  .text-accent-leverage {
+    color: hsl(var(--accent-leverage));
+  }
+  .text-accent-portfolio {
+    color: hsl(var(--accent-portfolio));
+  }
+  .text-accent-ai {
+    color: hsl(var(--accent-ai));
+  }
+  .text-accent-risk {
+    color: hsl(var(--accent-risk));
+  }
+  .text-accent-hitrate {
+    color: hsl(var(--accent-hitrate));
+  }
+
+  /* Vibrant background colors with opacity */
+  .bg-accent-spot {
+    background-color: hsl(var(--accent-spot) / 0.15);
+  }
+  .bg-accent-leverage {
+    background-color: hsl(var(--accent-leverage) / 0.15);
+  }
+  .bg-accent-portfolio {
+    background-color: hsl(var(--accent-portfolio) / 0.15);
+  }
+  .bg-accent-ai {
+    background-color: hsl(var(--accent-ai) / 0.15);
   }
 }
 
