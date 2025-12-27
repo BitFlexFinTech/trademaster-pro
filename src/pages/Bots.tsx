@@ -1273,206 +1273,173 @@ export default function Bots() {
             );
           })}
 
-          {/* Portfolio Value by Exchange - Compact Inline Card */}
-          <div className="card-terminal p-2 mb-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <DollarSign className="w-4 h-4 text-primary shrink-0" />
-                <span className="text-xs font-semibold text-foreground whitespace-nowrap">
-                  {tradingMode === 'demo' ? 'VIRTUAL' : 'PORTFOLIO'}
-                </span>
-                <span className="text-sm font-mono font-bold text-primary">
-                  ${usdtFloat.reduce((sum, f) => sum + f.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                </span>
-                <span className="text-xs text-muted-foreground">/ ${MAX_USDT_ALLOCATION.toLocaleString()}</span>
-              </div>
-              
-              {/* Exchange chips - inline, max 3 visible */}
-              <div className="flex items-center gap-1 overflow-hidden">
-                {(tradingMode === 'demo' ? activeExchanges.slice(0, 3) : usdtFloat.slice(0, 3)).map((item) => {
-                  const exchange = tradingMode === 'demo' ? (item as typeof activeExchanges[0]).name : (item as UsdtFloat).exchange;
-                  const amount = tradingMode === 'demo' 
-                    ? Math.round(suggestedUSDT * EXCHANGE_ALLOCATION_PERCENTAGES[(item as typeof activeExchanges[0]).confidence])
-                    : (item as UsdtFloat).amount;
-                  return (
-                    <Badge key={exchange} variant="outline" className="text-[9px] px-1.5 py-0 h-5 font-mono shrink-0">
-                      {exchange.slice(0, 3).toUpperCase()} ${amount >= 1000 ? `${(amount/1000).toFixed(1)}K` : amount.toFixed(0)}
+          {/* Compact Cards Row - Portfolio, AI Target, AI Strategy */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+            {/* Portfolio Value by Exchange - Compact Inline Card */}
+            <div className="card-terminal p-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <DollarSign className="w-4 h-4 text-primary shrink-0" />
+                  <span className="text-xs font-semibold text-foreground whitespace-nowrap">
+                    {tradingMode === 'demo' ? 'VIRTUAL' : 'PORTFOLIO'}
+                  </span>
+                  <span className="text-sm font-mono font-bold text-primary">
+                    ${usdtFloat.reduce((sum, f) => sum + f.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+                
+                {/* Exchange chips - inline, max 2 visible */}
+                <div className="flex items-center gap-1 overflow-hidden">
+                  {(tradingMode === 'demo' ? activeExchanges.slice(0, 2) : usdtFloat.slice(0, 2)).map((item) => {
+                    const exchange = tradingMode === 'demo' ? (item as typeof activeExchanges[0]).name : (item as UsdtFloat).exchange;
+                    const amount = tradingMode === 'demo' 
+                      ? Math.round(suggestedUSDT * EXCHANGE_ALLOCATION_PERCENTAGES[(item as typeof activeExchanges[0]).confidence])
+                      : (item as UsdtFloat).amount;
+                    return (
+                      <Badge key={exchange} variant="outline" className="text-[9px] px-1 py-0 h-4 font-mono shrink-0">
+                        {exchange.slice(0, 3).toUpperCase()} ${amount >= 1000 ? `${(amount/1000).toFixed(1)}K` : amount.toFixed(0)}
+                      </Badge>
+                    );
+                  })}
+                  {(tradingMode === 'demo' ? activeExchanges.length : usdtFloat.length) > 2 && (
+                    <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 shrink-0">
+                      +{(tradingMode === 'demo' ? activeExchanges.length : usdtFloat.length) - 2}
                     </Badge>
-                  );
-                })}
-                {(tradingMode === 'demo' ? activeExchanges.length : usdtFloat.length) > 3 && (
-                  <Badge variant="secondary" className="text-[9px] px-1 py-0 h-5 shrink-0">
-                    +{(tradingMode === 'demo' ? activeExchanges.length : usdtFloat.length) - 3}
-                  </Badge>
-                )}
-              </div>
-              
-              {/* Refresh button - Live mode only */}
-              {tradingMode === 'live' && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 w-6 p-0 shrink-0"
-                  onClick={() => {
-                    fetchExchangeBalances();
-                    toast.success('Refreshing portfolio...');
-                  }}
-                >
-                  <RefreshCw className="w-3 h-3" />
-                </Button>
-              )}
-              
-              {/* Vaulted profits indicator */}
-              {Object.values(profitVault).reduce((sum, v) => sum + v, 0) > 0 && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="flex items-center gap-1 text-primary shrink-0">
-                        <Lock className="w-3 h-3" />
-                        <span className="text-xs font-mono font-bold">
-                          ${Object.values(profitVault).reduce((sum, v) => sum + v, 0).toFixed(0)}
-                        </span>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">Total Vaulted Profits</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-            </div>
-          </div>
-
-          {/* AI Daily Target Recommendation - Compact Inline Card */}
-          <div className="card-terminal p-2 mb-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <Brain className="w-4 h-4 text-primary shrink-0" />
-                <span className="text-xs font-semibold text-foreground whitespace-nowrap">AI TARGET</span>
-                {aiTargetRecommendation ? (
-                  <>
-                    <span className="text-sm font-mono font-bold text-primary">
-                      ${aiTargetRecommendation.dailyTarget}/day
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">•</span>
-                    <span className="text-xs font-mono text-muted-foreground">
-                      ${aiTargetRecommendation.profitPerTrade.toFixed(2)}/trade
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">•</span>
-                    <Badge 
-                      variant="outline" 
-                      className={cn(
-                        "text-[9px] px-1 h-4",
-                        aiTargetRecommendation.confidence >= 80 ? "border-primary text-primary" :
-                        aiTargetRecommendation.confidence >= 60 ? "border-warning text-warning" : "border-destructive text-destructive"
-                      )}
-                    >
-                      {aiTargetRecommendation.confidence}%
-                    </Badge>
-                  </>
-                ) : (
-                  <span className="text-xs text-muted-foreground">Click Get for AI recommendation</span>
-                )}
-              </div>
-              
-              <div className="flex items-center gap-1 shrink-0">
-                {aiTargetRecommendation && (
+                  )}
+                </div>
+                
+                {/* Refresh button - Live mode only */}
+                {tradingMode === 'live' && (
                   <Button
                     size="sm"
-                    variant="default"
-                    className="h-6 text-xs px-2"
+                    variant="ghost"
+                    className="h-5 w-5 p-0 shrink-0"
                     onClick={() => {
-                      applyAITargetRecommendation((target, profit) => {
-                        setBotConfig(prev => ({
-                          ...prev,
-                          dailyTarget: target,
-                          profitPerTrade: profit,
-                        }));
-                      });
+                      fetchExchangeBalances();
+                      toast.success('Refreshing portfolio...');
                     }}
                   >
-                    <Target className="w-3 h-3 mr-1" />
-                    Apply
+                    <RefreshCw className="w-3 h-3" />
                   </Button>
                 )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 text-xs px-2"
-                  onClick={() => {
-                    const floatData = usdtFloat.map(f => ({
-                      exchange: f.exchange,
-                      amount: f.amount,
-                      baseBalance: 0,
-                      availableFloat: f.amount,
-                    }));
-                    fetchAITargetRecommendation({
-                      usdtFloat: floatData,
-                      historicalHitRate: combinedHitRate,
-                      averageProfitPerTrade: botConfig.profitPerTrade,
-                      tradingHoursPerDay: 8,
-                      riskTolerance: 'moderate',
-                    });
-                  }}
-                  disabled={aiTargetLoading || usdtFloat.length === 0}
-                >
-                  {aiTargetLoading ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-3 h-3 mr-1" />
-                  )}
-                  Get
-                </Button>
               </div>
             </div>
-          </div>
 
-          {/* AI Recommendations Panel - Full 9 Fields */}
-          <AIRecommendationsPanel
-            botConfig={botConfig}
-            onApplyField={(field, value) => {
-              // FIXED: Sync all fields properly including dailyTarget, profitPerTrade, stopLoss
-              setBotConfig(prev => {
-                const updatedConfig = { ...prev };
-                switch (field) {
-                  case 'dailyTarget':
-                    updatedConfig.dailyTarget = value;
-                    break;
-                  case 'profitPerTrade':
-                    updatedConfig.profitPerTrade = value;
-                    break;
-                  case 'amountPerTrade':
-                    updatedConfig.amountPerTrade = value;
-                    break;
-                  case 'tradeIntervalMs':
-                    updatedConfig.tradeIntervalMs = value;
-                    break;
-                  case 'dailyStopLoss':
-                    updatedConfig.dailyStopLoss = value;
-                    break;
-                  case 'perTradeStopLoss':
-                    updatedConfig.perTradeStopLoss = value;
-                    break;
-                  case 'minProfitThreshold':
-                    updatedConfig.minProfitThreshold = value;
-                    break;
-                  case 'focusPairs':
-                    updatedConfig.focusPairs = value;
-                    break;
-                  default:
-                    (updatedConfig as any)[field] = value;
-                }
-                // Persist to localStorage
-                localStorage.setItem('greenback-bot-settings', JSON.stringify(updatedConfig));
-                return updatedConfig;
-              });
-            }}
-            onApplyAll={() => {
-              // Refetch config from DB since applyRecommendation will have updated it
-              refetch();
-            }}
-            className="mb-2"
-          />
+            {/* AI Daily Target Recommendation - Compact Inline Card */}
+            <div className="card-terminal p-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Brain className="w-4 h-4 text-primary shrink-0" />
+                  <span className="text-xs font-semibold text-foreground whitespace-nowrap">AI TARGET</span>
+                  {aiTargetRecommendation ? (
+                    <>
+                      <span className="text-sm font-mono font-bold text-primary">
+                        ${aiTargetRecommendation.dailyTarget}
+                      </span>
+                      <Badge 
+                        variant="outline" 
+                        className={cn(
+                          "text-[9px] px-1 h-4",
+                          aiTargetRecommendation.confidence >= 80 ? "border-primary text-primary" :
+                          aiTargetRecommendation.confidence >= 60 ? "border-warning text-warning" : "border-destructive text-destructive"
+                        )}
+                      >
+                        {aiTargetRecommendation.confidence}%
+                      </Badge>
+                    </>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground">Click Get</span>
+                  )}
+                </div>
+                
+                <div className="flex items-center gap-1 shrink-0">
+                  {aiTargetRecommendation && (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      className="h-5 text-[10px] px-1.5"
+                      onClick={() => {
+                        applyAITargetRecommendation((target, profit) => {
+                          setBotConfig(prev => ({
+                            ...prev,
+                            dailyTarget: target,
+                            profitPerTrade: profit,
+                          }));
+                        });
+                      }}
+                    >
+                      Apply
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-5 text-[10px] px-1.5"
+                    onClick={() => {
+                      const floatData = usdtFloat.map(f => ({
+                        exchange: f.exchange,
+                        amount: f.amount,
+                        baseBalance: 0,
+                        availableFloat: f.amount,
+                      }));
+                      fetchAITargetRecommendation({
+                        usdtFloat: floatData,
+                        historicalHitRate: combinedHitRate,
+                        averageProfitPerTrade: botConfig.profitPerTrade,
+                        tradingHoursPerDay: 8,
+                        riskTolerance: 'moderate',
+                      });
+                    }}
+                    disabled={aiTargetLoading || usdtFloat.length === 0}
+                  >
+                    {aiTargetLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Get'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Strategy Recommendations - Compact Inline Card */}
+            <AIRecommendationsPanel
+              botConfig={botConfig}
+              onApplyField={(field, value) => {
+                setBotConfig(prev => {
+                  const updatedConfig = { ...prev };
+                  switch (field) {
+                    case 'dailyTarget':
+                      updatedConfig.dailyTarget = value;
+                      break;
+                    case 'profitPerTrade':
+                      updatedConfig.profitPerTrade = value;
+                      break;
+                    case 'amountPerTrade':
+                      updatedConfig.amountPerTrade = value;
+                      break;
+                    case 'tradeIntervalMs':
+                      updatedConfig.tradeIntervalMs = value;
+                      break;
+                    case 'dailyStopLoss':
+                      updatedConfig.dailyStopLoss = value;
+                      break;
+                    case 'perTradeStopLoss':
+                      updatedConfig.perTradeStopLoss = value;
+                      break;
+                    case 'minProfitThreshold':
+                      updatedConfig.minProfitThreshold = value;
+                      break;
+                    case 'focusPairs':
+                      updatedConfig.focusPairs = value;
+                      break;
+                    default:
+                      (updatedConfig as any)[field] = value;
+                  }
+                  localStorage.setItem('greenback-bot-settings', JSON.stringify(updatedConfig));
+                  return updatedConfig;
+                });
+              }}
+              onApplyAll={() => refetch()}
+              compact={true}
+            />
+          </div>
 
           {/* Trade Execution Status Panel - Shows blocked/cooldown/active pairs */}
           <TradeExecutionStatus 
