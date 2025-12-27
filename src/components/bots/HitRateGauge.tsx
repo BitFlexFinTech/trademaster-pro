@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Target, TrendingUp, AlertTriangle, Trophy } from 'lucide-react';
+import { AnimatedCounter } from '@/components/ui/AnimatedCounter';
 import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
@@ -81,11 +82,14 @@ export function HitRateGauge({
 
       {/* Main gauge display */}
       <div className="relative">
-        {/* Current hit rate - compact display */}
+        {/* Current hit rate - compact display with animation */}
         <div className="flex items-baseline gap-1 mb-1">
-          <span className={cn('text-2xl font-bold font-mono', zoneInfo.color)}>
-            {currentHitRate.toFixed(1)}
-          </span>
+          <AnimatedCounter
+            value={currentHitRate}
+            duration={400}
+            decimals={1}
+            className={cn('text-2xl font-bold font-mono', zoneInfo.color)}
+          />
           <span className="text-sm text-muted-foreground">%</span>
           <span className="text-[10px] text-muted-foreground ml-1">
             ({tradesCount})
@@ -163,28 +167,44 @@ export function HitRateGauge({
         </div>
       </div>
 
-      {/* Stats row - more compact */}
+      {/* Stats row - more compact with animations */}
       <div className="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-border/50">
         <div className="text-center">
           <p className="text-[8px] text-muted-foreground">Current</p>
-          <p className={cn('text-[11px] font-bold font-mono', zoneInfo.color)}>
-            {currentHitRate.toFixed(1)}%
-          </p>
+          <AnimatedCounter
+            value={currentHitRate}
+            duration={300}
+            decimals={1}
+            suffix="%"
+            className={cn('text-[11px] font-bold font-mono', zoneInfo.color)}
+          />
         </div>
         <div className="text-center">
           <p className="text-[8px] text-muted-foreground">Target</p>
-          <p className="text-[11px] font-bold font-mono text-primary">
-            {targetHitRate}%
-          </p>
+          <AnimatedCounter
+            value={targetHitRate}
+            duration={300}
+            decimals={0}
+            suffix="%"
+            className="text-[11px] font-bold font-mono text-primary"
+          />
         </div>
         <div className="text-center">
           <p className="text-[8px] text-muted-foreground">Required</p>
-          <p className={cn(
-            'text-[11px] font-bold font-mono',
-            requiredHitRate && requiredHitRate > currentHitRate ? 'text-warning' : 'text-muted-foreground'
-          )}>
-            {requiredHitRate ? `${requiredHitRate.toFixed(1)}%` : '-'}
-          </p>
+          {requiredHitRate ? (
+            <AnimatedCounter
+              value={requiredHitRate}
+              duration={300}
+              decimals={1}
+              suffix="%"
+              className={cn(
+                'text-[11px] font-bold font-mono',
+                requiredHitRate > currentHitRate ? 'text-yellow-500' : 'text-muted-foreground'
+              )}
+            />
+          ) : (
+            <span className="text-[11px] font-bold font-mono text-muted-foreground">-</span>
+          )}
         </div>
       </div>
 

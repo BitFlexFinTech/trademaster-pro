@@ -1738,8 +1738,18 @@ export function BotCard({
 
   const progressPercent = (metrics.currentPnL / dailyTarget) * 100;
 
+  // Vibrant accent color based on bot type
+  const accentColor = botType === 'spot' ? 'hsl(195, 100%, 50%)' : 'hsl(328, 100%, 54%)';
+  const accentClass = botType === 'spot' ? 'border-l-[#00BFFF]' : 'border-l-[#FF1493]';
+
   return (
-    <div className="card-terminal p-3 flex flex-col h-full overflow-hidden">
+    <div 
+      className={cn(
+        "card-glass-accent p-3 flex flex-col h-full overflow-hidden border-l-4",
+        accentClass
+      )}
+      style={{ borderLeftColor: accentColor }}
+    >
       {/* Header - Fixed overflow with flex-wrap and truncate */}
       <div className="flex items-start justify-between gap-2 mb-3 flex-wrap">
         <div className="flex items-center gap-2 min-w-0 flex-1">
