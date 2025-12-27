@@ -49,13 +49,15 @@ interface AIRecommendationsPanelProps {
   onApplyField: (field: string, value: any) => void;
   onApplyAll: () => void;
   className?: string;
+  compact?: boolean;
 }
 
 export function AIRecommendationsPanel({ 
   botConfig, 
   onApplyField, 
   onApplyAll,
-  className 
+  className,
+  compact = false
 }: AIRecommendationsPanelProps) {
   const { user } = useAuth();
   const { recommendation, loading, applying, fetchRecommendation, applyRecommendation } = useBotStrategyAI();
@@ -274,6 +276,68 @@ export function AIRecommendationsPanel({
       default: return 'text-muted-foreground';
     }
   };
+
+  // Count fields with changes
+  const changedFieldsCount = fields.filter(f => String(f.currentValue) !== String(f.recommendedValue)).length;
+
+  // Compact mode - single row card
+  if (compact) {
+    return (
+      <div className={cn("card-terminal p-2", className)}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Brain className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-xs font-semibold text-foreground whitespace-nowrap">AI STRATEGY</span>
+            {recommendation ? (
+              <>
+                <Badge 
+                  variant="outline" 
+                  className={cn(
+                    "text-[9px] px-1 h-4",
+                    recommendation.confidence >= 80 ? "border-primary text-primary" :
+                    recommendation.confidence >= 60 ? "border-warning text-warning" : "border-destructive text-destructive"
+                  )}
+                >
+                  {recommendation.confidence}%
+                </Badge>
+                {changedFieldsCount > 0 && (
+                  <span className="text-[10px] text-muted-foreground">{changedFieldsCount} changes</span>
+                )}
+              </>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">Click Analyze</span>
+            )}
+          </div>
+          
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-5 text-[10px] px-1.5"
+              onClick={fetchRecommendation}
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Analyze'}
+            </Button>
+            {recommendation && changedFieldsCount > 0 && (
+              <Button
+                size="sm"
+                variant="default"
+                className="h-5 text-[10px] px-1.5"
+                onClick={() => {
+                  applyRecommendation();
+                  onApplyAll();
+                }}
+                disabled={applying}
+              >
+                {applying ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Apply All'}
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!recommendation) {
     return (
