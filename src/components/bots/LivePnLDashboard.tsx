@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PnLTicker } from '@/components/bots/PnLTicker';
+import { useConfetti } from '@/components/effects/TradeConfetti';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -18,6 +19,7 @@ import {
 import { cn } from '@/lib/utils';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 import { formatDistanceToNow } from 'date-fns';
+import { useEffect, useRef } from 'react';
 
 interface LivePnLDashboardProps {
   className?: string;
@@ -42,6 +44,22 @@ export function LivePnLDashboard({ className }: LivePnLDashboardProps) {
     isLoading,
   } = useRealTimePnL();
 
+  const { triggerConfetti, ConfettiComponent } = useConfetti();
+  const prevProgressRef = useRef<number>(0);
+
+  // Trigger confetti when daily target reaches 100%
+  useEffect(() => {
+    const wasBelow100 = prevProgressRef.current < 100;
+    const isNowAtOrAbove100 = progressPercent >= 100;
+    
+    if (wasBelow100 && isNowAtOrAbove100 && !isLoading) {
+      // Gold confetti for hitting daily target!
+      triggerConfetti({ color: '#FFD700' });
+    }
+    
+    prevProgressRef.current = progressPercent;
+  }, [progressPercent, isLoading, triggerConfetti]);
+
   if (isLoading) {
     return (
       <Card className={cn("bg-card border-border", className)}>
@@ -60,7 +78,10 @@ export function LivePnLDashboard({ className }: LivePnLDashboardProps) {
   const targetReached = currentPnL >= dailyTarget;
 
   return (
-    <Card className={cn("bg-card border-border overflow-hidden flex flex-col", className)}>
+    <Card className={cn("bg-card border-border overflow-hidden flex flex-col relative", className)}>
+      {/* Confetti component for target reached celebration */}
+      <ConfettiComponent />
+      
       {/* Animated gradient border for target reached */}
       {targetReached && (
         <div className="absolute inset-0 bg-gradient-to-r from-green-500/20 via-emerald-500/20 to-green-500/20 animate-pulse pointer-events-none" />
