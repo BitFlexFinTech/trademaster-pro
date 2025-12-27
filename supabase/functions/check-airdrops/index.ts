@@ -168,44 +168,8 @@ function analyzeForAirdrops(
   return airdrops;
 }
 
-/**
- * Fallback: Generate mock eligibility when DeBank API unavailable
- */
-function generateFallbackEligibility(walletAddress: string): Airdrop[] {
-  // Use wallet address hash for deterministic results
-  const hash = walletAddress.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  
-  return AIRDROP_PROTOCOLS.map((protocol, index) => {
-    const seed = (hash + index) % 100;
-    let status: Airdrop['status'];
-    let estimatedValue: string;
-    
-    if (seed < 15) {
-      status = 'eligible';
-      estimatedValue = `$${(500 + (seed * 50)).toLocaleString()}`;
-    } else if (seed < 25) {
-      status = 'claimed';
-      estimatedValue = `$${(200 + (seed * 20)).toLocaleString()}`;
-    } else if (seed < 40) {
-      status = 'pending';
-      estimatedValue = 'TBD';
-    } else {
-      status = 'not_eligible';
-      estimatedValue = '-';
-    }
-
-    return {
-      id: protocol.id,
-      protocol: protocol.name,
-      name: `${protocol.name} Airdrop`,
-      status,
-      estimatedValue,
-      deadline: status === 'eligible' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : null,
-      chain: protocol.chain,
-      claimUrl: status === 'eligible' ? `https://${protocol.id}.io` : null,
-    };
-  });
-}
+// NOTE: Removed generateFallbackEligibility - NO MOCK DATA in live mode
+// When DeBank API is unavailable, return empty array with error message
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -240,6 +204,7 @@ serve(async (req) => {
     
     let airdrops: Airdrop[];
     let dataSource: string;
+    let error: string | undefined;
     
     if (debankData) {
       // Use REAL DeBank data
@@ -247,10 +212,11 @@ serve(async (req) => {
       dataSource = 'debank';
       console.log(`DeBank API: Found ${debankData.protocols.length} protocols, ${debankData.tokens.length} tokens`);
     } else {
-      // Fallback to deterministic mock (when API key not configured)
-      airdrops = generateFallbackEligibility(walletAddress);
-      dataSource = 'fallback';
-      console.log('Using fallback eligibility (DEBANK_API_KEY not configured)');
+      // NO MOCK DATA - Return empty array with error when API unavailable
+      airdrops = [];
+      dataSource = 'none';
+      error = 'DEBANK_API_KEY not configured - unable to fetch real airdrop data';
+      console.log('No fallback: DEBANK_API_KEY not configured, returning empty array');
     }
 
     const eligibleCount = airdrops.filter(a => a.status === 'eligible').length;
@@ -263,6 +229,7 @@ serve(async (req) => {
         checkedAt: new Date().toISOString(),
         chain: isEth ? 'ethereum' : 'solana',
         dataSource,
+        ...(error && { error }),
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

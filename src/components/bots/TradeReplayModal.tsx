@@ -7,9 +7,10 @@ import {
   LineChart, Line, XAxis, YAxis, ResponsiveContainer, 
   ReferenceLine, Area, ComposedChart 
 } from 'recharts';
-import { ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Clock, DollarSign, Target } from 'lucide-react';
+import { ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Clock, DollarSign, Target, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
+import { useTradingMode } from '@/contexts/TradingModeContext';
 
 interface Trade {
   id: string;
@@ -23,6 +24,8 @@ interface Trade {
   createdAt: Date;
   closedAt?: Date;
   exchange?: string;
+  // Real candle data if available
+  candleData?: { time: number; price: number }[];
 }
 
 interface TradeReplayModalProps {
@@ -32,47 +35,36 @@ interface TradeReplayModalProps {
   initialTradeIndex?: number;
 }
 
-// Generate mock price data around entry/exit for visualization
-function generatePriceData(entryPrice: number, exitPrice: number, direction: 'long' | 'short') {
-  const points: { time: number; price: number }[] = [];
-  const minPrice = Math.min(entryPrice, exitPrice) * 0.998;
-  const maxPrice = Math.max(entryPrice, exitPrice) * 1.002;
-  const range = maxPrice - minPrice;
-  
-  // Generate 50 price points simulating the trade
-  for (let i = 0; i < 50; i++) {
-    let price: number;
-    
-    if (i < 5) {
-      // Entry zone
-      price = entryPrice + (Math.random() - 0.5) * range * 0.1;
-    } else if (i > 45) {
-      // Exit zone
-      price = exitPrice + (Math.random() - 0.5) * range * 0.1;
-    } else {
-      // Middle - interpolate with some noise
-      const progress = (i - 5) / 40;
-      const basePrice = entryPrice + (exitPrice - entryPrice) * progress;
-      price = basePrice + (Math.random() - 0.5) * range * 0.3;
-    }
-    
-    points.push({ time: i, price });
-  }
-  
-  return points;
-}
-
 export function TradeReplayModal({ open, onClose, trades, initialTradeIndex = 0 }: TradeReplayModalProps) {
   const [currentIndex, setCurrentIndex] = useState(initialTradeIndex);
   const [priceData, setPriceData] = useState<{ time: number; price: number }[]>([]);
+  const { mode: tradingMode } = useTradingMode();
 
   const trade = trades[currentIndex];
 
   useEffect(() => {
     if (trade) {
-      setPriceData(generatePriceData(trade.entryPrice, trade.exitPrice, trade.direction));
+      // In live mode, only use real candle data if available
+      // NO MOCK DATA in live mode - strict rule
+      if (tradingMode === 'live') {
+        if (trade.candleData && trade.candleData.length > 0) {
+          setPriceData(trade.candleData);
+        } else {
+          // No real data available - show empty state
+          setPriceData([]);
+        }
+      } else {
+        // Demo mode: Generate simple interpolation between entry and exit
+        // This is acceptable for demo/paper trading visualization
+        const points: { time: number; price: number }[] = [
+          { time: 0, price: trade.entryPrice },
+          { time: 25, price: (trade.entryPrice + trade.exitPrice) / 2 },
+          { time: 50, price: trade.exitPrice },
+        ];
+        setPriceData(points);
+      }
     }
-  }, [trade]);
+  }, [trade, tradingMode]);
 
   useEffect(() => {
     setCurrentIndex(initialTradeIndex);
@@ -122,49 +114,58 @@ export function TradeReplayModal({ open, onClose, trades, initialTradeIndex = 0 
         <div className="grid grid-cols-3 gap-4">
           {/* Chart */}
           <div className="col-span-2 h-[300px] bg-muted/30 rounded-lg p-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={priceData}>
-                <defs>
-                  <linearGradient id="profitArea" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={isWin ? "hsl(var(--chart-2))" : "hsl(var(--destructive))"} stopOpacity={0.3} />
-                    <stop offset="100%" stopColor={isWin ? "hsl(var(--chart-2))" : "hsl(var(--destructive))"} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="time" hide />
-                <YAxis domain={[priceMin, priceMax]} hide />
-                
-                {/* Entry line */}
-                <ReferenceLine 
-                  y={trade.entryPrice} 
-                  stroke="hsl(var(--primary))" 
-                  strokeDasharray="5 5"
-                  label={{ value: 'Entry', position: 'left', fill: 'hsl(var(--primary))' }}
-                />
-                
-                {/* Exit line */}
-                <ReferenceLine 
-                  y={trade.exitPrice} 
-                  stroke={isWin ? "hsl(var(--chart-2))" : "hsl(var(--destructive))"} 
-                  strokeDasharray="5 5"
-                  label={{ value: 'Exit', position: 'right', fill: isWin ? 'hsl(var(--chart-2))' : 'hsl(var(--destructive))' }}
-                />
-                
-                <Area
-                  type="monotone"
-                  dataKey="price"
-                  fill="url(#profitArea)"
-                  stroke="transparent"
-                />
-                
-                <Line
-                  type="monotone"
-                  dataKey="price"
-                  stroke={isWin ? "hsl(var(--chart-2))" : "hsl(var(--destructive))"}
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+            {priceData.length === 0 ? (
+              // No data available - show empty state (live mode with no real candle data)
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                <AlertCircle className="h-8 w-8 mb-2" />
+                <p className="text-sm font-medium">Candle data not available</p>
+                <p className="text-xs">Real-time price history not recorded for this trade</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={priceData}>
+                  <defs>
+                    <linearGradient id="profitArea" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={isWin ? "hsl(var(--chart-2))" : "hsl(var(--destructive))"} stopOpacity={0.3} />
+                      <stop offset="100%" stopColor={isWin ? "hsl(var(--chart-2))" : "hsl(var(--destructive))"} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="time" hide />
+                  <YAxis domain={[priceMin, priceMax]} hide />
+                  
+                  {/* Entry line */}
+                  <ReferenceLine 
+                    y={trade.entryPrice} 
+                    stroke="hsl(var(--primary))" 
+                    strokeDasharray="5 5"
+                    label={{ value: 'Entry', position: 'left', fill: 'hsl(var(--primary))' }}
+                  />
+                  
+                  {/* Exit line */}
+                  <ReferenceLine 
+                    y={trade.exitPrice} 
+                    stroke={isWin ? "hsl(var(--chart-2))" : "hsl(var(--destructive))"} 
+                    strokeDasharray="5 5"
+                    label={{ value: 'Exit', position: 'right', fill: isWin ? 'hsl(var(--chart-2))' : 'hsl(var(--destructive))' }}
+                  />
+                  
+                  <Area
+                    type="monotone"
+                    dataKey="price"
+                    fill="url(#profitArea)"
+                    stroke="transparent"
+                  />
+                  
+                  <Line
+                    type="monotone"
+                    dataKey="price"
+                    stroke={isWin ? "hsl(var(--chart-2))" : "hsl(var(--destructive))"}
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            )}
           </div>
 
           {/* Trade Details */}
