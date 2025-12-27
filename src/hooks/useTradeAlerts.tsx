@@ -38,6 +38,11 @@ const DEFAULT_THRESHOLDS: AlertThresholds = {
 
 const STORAGE_KEY = 'greenback-alert-thresholds';
 
+const LAST_CHECKED_KEY = 'greenback-last-checked-alerts';
+
+// Get today's date string for daily reset
+const getTodayKey = () => new Date().toDateString();
+
 export function useTradeAlerts() {
   const { user } = useAuth();
   const [thresholds, setThresholds] = useState<AlertThresholds>(() => {
@@ -50,8 +55,54 @@ export function useTradeAlerts() {
   });
   
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
-  const [lastCheckedPnL, setLastCheckedPnL] = useState<number>(0);
-  const [lastCheckedHitRate, setLastCheckedHitRate] = useState<number>(100);
+  
+  // Persist last checked values with daily reset
+  const [lastCheckedPnL, setLastCheckedPnL] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(LAST_CHECKED_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // Reset if it's a new day
+        if (parsed.date !== getTodayKey()) {
+          return 0;
+        }
+        return parsed.pnl ?? 0;
+      }
+      return 0;
+    } catch {
+      return 0;
+    }
+  });
+  
+  const [lastCheckedHitRate, setLastCheckedHitRate] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(LAST_CHECKED_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // Reset if it's a new day
+        if (parsed.date !== getTodayKey()) {
+          return 100;
+        }
+        return parsed.hitRate ?? 100;
+      }
+      return 100;
+    } catch {
+      return 100;
+    }
+  });
+
+  // Persist last checked values to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAST_CHECKED_KEY, JSON.stringify({
+        date: getTodayKey(),
+        pnl: lastCheckedPnL,
+        hitRate: lastCheckedHitRate,
+      }));
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, [lastCheckedPnL, lastCheckedHitRate]);
 
   // Save thresholds to localStorage
   useEffect(() => {

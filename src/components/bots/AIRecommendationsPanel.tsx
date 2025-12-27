@@ -5,6 +5,7 @@ import { useBotStrategyAI, StrategyRecommendation } from '@/hooks/useBotStrategy
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { 
   Brain, 
@@ -18,7 +19,8 @@ import {
   Check,
   Loader2,
   RefreshCw,
-  Sparkles
+  Sparkles,
+  Maximize2
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -62,6 +64,7 @@ export function AIRecommendationsPanel({
   const { user } = useAuth();
   const { recommendation, loading, applying, fetchRecommendation, applyRecommendation } = useBotStrategyAI();
   const [applyingField, setApplyingField] = useState<string | null>(null);
+  const [isExpandedModalOpen, setIsExpandedModalOpen] = useState(false);
 
   // Build fields from recommendation
   const buildFields = useCallback((): AIRecommendationField[] => {
@@ -280,129 +283,11 @@ export function AIRecommendationsPanel({
   // Count fields with changes
   const changedFieldsCount = fields.filter(f => String(f.currentValue) !== String(f.recommendedValue)).length;
 
-  // Compact mode - single row card
-  if (compact) {
-    return (
-      <div className={cn("card-terminal p-2", className)}>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <Brain className="w-4 h-4 text-primary shrink-0" />
-            <span className="text-xs font-semibold text-foreground whitespace-nowrap">AI STRATEGY</span>
-            {recommendation ? (
-              <>
-                <Badge 
-                  variant="outline" 
-                  className={cn(
-                    "text-[9px] px-1 h-4",
-                    recommendation.confidence >= 80 ? "border-primary text-primary" :
-                    recommendation.confidence >= 60 ? "border-warning text-warning" : "border-destructive text-destructive"
-                  )}
-                >
-                  {recommendation.confidence}%
-                </Badge>
-                {changedFieldsCount > 0 && (
-                  <span className="text-[10px] text-muted-foreground">{changedFieldsCount} changes</span>
-                )}
-              </>
-            ) : (
-              <span className="text-[10px] text-muted-foreground">Click Analyze</span>
-            )}
-          </div>
-          
-          <div className="flex items-center gap-1 shrink-0">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-5 text-[10px] px-1.5"
-              onClick={fetchRecommendation}
-              disabled={loading}
-            >
-              {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Analyze'}
-            </Button>
-            {recommendation && changedFieldsCount > 0 && (
-              <Button
-                size="sm"
-                variant="default"
-                className="h-5 text-[10px] px-1.5"
-                onClick={() => {
-                  applyRecommendation();
-                  onApplyAll();
-                }}
-                disabled={applying}
-              >
-                {applying ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Apply All'}
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!recommendation) {
-    return (
-      <div className={cn("card-terminal p-4", className)}>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Brain className="w-4 h-4 text-primary" />
-            <span className="text-sm font-medium">AI Strategy Recommendations</span>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs gap-1.5"
-            onClick={fetchRecommendation}
-            disabled={loading}
-          >
-            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-            Analyze
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground text-center py-4">
-          Click "Analyze" to get AI recommendations for all 9 bot settings.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className={cn("card-terminal p-4", className)}>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Brain className="w-4 h-4 text-primary" />
-          <span className="text-sm font-medium">AI Strategy Recommendations</span>
-          <Badge variant="outline" className="text-[9px] h-4 border-primary text-primary">
-            {recommendation.confidence}% confidence
-          </Badge>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 w-6 p-0"
-            onClick={fetchRecommendation}
-            disabled={loading}
-          >
-            <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
-          </Button>
-          <Button
-            size="sm"
-            className="h-7 text-xs gap-1.5"
-            onClick={() => {
-              applyRecommendation();
-              onApplyAll();
-            }}
-            disabled={applying}
-          >
-            {applying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
-            Apply All
-          </Button>
-        </div>
-      </div>
-
+  // Full fields grid component for reuse in modal
+  const FullFieldsGrid = () => (
+    <>
       {/* Summary */}
-      {recommendation.summary && (
+      {recommendation?.summary && (
         <p className="text-[10px] text-muted-foreground mb-3 pb-2 border-b border-border/50">
           {recommendation.summary}
         </p>
@@ -473,13 +358,206 @@ export function AIRecommendationsPanel({
       </div>
 
       {/* Metrics Footer */}
-      {recommendation.metrics && (
+      {recommendation?.metrics && (
         <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/50 text-[9px] text-muted-foreground">
           <span>Capital: ${recommendation.metrics.totalCapital?.toLocaleString()}</span>
           <span>Est. trades: {recommendation.metrics.estimatedDailyTrades}/day</span>
           <span>Trades/hr: {recommendation.metrics.tradesPerHour}</span>
         </div>
       )}
+    </>
+  );
+
+  // Compact mode - single row card
+  if (compact) {
+    return (
+      <>
+        <div className={cn("card-terminal p-2", className)}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Brain className="w-4 h-4 text-primary shrink-0" />
+              <span className="text-xs font-semibold text-foreground whitespace-nowrap">AI STRATEGY</span>
+              {recommendation ? (
+                <>
+                  <Badge 
+                    variant="outline" 
+                    className={cn(
+                      "text-[9px] px-1 h-4",
+                      recommendation.confidence >= 80 ? "border-primary text-primary" :
+                      recommendation.confidence >= 60 ? "border-warning text-warning" : "border-destructive text-destructive"
+                    )}
+                  >
+                    {recommendation.confidence}%
+                  </Badge>
+                  {changedFieldsCount > 0 && (
+                    <span className="text-[10px] text-muted-foreground">{changedFieldsCount} changes</span>
+                  )}
+                </>
+              ) : (
+                <span className="text-[10px] text-muted-foreground">Click Analyze</span>
+              )}
+            </div>
+            
+            <div className="flex items-center gap-1 shrink-0">
+              {recommendation && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-5 w-5 p-0"
+                  onClick={() => setIsExpandedModalOpen(true)}
+                  title="View full details"
+                >
+                  <Maximize2 className="w-3 h-3" />
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-5 text-[10px] px-1.5"
+                onClick={fetchRecommendation}
+                disabled={loading}
+              >
+                {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Analyze'}
+              </Button>
+              {recommendation && changedFieldsCount > 0 && (
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="h-5 text-[10px] px-1.5"
+                  onClick={() => {
+                    applyRecommendation();
+                    onApplyAll();
+                  }}
+                  disabled={applying}
+                >
+                  {applying ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Apply All'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Expanded Modal with full 9-field view */}
+        <Dialog open={isExpandedModalOpen} onOpenChange={setIsExpandedModalOpen}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Brain className="w-5 h-5 text-primary" />
+                AI Strategy Recommendations
+                {recommendation && (
+                  <Badge variant="outline" className="text-xs border-primary text-primary">
+                    {recommendation.confidence}% confidence
+                  </Badge>
+                )}
+              </DialogTitle>
+            </DialogHeader>
+            
+            {recommendation ? (
+              <div className="space-y-4">
+                <FullFieldsGrid />
+                
+                <div className="flex justify-end gap-2 pt-2 border-t border-border/50">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={fetchRecommendation}
+                    disabled={loading}
+                  >
+                    <RefreshCw className={cn("w-4 h-4 mr-1", loading && "animate-spin")} />
+                    Refresh
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      applyRecommendation();
+                      onApplyAll();
+                      setIsExpandedModalOpen(false);
+                    }}
+                    disabled={applying || changedFieldsCount === 0}
+                  >
+                    {applying ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Check className="w-4 h-4 mr-1" />}
+                    Apply All ({changedFieldsCount} changes)
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground mb-4">No recommendations yet. Click Analyze to get AI recommendations.</p>
+                <Button onClick={fetchRecommendation} disabled={loading}>
+                  {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                  Analyze Now
+                </Button>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  if (!recommendation) {
+    return (
+      <div className={cn("card-terminal p-4", className)}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Brain className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium">AI Strategy Recommendations</span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs gap-1.5"
+            onClick={fetchRecommendation}
+            disabled={loading}
+          >
+            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            Analyze
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground text-center py-4">
+          Click "Analyze" to get AI recommendations for all 9 bot settings.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("card-terminal p-4", className)}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Brain className="w-4 h-4 text-primary" />
+          <span className="text-sm font-medium">AI Strategy Recommendations</span>
+          <Badge variant="outline" className="text-[9px] h-4 border-primary text-primary">
+            {recommendation.confidence}% confidence
+          </Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 w-6 p-0"
+            onClick={fetchRecommendation}
+            disabled={loading}
+          >
+            <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
+          </Button>
+          <Button
+            size="sm"
+            className="h-7 text-xs gap-1.5"
+            onClick={() => {
+              applyRecommendation();
+              onApplyAll();
+            }}
+            disabled={applying}
+          >
+            {applying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+            Apply All
+          </Button>
+        </div>
+      </div>
+
+      <FullFieldsGrid />
     </div>
   );
 }

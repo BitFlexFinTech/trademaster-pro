@@ -306,8 +306,49 @@ export function useNotifications() {
     });
   }, [playWinSound, toast]);
 
-  // Track which progress thresholds have been notified
-  const notifiedThresholdsRef = useRef<Set<number>>(new Set());
+  // Track which progress thresholds have been notified - PERSIST TO LOCALSTORAGE
+  const getStorageKey = () => {
+    const today = new Date().toDateString();
+    return `notifiedThresholds-${today}`;
+  };
+
+  // Initialize from localStorage
+  const initNotifiedThresholds = (): Set<number> => {
+    try {
+      const today = new Date().toDateString();
+      const lastNotifiedDate = localStorage.getItem('lastNotifiedDate');
+      
+      // Reset if it's a new day
+      if (lastNotifiedDate !== today) {
+        localStorage.setItem('lastNotifiedDate', today);
+        localStorage.setItem(getStorageKey(), '[]');
+        // Clean up old day's storage
+        const keys = Object.keys(localStorage);
+        keys.forEach(key => {
+          if (key.startsWith('notifiedThresholds-') && key !== getStorageKey()) {
+            localStorage.removeItem(key);
+          }
+        });
+        return new Set<number>();
+      }
+      
+      const stored = localStorage.getItem(getStorageKey());
+      return new Set<number>(stored ? JSON.parse(stored) : []);
+    } catch {
+      return new Set<number>();
+    }
+  };
+
+  const notifiedThresholdsRef = useRef<Set<number>>(initNotifiedThresholds());
+
+  // Persist notified thresholds to localStorage
+  const persistNotifiedThresholds = useCallback(() => {
+    try {
+      localStorage.setItem(getStorageKey(), JSON.stringify([...notifiedThresholdsRef.current]));
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, []);
 
   const notifyDailyProgress = useCallback((
     currentPnL: number,
@@ -320,6 +361,7 @@ export function useNotifications() {
     for (const threshold of thresholds) {
       if (progressPercent >= threshold && !notifiedThresholdsRef.current.has(threshold)) {
         notifiedThresholdsRef.current.add(threshold);
+        persistNotifiedThresholds(); // Persist immediately
         
         // Special celebration sound for 100%
         if (threshold === 100) {
@@ -348,11 +390,12 @@ export function useNotifications() {
         break; // Only notify one threshold at a time
       }
     }
-  }, [playWinSound, playTargetSound, toast, sendPushNotification]);
+  }, [playWinSound, playTargetSound, toast, sendPushNotification, persistNotifiedThresholds]);
 
   const resetProgressNotifications = useCallback(() => {
     notifiedThresholdsRef.current.clear();
-  }, []);
+    persistNotifiedThresholds();
+  }, [persistNotifiedThresholds]);
 
   // Sentinel-specific alert notification
   const notifySentinelAlert = useCallback((
