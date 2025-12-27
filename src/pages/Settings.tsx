@@ -9,6 +9,8 @@ import { ExchangeConnectModal } from '@/components/exchange/ExchangeConnectModal
 import { SecurityConfigPanel } from '@/components/settings/SecurityConfigPanel';
 import { SoundNotificationSettings } from '@/components/settings/SoundNotificationSettings';
 import { JarvisSettingsPanel } from '@/components/settings/JarvisSettingsPanel';
+import { ColorThemeSwitcher } from '@/components/settings/ColorThemeSwitcher';
+import { ExchangeStatusWidget } from '@/components/dashboard/ExchangeStatusWidget';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -399,6 +401,12 @@ export default function Settings() {
 
       {/* Sound Notification Settings */}
       <SoundNotificationSettings />
+
+      {/* Color Theme Switcher */}
+      <ColorThemeSwitcher />
+
+      {/* Exchange Status Widget */}
+      <ExchangeStatusWidget />
 
       {/* JARVIS Engine Settings */}
       <JarvisSettingsPanel />

@@ -69,6 +69,18 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        // Vibrant flat colors
+        vibrant: {
+          pink: "hsl(var(--neon-pink))",
+          blue: "hsl(var(--electric-blue))",
+          orange: "hsl(var(--hot-orange))",
+          green: "hsl(var(--lime-green))",
+          purple: "hsl(var(--cyber-purple))",
+          yellow: "hsl(var(--golden-yellow))",
+          turquoise: "hsl(var(--turquoise))",
+          coral: "hsl(var(--coral-red))",
+          mint: "hsl(var(--mint))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
