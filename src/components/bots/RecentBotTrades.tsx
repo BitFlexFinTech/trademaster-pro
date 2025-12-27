@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useConfetti } from '@/components/effects/TradeConfetti';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,6 +45,10 @@ export function RecentBotTrades() {
   const [loading, setLoading] = useState(true);
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
   const [forceCloseDebounce, setForceCloseDebounce] = useState(false);
+  
+  // Confetti for profitable trades
+  const { triggerConfetti, ConfettiComponent } = useConfetti();
+  const lastProfitableTradeIdRef = useRef<string | null>(null);
   
   // Trade replay modal state
   const [replayOpen, setReplayOpen] = useState(false);
@@ -215,6 +220,12 @@ export function RecentBotTrades() {
             // Only add if it matches current mode
             if (newTrade.is_sandbox === isSandbox) {
               setTrades(prev => [newTrade, ...prev.slice(0, 19)]);
+              
+              // Trigger confetti on profitable trade
+              if ((newTrade.profit_loss || 0) > 0 && newTrade.id !== lastProfitableTradeIdRef.current) {
+                lastProfitableTradeIdRef.current = newTrade.id;
+                triggerConfetti({ color: '#00FF88' }); // Green confetti for profit
+              }
             }
           } else if (payload.eventType === 'DELETE') {
             const deletedId = payload.old?.id;
@@ -248,7 +259,10 @@ export function RecentBotTrades() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
+      {/* Confetti overlay */}
+      <ConfettiComponent />
+      
       {/* Header with badges */}
       <div className="flex items-center justify-between mb-2 px-1 flex-shrink-0">
         <div className="flex items-center gap-1.5">
