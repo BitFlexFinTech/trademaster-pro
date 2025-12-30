@@ -113,9 +113,14 @@
     @apply border-border;
   }
 
+  /* CRITICAL: Global layout lock - page never scrolls, only designated containers */
+  html, body, #root {
+    @apply h-screen overflow-hidden;
+    font-family: 'Inter', sans-serif;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'Inter', sans-serif;
   }
 
   .font-mono {
@@ -285,28 +290,39 @@
   }
 }
 
-/* Scrollbar styling */
+/* ============================================
+   UI8 FINTECH SCROLLBAR - Ultra-thin, minimal
+   ============================================ */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
-  background: hsl(var(--background));
+  background: hsl(0 0% 5%); /* #0D0D0D */
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted));
-  border-radius: 3px;
+  background: hsl(0 0% 17%); /* #2A2A2A */
+  border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground));
+  background: hsl(0 0% 23%); /* #3A3A3A */
 }
 
-/* CRITICAL: Page layout fixes - pages don't scroll, only boxes do */
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(0 0% 17%) hsl(0 0% 5%);
+}
+
+/* ============================================
+   LAYOUT SYSTEM - Fixed viewport, no page scroll
+   ============================================ */
 .page-fixed {
   height: 100vh;
+  max-height: 100vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -323,10 +339,115 @@
   overflow-x: hidden;
 }
 
-/* Prevent text overflow */
+/* ============================================
+   UI8 OBSIDIAN THEME - Dark fintech aesthetic
+   ============================================ */
+.bg-obsidian {
+  background-color: hsl(0 0% 5%); /* #0D0D0D */
+}
+
+.border-carbon {
+  border-color: hsl(0 0% 12%); /* #1F1F1F */
+}
+
+.text-neon-profit {
+  color: hsl(152 100% 50%); /* #00FFA3 */
+}
+
+.text-neon-loss {
+  color: hsl(var(--destructive));
+}
+
+/* Glassmorphism panel - UI8 style */
+.glass-panel {
+  background: rgba(13, 13, 13, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.glass-panel-accent {
+  background: rgba(13, 13, 13, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 2px solid hsl(var(--primary));
+}
+
+/* ============================================
+   MICRO-CARD SYSTEM - High-density bot cards
+   ============================================ */
+.micro-card {
+  background: hsl(0 0% 5%);
+  border: 1px solid hsl(0 0% 12%);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  min-height: 72px;
+  max-height: 88px;
+  transition: all 0.15s ease;
+}
+
+.micro-card:hover {
+  border-color: hsl(0 0% 20%);
+  background: hsl(0 0% 6%);
+}
+
+.micro-card-running {
+  border-left: 2px solid hsl(152 100% 50%);
+}
+
+.micro-card-stopped {
+  border-left: 2px solid hsl(0 0% 30%);
+}
+
+/* ============================================
+   CONNECTION STATUS INDICATOR
+   ============================================ */
+.ws-status-connected {
+  @apply bg-primary/20 text-primary;
+}
+
+.ws-status-connecting {
+  @apply bg-warning/20 text-warning;
+}
+
+.ws-status-reconnecting {
+  @apply bg-warning/20 text-warning animate-pulse;
+}
+
+.ws-status-disconnected {
+  @apply bg-destructive/20 text-destructive;
+}
+
+.ws-status-error {
+  @apply bg-destructive/20 text-destructive;
+}
+
+/* Status dot animation */
+.status-dot {
+  @apply w-2 h-2 rounded-full;
+}
+
+.status-dot-pulse {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.9); }
+}
+
+/* ============================================
+   TEXT UTILITIES
+   ============================================ */
 .text-truncate-safe {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
+}
+
+/* Monospace numbers for trading data */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
