@@ -25,6 +25,8 @@ import { BotHistory } from '@/components/bots/BotHistory';
 import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
 import { BotCard } from '@/components/bots/BotCard';
 import { BotCardSkeleton } from '@/components/bots/BotCardSkeleton';
+import { BotMicroCard } from '@/components/bots/BotMicroCard';
+import { ConnectionStatusIndicator } from '@/components/bots/ConnectionStatusIndicator';
 import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
 import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboard';
 import { DailyPnLChart } from '@/components/bots/DailyPnLChart';
@@ -61,6 +63,7 @@ import { DashboardCharts } from '@/lib/dashboardGenerator';
 import { toast } from 'sonner';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS, EXCHANGE_MINIMUMS, getExchangeMinimum } from '@/lib/exchangeConfig';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
 
 interface UsdtFloat {
   exchange: string;
@@ -92,6 +95,7 @@ export default function Bots() {
     analyzedBotName,
   } = useBotRuns();
   const { prices, wsConnected, getPrice } = useRealtimePrices();
+  const { wsState } = useBinanceWebSocket();
   const { 
     mode: tradingMode, 
     setMode: setTradingMode, 
@@ -966,11 +970,13 @@ export default function Bots() {
         {/* Top Panels: scroll if too tall (prevents bot cards from being pushed off-screen) */}
         <div className="max-h-[45vh] overflow-y-auto pr-1">
           {/* Header */}
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2 md:gap-3">
               <Bot className="w-5 h-5 text-primary" />
               <h1 className="text-base md:text-lg font-bold text-foreground">Trading Bots</h1>
               <span className="live-indicator text-xs hidden sm:inline">{activeBotCount} Active</span>
+              {/* Connection Status Indicator */}
+              <ConnectionStatusIndicator />
               <BotSettingsDrawer
                 settings={botConfig}
                 onSettingsChange={setBotConfig}
