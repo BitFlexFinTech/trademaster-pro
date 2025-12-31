@@ -344,6 +344,18 @@ class RateLimitHandler {
       this.queueByExchange.clear();
     }
   }
+
+  /**
+   * Wait before making a request (compatibility method for existing code)
+   * Applies jittered delay based on exchange rate limits
+   */
+  async waitBeforeRequest(exchange: string): Promise<void> {
+    const delay = this.getRecommendedDelay(exchange);
+    if (delay > 0) {
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    this.consumeToken(exchange);
+  }
 }
 
 // Singleton instance

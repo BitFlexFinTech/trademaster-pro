@@ -185,6 +185,10 @@ export class LiveTradingProvider implements ITradingProvider {
  */
 export class DemoTradingProvider implements ITradingProvider {
   readonly mode = 'demo' as const;
+  
+  // Local position tracking for demo mode
+  private positions: Map<string, { exchange: string; symbol: string; quantity: number; entryPrice: number }> = new Map();
+  private orders: Map<string, { orderId: string; symbol: string; exchange: string }> = new Map();
 
   async executeOrder(exchange: string, order: TradeOrder): Promise<TradeResult> {
     // Simulate network latency
@@ -200,17 +204,31 @@ export class DemoTradingProvider implements ITradingProvider {
 
     const tradeId = `demo_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    // Store in demo data store
+    // Store trade in demo data store (uses available addTrade method)
+    const pnl = order.side === 'sell' ? (filledPrice - currentPrice) * order.quantity : 0;
     demoDataStore.addTrade({
-      id: tradeId,
-      symbol: order.symbol,
-      side: order.side,
-      quantity: order.quantity,
-      price: filledPrice,
-      commission,
-      timestamp: Date.now(),
+      pair: order.symbol,
+      direction: order.side === 'buy' ? 'long' : 'short',
+      pnl,
+      timestamp: new Date(),
       exchange,
     });
+
+    // Track position locally
+    const posKey = `${exchange}:${order.symbol}`;
+    if (order.side === 'buy') {
+      this.positions.set(posKey, { exchange, symbol: order.symbol, quantity: order.quantity, entryPrice: filledPrice });
+    } else {
+      this.positions.delete(posKey);
+    }
+
+    // Update balance
+    const cost = order.quantity * filledPrice * (1 + 0.001); // Include fee
+    if (order.side === 'buy') {
+      demoDataStore.updateBalance(-cost);
+    } else {
+      demoDataStore.updateBalance(order.quantity * filledPrice * 0.999); // Minus fee
+    }
 
     return {
       success: true,
@@ -225,24 +243,43 @@ export class DemoTradingProvider implements ITradingProvider {
 
   async cancelOrder(_exchange: string, orderId: string): Promise<boolean> {
     await this.simulateLatency();
-    demoDataStore.removeOrder(orderId);
+    this.orders.delete(orderId);
     return true;
   }
 
   async getBalance(exchange: string, asset?: string): Promise<BalanceInfo[]> {
     await this.simulateLatency();
-    return demoDataStore.getBalances(exchange, asset);
+    const balance = demoDataStore.getBalance();
+    
+    // Return USDT balance for demo mode
+    if (!asset || asset === 'USDT') {
+      return [{
+        exchange,
+        asset: 'USDT',
+        free: balance,
+        locked: 0,
+        total: balance,
+      }];
+    }
+    return [];
   }
 
   async getOpenPositions(exchange: string): Promise<any[]> {
     await this.simulateLatency();
-    return demoDataStore.getOpenPositions(exchange);
+    const positions: any[] = [];
+    this.positions.forEach((pos, key) => {
+      if (pos.exchange === exchange) {
+        positions.push(pos);
+      }
+    });
+    return positions;
   }
 
   async closePosition(exchange: string, symbol: string, _quantity?: number): Promise<TradeResult> {
     await this.simulateLatency();
     
-    const position = demoDataStore.getPosition(exchange, symbol);
+    const posKey = `${exchange}:${symbol}`;
+    const position = this.positions.get(posKey);
     if (!position) {
       return {
         success: false,
@@ -251,19 +288,35 @@ export class DemoTradingProvider implements ITradingProvider {
       };
     }
 
-    demoDataStore.closePosition(exchange, symbol);
+    const exitPrice = this.getSimulatedPrice(symbol);
+    const pnl = (exitPrice - position.entryPrice) * position.quantity;
+    
+    demoDataStore.updateBalance(position.quantity * exitPrice + pnl);
+    this.positions.delete(posKey);
     
     return {
       success: true,
-      filledPrice: this.getSimulatedPrice(symbol),
+      filledPrice: exitPrice,
       timestamp: Date.now(),
     };
   }
 
   async closeAllPositions(exchange: string): Promise<{ closed: number; errors: number }> {
     await this.simulateLatency();
-    const count = demoDataStore.closeAllPositions(exchange);
-    return { closed: count, errors: 0 };
+    let closed = 0;
+    const keysToDelete: string[] = [];
+    
+    this.positions.forEach((pos, key) => {
+      if (pos.exchange === exchange) {
+        keysToDelete.push(key);
+        const exitPrice = this.getSimulatedPrice(pos.symbol);
+        demoDataStore.updateBalance(pos.quantity * exitPrice);
+        closed++;
+      }
+    });
+    
+    keysToDelete.forEach(key => this.positions.delete(key));
+    return { closed, errors: 0 };
   }
 
   private async simulateLatency(): Promise<void> {
