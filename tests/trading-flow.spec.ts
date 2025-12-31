@@ -18,6 +18,19 @@ test.describe('Trading Flow', () => {
     await expect(botElements.first()).toBeVisible({ timeout: 10000 });
   });
 
+  test('should display micro-cards grid for high-density bot overview', async ({ page }) => {
+    // Check for the micro-cards grid container
+    const microGrid = page.locator('[data-testid="bot-micro-grid"]');
+    await expect(microGrid).toBeVisible({ timeout: 10000 });
+    
+    // Should contain micro-card elements
+    const microCards = page.locator('.micro-card');
+    const cardCount = await microCards.count();
+    
+    // At least 2 micro cards should be visible (Spot and Leverage)
+    expect(cardCount).toBeGreaterThanOrEqual(2);
+  });
+
   test('should show WebSocket connection status', async ({ page }) => {
     // Look for connection status indicator
     const wsIndicator = page.locator('[class*="ws-status"], [class*="connection"], text=Live, text=Offline, text=Connected');

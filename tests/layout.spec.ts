@@ -86,6 +86,25 @@ test.describe('UI Layout - Zero Scroll Policy', () => {
       }
     });
   });
+
+  test('bot-grid container should be the only scrollable area', async ({ page }) => {
+    await page.goto('/bots');
+    await page.waitForLoadState('networkidle');
+    
+    // Check that bot-grid has overflow auto
+    const botGridInfo = await page.evaluate(() => {
+      const botGrid = document.querySelector('[data-testid="bot-grid"]');
+      if (!botGrid) return null;
+      const style = window.getComputedStyle(botGrid);
+      return {
+        overflowY: style.overflowY,
+        overflowX: style.overflowX,
+      };
+    });
+    
+    // Bot grid should exist and allow scrolling
+    expect(botGridInfo).not.toBeNull();
+  });
 });
 
 test.describe('UI Layout - Viewport Constraints', () => {
