@@ -1572,7 +1572,18 @@ async function placeOKXOrder(apiKey: string, apiSecret: string, passphrase: stri
   
   const body = JSON.stringify({ instId: symbol, tdMode: "cash", side, ordType: "market", sz });
   const signPayload = timestamp + "POST" + endpoint + body;
-  const signature = btoa(await hmacSha256(apiSecret, signPayload));
+  
+  // FIX: Use correct base64 HMAC-SHA256 signature (same as getOKXFreeStableBalance)
+  // The old code was doing btoa(hexString) which is WRONG
+  // OKX requires base64 of raw HMAC bytes, NOT base64 of hex string
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(apiSecret);
+  const msgData = encoder.encode(signPayload);
+  const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, msgData);
+  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+  
+  console.log(`🔐 OKX Order: ${side} ${sz} ${symbol}`);
   
   const response = await fetch(`https://www.okx.com${endpoint}`, {
     method: "POST",
@@ -1587,7 +1598,8 @@ async function placeOKXOrder(apiKey: string, apiSecret: string, passphrase: stri
   });
   
   const data = await response.json();
-  if (data.code !== "0") throw new Error(data.msg || "OKX order failed");
+  console.log(`📤 OKX Response:`, JSON.stringify(data));
+  if (data.code !== "0") throw new Error(data.data?.[0]?.sMsg || data.msg || "OKX order failed");
   return { orderId: data.data[0].ordId, status: "FILLED", avgPrice: parseFloat(data.data[0].avgPx) || 0 };
 }
 
