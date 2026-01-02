@@ -1,10 +1,10 @@
 import { memo } from 'react';
-import { X, AlertTriangle, AlertCircle, Info } from 'lucide-react';
+import { X, AlertTriangle, AlertCircle, Info, CheckCircle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-export type NotificationType = 'warning' | 'error' | 'info';
+export type NotificationType = 'warning' | 'error' | 'info' | 'success';
 
 interface NotificationPopupProps {
   id: string;
@@ -30,6 +30,11 @@ const typeConfig = {
     icon: Info,
     containerClass: 'border-primary/50 bg-primary/10',
     iconClass: 'text-primary',
+  },
+  success: {
+    icon: CheckCircle,
+    containerClass: 'border-green-500/50 bg-green-500/10',
+    iconClass: 'text-green-500',
   },
 };
 

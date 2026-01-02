@@ -764,6 +764,97 @@ async function getMarketMomentum(pair: string): Promise<number> {
   }
 }
 
+// ============ MULTI-TIMEFRAME CHART ANALYSIS (1m/3m/5m) ============
+
+// Fetch Binance kline/candlestick data for a specific timeframe
+async function getKlineData(
+  symbol: string, 
+  interval: '1m' | '3m' | '5m', 
+  limit: number = 5
+): Promise<{ open: number; high: number; low: number; close: number; volume: number }[]> {
+  try {
+    const response = await fetch(
+      `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.map((k: any[]) => ({
+      open: parseFloat(k[1]),
+      high: parseFloat(k[2]),
+      low: parseFloat(k[3]),
+      close: parseFloat(k[4]),
+      volume: parseFloat(k[5]),
+    }));
+  } catch (e) {
+    console.error(`Failed to fetch ${interval} klines for ${symbol}:`, e);
+    return [];
+  }
+}
+
+// Calculate momentum from kline data
+function calculateKlineMomentum(candles: { close: number }[]): number {
+  if (candles.length < 2) return 0;
+  const first = candles[0].close;
+  const last = candles[candles.length - 1].close;
+  return ((last - first) / first) * 100; // Percentage change
+}
+
+// Multi-Timeframe Momentum Analysis (1m=50%, 3m=30%, 5m=20% weighting)
+async function analyzeMultiTimeframeMomentum(pair: string): Promise<{
+  direction: 'long' | 'short';
+  confidence: number;
+  signals: { tf: string; direction: string; strength: number; momentum: number }[];
+  aligned: boolean;
+}> {
+  const symbol = pair.replace('/', '');
+  
+  // Fetch all timeframes in parallel
+  const [m1, m3, m5] = await Promise.all([
+    getKlineData(symbol, '1m', 5),
+    getKlineData(symbol, '3m', 5),
+    getKlineData(symbol, '5m', 5),
+  ]);
+  
+  // Calculate momentum for each timeframe
+  const momentum1m = calculateKlineMomentum(m1);
+  const momentum3m = calculateKlineMomentum(m3);
+  const momentum5m = calculateKlineMomentum(m5);
+  
+  // Weighted scoring: 1m = 50%, 3m = 30%, 5m = 20%
+  const weightedScore = (momentum1m * 0.50) + (momentum3m * 0.30) + (momentum5m * 0.20);
+  
+  // Convert momentums to signals
+  const toSignal = (m: number, tf: string) => ({
+    tf,
+    direction: m >= 0 ? 'bullish' : 'bearish',
+    strength: Math.min(100, Math.abs(m) * 20), // Scale to 0-100
+    momentum: m,
+  });
+  
+  const signals = [
+    toSignal(momentum1m, '1m'),
+    toSignal(momentum3m, '3m'),
+    toSignal(momentum5m, '5m'),
+  ];
+  
+  // Check alignment - all same direction = high confidence
+  const allBullish = signals.every(s => s.direction === 'bullish');
+  const allBearish = signals.every(s => s.direction === 'bearish');
+  const aligned = allBullish || allBearish;
+  
+  // Calculate confidence
+  let confidence = 50; // Base
+  if (aligned) confidence += 25;
+  confidence += Math.min(25, Math.abs(weightedScore) * 5);
+  confidence = Math.min(95, Math.max(30, confidence));
+  
+  const direction: 'long' | 'short' = weightedScore >= 0 ? 'long' : 'short';
+  
+  console.log(`📊 MTF Analysis ${pair}: 1m=${momentum1m.toFixed(3)}%, 3m=${momentum3m.toFixed(3)}%, 5m=${momentum5m.toFixed(3)}% => ${direction.toUpperCase()} (${confidence}% confidence, aligned: ${aligned})`);
+  
+  return { direction, confidence, signals, aligned };
+}
+
 // Get user's holdings of a specific asset
 async function getUserHoldings(
   supabase: any,
@@ -847,14 +938,14 @@ async function findUnblockedPair(
   return { pair: null, skippedPairs };
 }
 
-// Smart direction selection based on historical win rates
+// Smart direction selection based on historical win rates + MTF analysis
 async function selectSmartDirection(
   supabase: any,
   userId: string,
   pair: string,
   mode: 'spot' | 'leverage',
   currentPrice?: number
-): Promise<{ direction: 'long' | 'short'; confidence: number; reasoning: string }> {
+): Promise<{ direction: 'long' | 'short'; confidence: number; reasoning: string; mtfAnalysis?: any }> {
   // SPOT MODE: Can SHORT if user holds the asset AND market is bearish
   if (mode === 'spot') {
     const baseAsset = pair.split('/')[0]; // e.g., "BTC" from "BTC/USDT"
@@ -883,20 +974,35 @@ async function selectSmartDirection(
     return { direction: 'long', confidence: 60, reasoning: `SPOT: LONG on ${pair}` };
   }
 
-  // LEVERAGE MODE: Smart direction selection
+  // LEVERAGE MODE: Smart direction selection with MTF analysis
+  
+  // First, run Multi-Timeframe chart analysis
+  const mtfAnalysis = await analyzeMultiTimeframeMomentum(pair);
+  
+  // If MTF signals are aligned with >= 70% confidence, use that direction
+  if (mtfAnalysis.aligned && mtfAnalysis.confidence >= 70) {
+    console.log(`✅ Using MTF direction: ${mtfAnalysis.direction} (${mtfAnalysis.confidence}% confidence)`);
+    return {
+      direction: mtfAnalysis.direction,
+      confidence: mtfAnalysis.confidence,
+      reasoning: `MTF aligned: 1m/3m/5m all ${mtfAnalysis.direction === 'long' ? 'bullish' : 'bearish'}`,
+      mtfAnalysis,
+    };
+  }
+  
   // Check if this pair+direction is excluded
   const isLongExcluded = EXCLUDED_COMBOS.has(`${pair}:long`);
   const isShortExcluded = EXCLUDED_COMBOS.has(`${pair}:short`);
 
   if (isLongExcluded && !isShortExcluded) {
-    return { direction: 'short', confidence: 70, reasoning: `LONG excluded for ${pair}` };
+    return { direction: 'short', confidence: 70, reasoning: `LONG excluded for ${pair}`, mtfAnalysis };
   }
   if (isShortExcluded && !isLongExcluded) {
-    return { direction: 'long', confidence: 70, reasoning: `SHORT excluded for ${pair}` };
+    return { direction: 'long', confidence: 70, reasoning: `SHORT excluded for ${pair}`, mtfAnalysis };
   }
   if (isLongExcluded && isShortExcluded) {
     // Both excluded - default to SHORT with low confidence
-    return { direction: 'short', confidence: 50, reasoning: `Both directions excluded for ${pair}` };
+    return { direction: 'short', confidence: 50, reasoning: `Both directions excluded for ${pair}`, mtfAnalysis };
   }
 
   // Fetch historical win rates from user's trades (last 7 days)
@@ -930,7 +1036,7 @@ async function selectSmartDirection(
 
   console.log(`📊 ${pair} Win Rates - SHORT: ${shortWinRate.toFixed(1)}%, LONG: ${longWinRate.toFixed(1)}%`);
 
-  // Use win rate bias for direction selection
+  // Use win rate bias for direction selection, with MTF as tiebreaker
   const winRateDiff = shortWinRate - longWinRate;
   
   if (winRateDiff >= 15) {
@@ -939,7 +1045,8 @@ async function selectSmartDirection(
     return { 
       direction, 
       confidence: direction === 'short' ? shortWinRate : longWinRate,
-      reasoning: `SHORT outperforms LONG by ${winRateDiff.toFixed(1)}%`
+      reasoning: `SHORT outperforms LONG by ${winRateDiff.toFixed(1)}%`,
+      mtfAnalysis,
     };
   } else if (winRateDiff <= -15) {
     // LONG significantly better - use 80% probability for LONG
@@ -947,15 +1054,26 @@ async function selectSmartDirection(
     return { 
       direction, 
       confidence: direction === 'long' ? longWinRate : shortWinRate,
-      reasoning: `LONG outperforms SHORT by ${Math.abs(winRateDiff).toFixed(1)}%`
+      reasoning: `LONG outperforms SHORT by ${Math.abs(winRateDiff).toFixed(1)}%`,
+      mtfAnalysis,
     };
   } else {
-    // Similar win rates - slight bias toward SHORT (historically better overall)
+    // Similar win rates - use MTF direction if confidence >= 50, else default
+    if (mtfAnalysis.confidence >= 50) {
+      return {
+        direction: mtfAnalysis.direction,
+        confidence: mtfAnalysis.confidence,
+        reasoning: `Win rates similar, using MTF: ${mtfAnalysis.direction}`,
+        mtfAnalysis,
+      };
+    }
+    // Fallback: slight bias toward SHORT (historically better overall)
     const direction = Math.random() < 0.6 ? 'short' : 'long';
     return { 
       direction, 
       confidence: direction === 'short' ? shortWinRate : longWinRate,
-      reasoning: `Similar win rates - defaulting ${direction}`
+      reasoning: `Similar win rates - defaulting ${direction}`,
+      mtfAnalysis,
     };
   }
 }
@@ -1774,9 +1892,20 @@ serve(async (req) => {
     }
 
     
-    // ============ FIND SUITABLE EXCHANGE ============
-    // Try each connected exchange to find one with sufficient balance
-    let selectedExchange = null;
+    // ============ COLLECT ALL EXCHANGES WITH SUFFICIENT BALANCE ============
+    // Trade on ALL exchanges with balance, not just the first one
+    interface ValidExchange {
+      connection: typeof connections[0];
+      exchangeName: string;
+      apiKey: string;
+      apiSecret: string;
+      passphrase: string;
+      balance: number;
+      lotInfo: { stepSize: string; minQty: string; minNotional: number };
+    }
+    
+    const validExchanges: ValidExchange[] = [];
+    let selectedExchange: typeof connections[0] | null = null;
     let exchangeName = '';
     let apiKey = '';
     let apiSecret = '';
@@ -1813,16 +1942,27 @@ serve(async (req) => {
             
             const minRequired = exchangeLotInfo.minNotional * 1.1;
             if (balance >= minRequired) {
-              // This exchange has sufficient balance
-              selectedExchange = exchange;
-              exchangeName = exName;
-              apiKey = decryptedKey;
-              apiSecret = decryptedSecret;
-              passphrase = decryptedPassphrase;
-              freeBalance = balance;
-              lotInfo = exchangeLotInfo;
-              console.log(`✅ Selected ${exchange.exchange_name} with $${balance} available`);
-              break;
+              // Add to valid exchanges list (no break - collect ALL)
+              validExchanges.push({
+                connection: exchange,
+                exchangeName: exName,
+                apiKey: decryptedKey,
+                apiSecret: decryptedSecret,
+                passphrase: decryptedPassphrase,
+                balance,
+                lotInfo: exchangeLotInfo,
+              });
+              console.log(`✅ Added ${exchange.exchange_name} to valid exchanges ($${balance} available)`);
+              // Set first valid as selected for backward compatibility
+              if (!selectedExchange) {
+                selectedExchange = exchange;
+                exchangeName = exName;
+                apiKey = decryptedKey;
+                apiSecret = decryptedSecret;
+                passphrase = decryptedPassphrase;
+                freeBalance = balance;
+                lotInfo = exchangeLotInfo;
+              }
             } else {
               insufficientBalanceExchanges.push(`${exchange.exchange_name} ($${balance.toFixed(2)})`);
             }
@@ -1834,15 +1974,25 @@ serve(async (req) => {
             
             const minRequired = bybitLotInfo.minNotional * 1.1;
             if (balance >= minRequired) {
-              selectedExchange = exchange;
-              exchangeName = exName;
-              apiKey = decryptedKey;
-              apiSecret = decryptedSecret;
-              passphrase = decryptedPassphrase;
-              freeBalance = balance;
-              lotInfo = bybitLotInfo;
-              console.log(`✅ Selected ${exchange.exchange_name} with $${balance} available`);
-              break;
+              validExchanges.push({
+                connection: exchange,
+                exchangeName: exName,
+                apiKey: decryptedKey,
+                apiSecret: decryptedSecret,
+                passphrase: decryptedPassphrase,
+                balance,
+                lotInfo: bybitLotInfo,
+              });
+              console.log(`✅ Added ${exchange.exchange_name} to valid exchanges ($${balance} available)`);
+              if (!selectedExchange) {
+                selectedExchange = exchange;
+                exchangeName = exName;
+                apiKey = decryptedKey;
+                apiSecret = decryptedSecret;
+                passphrase = decryptedPassphrase;
+                freeBalance = balance;
+                lotInfo = bybitLotInfo;
+              }
             } else {
               insufficientBalanceExchanges.push(`${exchange.exchange_name} ($${balance.toFixed(2)})`);
             }
@@ -1854,15 +2004,26 @@ serve(async (req) => {
             
             const minRequired = minNotional * 1.1;
             if (balance >= minRequired) {
-              selectedExchange = exchange;
-              exchangeName = exName;
-              apiKey = decryptedKey;
-              apiSecret = decryptedSecret;
-              passphrase = decryptedPassphrase;
-              freeBalance = balance;
-              lotInfo = { stepSize: '0.0001', minQty: '0.0001', minNotional };
-              console.log(`✅ Selected ${exchange.exchange_name} with $${balance} available`);
-              break;
+              const okxLotInfo = { stepSize: '0.0001', minQty: '0.0001', minNotional };
+              validExchanges.push({
+                connection: exchange,
+                exchangeName: exName,
+                apiKey: decryptedKey,
+                apiSecret: decryptedSecret,
+                passphrase: decryptedPassphrase,
+                balance,
+                lotInfo: okxLotInfo,
+              });
+              console.log(`✅ Added ${exchange.exchange_name} to valid exchanges ($${balance} available)`);
+              if (!selectedExchange) {
+                selectedExchange = exchange;
+                exchangeName = exName;
+                apiKey = decryptedKey;
+                apiSecret = decryptedSecret;
+                passphrase = decryptedPassphrase;
+                freeBalance = balance;
+                lotInfo = okxLotInfo;
+              }
             } else {
               insufficientBalanceExchanges.push(`${exchange.exchange_name} ($${balance.toFixed(2)})`);
             }
@@ -1874,15 +2035,26 @@ serve(async (req) => {
             
             const minRequired = minNotional * 1.1;
             if (balance >= minRequired) {
-              selectedExchange = exchange;
-              exchangeName = exName;
-              apiKey = decryptedKey;
-              apiSecret = decryptedSecret;
-              passphrase = decryptedPassphrase;
-              freeBalance = balance;
-              lotInfo = { stepSize: '0.0001', minQty: '0.0001', minNotional };
-              console.log(`✅ Selected ${exchange.exchange_name} with $${balance} available`);
-              break;
+              const krakenLotInfo = { stepSize: '0.0001', minQty: '0.0001', minNotional };
+              validExchanges.push({
+                connection: exchange,
+                exchangeName: exName,
+                apiKey: decryptedKey,
+                apiSecret: decryptedSecret,
+                passphrase: decryptedPassphrase,
+                balance,
+                lotInfo: krakenLotInfo,
+              });
+              console.log(`✅ Added ${exchange.exchange_name} to valid exchanges ($${balance} available)`);
+              if (!selectedExchange) {
+                selectedExchange = exchange;
+                exchangeName = exName;
+                apiKey = decryptedKey;
+                apiSecret = decryptedSecret;
+                passphrase = decryptedPassphrase;
+                freeBalance = balance;
+                lotInfo = krakenLotInfo;
+              }
             } else {
               insufficientBalanceExchanges.push(`${exchange.exchange_name} ($${balance.toFixed(2)})`);
             }
@@ -1901,8 +2073,10 @@ serve(async (req) => {
       }
     }
     
+    console.log(`📊 PARALLEL TRADING: Found ${validExchanges.length} exchanges with sufficient balance`);
+    
     // If no exchange with sufficient balance found in LIVE mode
-    if (!isSandbox && !selectedExchange) {
+    if (!isSandbox && validExchanges.length === 0) {
       const message = insufficientBalanceExchanges.length > 0
         ? `All exchanges have insufficient balance: ${insufficientBalanceExchanges.join(', ')}. Minimum required: $5 USDT.`
         : "No exchanges with valid API credentials found.";
