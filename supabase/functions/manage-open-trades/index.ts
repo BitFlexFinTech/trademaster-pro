@@ -139,13 +139,14 @@ serve(async (req) => {
 
       console.log(`[manage-open-trades] ${trade.pair} ${trade.direction}: entry=${trade.entry_price}, current=${currentPrice}, netPnL=$${netPnl.toFixed(4)}`);
 
-      // STRICT $1.00 MINIMUM ENFORCEMENT - Never close below $1 net profit
-      const MINIMUM_PROFIT_TARGET = 1.00;
-      const effectiveTarget = Math.max(profitTarget, MINIMUM_PROFIT_TARGET);
+      // Use trade's target_profit_usd - $1 for SPOT, $3 for LEVERAGE
+      const tradeTargetProfit = trade.target_profit_usd || 1.00;
+      const MINIMUM_PROFIT_TARGET = Math.max(tradeTargetProfit, 1.00);
+      const effectiveTarget = MINIMUM_PROFIT_TARGET;
       
-      // Check if profit target is reached (must be >= $1.00 minimum)
+      // Check if profit target is reached
       if (netPnl >= effectiveTarget) {
-        console.log(`[manage-open-trades] ✅ TARGET HIT: ${trade.pair} netPnL=$${netPnl.toFixed(2)} >= $${profitTarget}`);
+        console.log(`[manage-open-trades] ✅ TARGET HIT: ${trade.pair} netPnL=$${netPnl.toFixed(2)} >= $${effectiveTarget}`);
 
         // Close the trade
         const { error: updateError } = await supabaseService

@@ -1,14 +1,18 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Activity, TrendingUp, TrendingDown, Target, Clock } from 'lucide-react';
+import { Activity, TrendingUp, TrendingDown, Target, Clock, X, Loader2 } from 'lucide-react';
 import { useTradingRealtimeState } from '@/hooks/useTradingRealtimeState';
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
 import { useMultiTimeframeSignals } from '@/hooks/useMultiTimeframeSignals';
 import { MTFAlignmentIndicator } from './MTFAlignmentIndicator';
+import { ProfitETABadge } from './ProfitETAIndicator';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface PositionWithPnL {
   id: string;
@@ -33,6 +37,7 @@ export function OpenPositionsDashboard({ className }: OpenPositionsDashboardProp
   const { openTrades, isLoading } = useTradingRealtimeState();
   const { getPrice, isConnected } = useBinanceWebSocket();
   const [positionsWithPnL, setPositionsWithPnL] = useState<PositionWithPnL[]>([]);
+  const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get unique symbols for MTF analysis
@@ -80,6 +85,27 @@ export function OpenPositionsDashboard({ className }: OpenPositionsDashboardProp
   }, [openTrades, getPrice]);
 
   const totalPnL = positionsWithPnL.reduce((sum, p) => sum + p.pnl, 0);
+
+  // Manual close handler
+  const handleManualClose = async (tradeId: string, pair: string) => {
+    setClosingTradeId(tradeId);
+    try {
+      const { error } = await supabase.functions.invoke('check-trade-status', {
+        body: { forceCloseTradeId: tradeId }
+      });
+      if (error) throw error;
+      toast.success(`Closed ${pair} position`, {
+        description: 'Position closed at market price'
+      });
+    } catch (e) {
+      console.error('Failed to close position:', e);
+      toast.error('Failed to close position', {
+        description: e instanceof Error ? e.message : 'Unknown error'
+      });
+    } finally {
+      setClosingTradeId(null);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -129,12 +155,28 @@ export function OpenPositionsDashboard({ className }: OpenPositionsDashboardProp
               <div 
                 key={pos.id}
                 className={cn(
-                  "p-2 rounded-lg border transition-colors",
+                  "p-2 rounded-lg border transition-colors relative group",
                   pos.pnl >= 0 
                     ? "border-emerald-500/30 bg-emerald-500/5" 
                     : "border-amber-500/30 bg-amber-500/5"
                 )}
               >
+                {/* Manual Close Button */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="absolute top-1 right-1 h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10"
+                  onClick={() => handleManualClose(pos.id, pos.pair)}
+                  disabled={closingTradeId === pos.id}
+                  title="Close position"
+                >
+                  {closingTradeId === pos.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <X className="h-3 w-3" />
+                  )}
+                </Button>
+
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-1.5">
                     <span className="font-semibold text-xs">{pos.pair}</span>
@@ -158,6 +200,15 @@ export function OpenPositionsDashboard({ className }: OpenPositionsDashboardProp
                       analysis={mtfSignals[pos.pair] || null}
                       positionDirection={pos.direction}
                       compact
+                    />
+                    {/* Profit ETA Badge */}
+                    <ProfitETABadge
+                      pair={pos.pair}
+                      direction={pos.direction}
+                      entryPrice={pos.entryPrice}
+                      currentPnL={pos.pnl}
+                      targetProfit={pos.targetProfit}
+                      positionSize={pos.positionSize}
                     />
                   </div>
                   <span className={cn(
