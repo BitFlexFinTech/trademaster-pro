@@ -33,7 +33,19 @@ export function TradeConfirmationBanner({
 }: TradeConfirmationBannerProps) {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [maxProfit, setMaxProfit] = useState(0);
+  const [prevPrice, setPrevPrice] = useState(currentPrice);
+  const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Detect price changes for flash animation
+  useEffect(() => {
+    if (currentPrice !== prevPrice) {
+      setPriceFlash(currentPrice > prevPrice ? 'up' : 'down');
+      setPrevPrice(currentPrice);
+      const timeout = setTimeout(() => setPriceFlash(null), 300);
+      return () => clearTimeout(timeout);
+    }
+  }, [currentPrice, prevPrice]);
 
   // Calculate real-time P&L
   const calculatePnL = () => {
@@ -121,30 +133,31 @@ export function TradeConfirmationBanner({
         ? "border-emerald-500/50 bg-emerald-500/5 shadow-lg shadow-emerald-500/10" 
         : "border-amber-500/50 bg-amber-500/5"
     )}>
-      <CardContent className="p-4">
+      <CardContent className="p-3">
         {/* Header */}
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <div className={cn(
               "w-2 h-2 rounded-full animate-pulse",
               pnl.dollars >= 0 ? "bg-emerald-500" : "bg-amber-500"
             )} />
-            <span className="text-sm font-semibold text-foreground">TRADE OPENED</span>
+            <span className="text-xs font-semibold text-foreground">LIVE</span>
             <Badge variant="outline" className={cn(
-              "text-xs",
+              "text-[10px]",
               trade.direction === 'long' 
                 ? "text-emerald-400 border-emerald-500/50" 
                 : "text-red-400 border-red-500/50"
             )}>
               {trade.direction === 'long' ? (
-                <><TrendingUp className="h-3 w-3 mr-1" />LONG</>
+                <><TrendingUp className="h-2.5 w-2.5 mr-0.5" />LONG</>
               ) : (
-                <><TrendingDown className="h-3 w-3 mr-1" />SHORT</>
+                <><TrendingDown className="h-2.5 w-2.5 mr-0.5" />SHORT</>
               )}
             </Badge>
+            <span className="text-sm font-bold">{trade.pair}</span>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Clock className="h-3 w-3" />
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <Clock className="h-2.5 w-2.5" />
             {formatElapsedTime()}
             {onDismiss && (
               <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onDismiss}>
@@ -154,98 +167,70 @@ export function TradeConfirmationBanner({
           </div>
         </div>
 
-        {/* Pair and Position */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <span className="text-lg font-bold text-foreground">{trade.pair}</span>
-            {trade.exchange && (
-              <Badge variant="secondary" className="text-xs">{trade.exchange}</Badge>
-            )}
+        {/* Price Grid - Compact */}
+        <div className="grid grid-cols-4 gap-2 mb-2 text-[10px]">
+          <div className="bg-background/50 rounded p-1.5 border border-border">
+            <div className="text-muted-foreground">Entry</div>
+            <div className="font-mono font-medium">${formatPrice(trade.entryPrice)}</div>
           </div>
-          <div className="text-right">
-            <div className="text-xs text-muted-foreground">Position</div>
-            <div className="text-sm font-semibold">${trade.positionSize.toFixed(2)}</div>
-          </div>
-        </div>
-
-        {/* Price Grid */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
-          <div className="bg-background/50 rounded-lg p-2 border border-border">
-            <div className="text-[10px] text-muted-foreground mb-1">ENTRY</div>
-            <div className="text-sm font-mono font-medium">${formatPrice(trade.entryPrice)}</div>
-          </div>
-          <div className="bg-background/50 rounded-lg p-2 border border-border">
-            <div className="text-[10px] text-muted-foreground mb-1">CURRENT</div>
+          <div className={cn(
+            "bg-background/50 rounded p-1.5 border transition-colors",
+            priceFlash === 'up' ? "border-emerald-500 bg-emerald-500/10" :
+            priceFlash === 'down' ? "border-red-500 bg-red-500/10" : "border-border"
+          )}>
+            <div className="text-muted-foreground">Current</div>
             <div className={cn(
-              "text-sm font-mono font-medium",
+              "font-mono font-medium transition-colors",
               pnl.dollars >= 0 ? "text-emerald-400" : "text-red-400"
             )}>
               ${formatPrice(currentPrice)}
             </div>
           </div>
-          <div className="bg-background/50 rounded-lg p-2 border border-emerald-500/30">
-            <div className="text-[10px] text-emerald-400 mb-1 flex items-center gap-1">
-              <Target className="h-2 w-2" />TARGET TP
+          <div className="bg-background/50 rounded p-1.5 border border-emerald-500/30">
+            <div className="text-emerald-400 flex items-center gap-0.5">
+              <Target className="h-2 w-2" />TP
             </div>
-            <div className="text-sm font-mono font-medium text-emerald-400">
+            <div className="font-mono font-medium text-emerald-400">
               ${formatPrice(trade.targetTPPrice)}
             </div>
-            <div className="text-[9px] text-muted-foreground">+{targetPricePercent.toFixed(2)}%</div>
+          </div>
+          <div className="bg-background/50 rounded p-1.5 border border-border">
+            <div className="text-muted-foreground">P&L</div>
+            <div className={cn(
+              "font-mono font-bold",
+              pnl.dollars >= 0 ? "text-emerald-400" : "text-red-400"
+            )}>
+              {pnl.dollars >= 0 ? '+' : ''}${pnl.dollars.toFixed(2)}
+            </div>
           </div>
         </div>
 
-        {/* P&L Display */}
-        <div className="bg-background/80 rounded-lg p-3 border border-border mb-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <DollarSign className={cn(
-                "h-4 w-4",
-                pnl.dollars >= 0 ? "text-emerald-400" : "text-red-400"
-              )} />
-              <span className="text-sm text-muted-foreground">Current P&L</span>
-            </div>
-            <div className="text-right">
-              <span className={cn(
-                "text-lg font-bold font-mono",
-                pnl.dollars >= 0 ? "text-emerald-400" : "text-red-400"
-              )}>
-                {pnl.dollars >= 0 ? '+' : ''}${pnl.dollars.toFixed(2)}
+        {/* Progress Bar */}
+        <div className="space-y-1">
+          <Progress 
+            value={progressPercent} 
+            className={cn(
+              "h-2",
+              progressPercent >= 100 ? "bg-emerald-900" : "bg-muted"
+            )}
+          />
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-muted-foreground">
+              {progressPercent.toFixed(0)}% → ${trade.targetProfit.toFixed(2)}
+            </span>
+            {progressPercent >= 100 && (
+              <span className="text-emerald-400 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" />
+                Target!
               </span>
-              <span className="text-xs text-muted-foreground ml-2">
-                / ${trade.targetProfit.toFixed(2)}
-              </span>
-            </div>
-          </div>
-          
-          {/* Progress Bar */}
-          <div className="space-y-1">
-            <Progress 
-              value={progressPercent} 
-              className={cn(
-                "h-2",
-                progressPercent >= 100 ? "bg-emerald-900" : "bg-muted"
-              )}
-            />
-            <div className="flex items-center justify-between text-xs">
+            )}
+            {maxProfit > 0 && progressPercent < 100 && (
               <span className="text-muted-foreground">
-                {progressPercent.toFixed(0)}% to target
+                Peak: +${maxProfit.toFixed(2)}
               </span>
-              {progressPercent >= 100 && (
-                <span className="text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" />
-                  Target reached!
-                </span>
-              )}
-            </div>
+            )}
           </div>
         </div>
-
-        {/* Max Profit Tracker */}
-        {maxProfit > 0 && (
-          <div className="text-xs text-muted-foreground text-center">
-            Peak: +${maxProfit.toFixed(2)}
-          </div>
-        )}
       </CardContent>
     </Card>
   );
