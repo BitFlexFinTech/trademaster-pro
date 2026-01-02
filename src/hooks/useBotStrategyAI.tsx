@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useConnectedExchanges } from '@/hooks/useConnectedExchanges';
 import { toast } from 'sonner';
+
+const AUTO_APPLY_CONFIDENCE_THRESHOLD = 85;
 
 export interface HitRateHistoryPoint {
   hour: string;
@@ -48,6 +50,8 @@ export function useBotStrategyAI() {
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [autoApply, setAutoApply] = useState(false);
+  const lastAppliedRef = useRef<string | null>(null);
 
   const connectedExchangeNames = connectedExchanges
     ?.filter(e => e.isConnected)
@@ -140,6 +144,66 @@ export function useBotStrategyAI() {
     }
   }, [user, recommendation]);
 
+  // Load auto-apply setting from database
+  useEffect(() => {
+    if (!user) return;
+
+    const loadAutoApply = async () => {
+      const { data } = await supabase
+        .from('bot_config')
+        .select('auto_apply_ai')
+        .eq('user_id', user.id)
+        .single();
+      
+      if (data) {
+        setAutoApply(data.auto_apply_ai ?? false);
+      }
+    };
+
+    loadAutoApply();
+  }, [user]);
+
+  // Toggle auto-apply and save to database
+  const toggleAutoApply = useCallback(async () => {
+    if (!user) return;
+
+    const newValue = !autoApply;
+    setAutoApply(newValue);
+
+    await supabase
+      .from('bot_config')
+      .upsert({
+        user_id: user.id,
+        auto_apply_ai: newValue,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+
+    toast.success(newValue ? '🤖 Auto-Apply enabled' : 'Auto-Apply disabled', {
+      description: newValue 
+        ? `AI recommendations with >${AUTO_APPLY_CONFIDENCE_THRESHOLD}% confidence will be applied automatically`
+        : 'You will need to manually apply AI recommendations',
+    });
+  }, [user, autoApply]);
+
+  // Auto-apply when recommendation changes and meets criteria
+  useEffect(() => {
+    if (!autoApply || !recommendation || applying) return;
+
+    // Only auto-apply if confidence is high enough
+    if (recommendation.confidence >= AUTO_APPLY_CONFIDENCE_THRESHOLD) {
+      // Prevent duplicate applications
+      const recKey = `${recommendation.analyzedAt}-${recommendation.confidence}`;
+      if (lastAppliedRef.current === recKey) return;
+
+      lastAppliedRef.current = recKey;
+      applyRecommendation();
+
+      toast.info('🎯 AI Strategy Auto-Applied', {
+        description: `${recommendation.confidence}% confidence recommendation applied automatically`,
+      });
+    }
+  }, [autoApply, recommendation, applying, applyRecommendation]);
+
   // Auto-refresh every 5 minutes
   useEffect(() => {
     if (!user) return;
@@ -160,6 +224,8 @@ export function useBotStrategyAI() {
     applying,
     lastUpdated,
     minutesAgo,
+    autoApply,
+    toggleAutoApply,
     fetchRecommendation,
     applyRecommendation
   };

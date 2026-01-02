@@ -41,14 +41,17 @@ import { RiskManagementPanel } from '@/components/bots/RiskManagementPanel';
 import { SpreadMonitor } from '@/components/bots/SpreadMonitor';
 import { SessionDashboard } from '@/components/bots/SessionDashboard';
 import { BalanceRequirementBanner } from '@/components/bots/BalanceRequirementBanner';
-import { ProfitEnginePanel } from '@/components/bots/ProfitEnginePanel';
+// ProfitEnginePanel moved to BotAnalytics
 import { StuckTradesBanner } from '@/components/bots/StuckTradesBanner';
 import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
 import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
 import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummaryCard';
+import { ActivityTerminal } from '@/components/bots/ActivityTerminal';
+import { AIStrategyDashboard } from '@/components/bots/AIStrategyDashboard';
 
 import { useRegimeTransitionNotifier } from '@/hooks/useRegimeTransitionNotifier';
+import { useBotStrategyAI } from '@/hooks/useBotStrategyAI';
 import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
 import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
 import { NotificationPopup, NotificationStack } from '@/components/bots/NotificationPopup';
@@ -1536,8 +1539,8 @@ export default function Bots() {
             onFilterChange={setActiveFilter}
           />
 
-          {/* Profit Engine Status Panel - collapsed by default */}
-          <ProfitEnginePanel defaultCollapsed={true} className="mb-2" />
+          {/* Activity Terminal - Real-time bot actions */}
+          <ActivityTerminal className="mb-3" maxHeight={180} />
 
           {/* ============================================
              MICRO-CARDS GRID - High-density bot overview
