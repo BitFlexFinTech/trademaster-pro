@@ -52,6 +52,7 @@ import { ActivityTerminal } from '@/components/bots/ActivityTerminal';
 import { ExchangeStatisticsPanel } from '@/components/bots/ExchangeStatisticsPanel';
 import { CumulativeProfitChart } from '@/components/bots/CumulativeProfitChart';
 import { OpenPositionsDashboard } from '@/components/bots/OpenPositionsDashboard';
+import { LiveProfitCounter } from '@/components/bots/LiveProfitCounter';
 import { ProfitBreakdownDashboard } from '@/components/bots/ProfitBreakdownDashboard';
 import { ExchangeSettingsPanel } from '@/components/bots/ExchangeSettingsPanel';
 import { useAutoCompound } from '@/hooks/useAutoCompound';
@@ -1549,7 +1550,10 @@ export default function Bots() {
           />
 
           {/* Open Positions Dashboard - Real-time P&L */}
-          <OpenPositionsDashboard />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+            <OpenPositionsDashboard className="md:col-span-3" />
+            <LiveProfitCounter />
+          </div>
 
           {/* AI Strategy Dashboard removed per user request */}
 
