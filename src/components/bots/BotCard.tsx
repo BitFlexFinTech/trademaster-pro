@@ -114,9 +114,11 @@ export function BotCard({
   });
 
   // Core trading config - use botConfig props as source of truth, only override with existingBot if running
+  // FIXED: Default to $1 profit target and $333 minimum position size
+  const FIXED_POSITION_SIZE = 333; // $333 per trade for $1 profit
   const [dailyTarget, setDailyTarget] = useState(existingBot?.dailyTarget || 100);
-  const [profitPerTrade, setProfitPerTrade] = useState(Math.max(existingBot?.profitPerTrade || 0.50, MIN_NET_PROFIT));
-  const [localAmountPerTrade, setLocalAmountPerTrade] = useState(amountPerTrade);
+  const [profitPerTrade, setProfitPerTrade] = useState(Math.max(existingBot?.profitPerTrade || 1.00, 1.00));
+  const [localAmountPerTrade, setLocalAmountPerTrade] = useState(Math.max(amountPerTrade, FIXED_POSITION_SIZE));
   const [localTradeIntervalMs, setLocalTradeIntervalMs] = useState(tradeIntervalMs);
   const [minEdgeRequired, setMinEdgeRequired] = useState(0.3); // 0.3% minimum edge above fees
 
@@ -770,16 +772,17 @@ export function BotCard({
           
           let data, error;
           try {
+            // FIXED: Use FIXED_POSITION_SIZE ($333) for consistent $1 profit trades
             const result = await supabase.functions.invoke('execute-bot-trade', {
               body: {
                 botId: existingBot.id,
                 mode: botType,
-                profitTarget: profitPerTrade,
+                profitTarget: 1.00, // Fixed $1 profit target
                 exchanges: availableExchanges,
                 leverages: leveragesRef.current,
                 isSandbox: false,
-                maxPositionSize: localAmountPerTrade,
-                stopLossPercent: 0.2,
+                maxPositionSize: FIXED_POSITION_SIZE, // Always $333 per trade
+                stopLossPercent: 0, // No stop loss - hold for profit
               }
             });
             data = result.data;

@@ -275,6 +275,23 @@ serve(async (req) => {
     // Use service role for upserting with proper ON CONFLICT handling
     const supabaseService = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
+    // CRITICAL FIX: Delete stale records for each exchange BEFORE upserting new ones
+    // This removes assets that no longer exist on the exchange (sold, transferred, etc.)
+    const exchangeNames = [...new Set(allBalances.map(b => b.exchange))];
+    for (const exchangeName of exchangeNames) {
+      const { error: deleteError } = await supabaseService
+        .from('portfolio_holdings')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('exchange_name', exchangeName);
+      
+      if (deleteError) {
+        console.error(`[SYNC] Failed to delete stale records for ${exchangeName}:`, deleteError);
+      } else {
+        console.log(`[SYNC] Cleared old records for ${exchangeName}`);
+      }
+    }
+
     let synced = 0;
     for (const balance of allBalances) {
       // Use upsert with the unique constraint we added

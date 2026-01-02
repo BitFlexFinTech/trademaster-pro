@@ -202,6 +202,8 @@ export default function Bots() {
   }, [prices]);
 
   // Bot configuration state - LOAD FROM LOCALSTORAGE ON MOUNT
+  // FIXED: Enforce $333 minimum position size for $1 profit strategy
+  const FIXED_POSITION_SIZE = 333; // $333 per trade for $1 profit
   const loadSavedBotConfig = () => {
     const saved = localStorage.getItem('greenback-bot-settings');
     if (saved) {
@@ -211,9 +213,10 @@ export default function Bots() {
           dailyTarget: parsed.dailyTarget ?? 20,
           // ENFORCE $1 minimum profit per trade
           profitPerTrade: Math.max(parsed.profitPerTrade ?? 1.00, 1.00),
-          amountPerTrade: parsed.amountPerTrade ?? 250,
+          // ENFORCE $333 minimum position size
+          amountPerTrade: Math.max(parsed.amountPerTrade ?? FIXED_POSITION_SIZE, FIXED_POSITION_SIZE),
           tradeIntervalMs: parsed.tradeIntervalMs ?? 60000, // 60s default
-          maxPositionSize: parsed.maxPositionSize ?? 5000,
+          maxPositionSize: Math.max(parsed.maxPositionSize ?? FIXED_POSITION_SIZE, FIXED_POSITION_SIZE),
           dailyStopLoss: parsed.dailyStopLoss ?? 0, // No stop-loss in $1 strategy
           perTradeStopLoss: parsed.perTradeStopLoss ?? 0,
           focusPairs: parsed.focusPairs ?? [...TOP_PAIRS],
@@ -227,13 +230,13 @@ export default function Bots() {
         };
       } catch { /* ignore parse errors */ }
     }
-    // Default values if no saved settings - $1 profit strategy
+    // Default values if no saved settings - $1 profit strategy with $333 position
     return {
       dailyTarget: 20,
       profitPerTrade: 1.00, // $1 minimum profit per trade
-      amountPerTrade: 250, // Position size for $1 profit
+      amountPerTrade: FIXED_POSITION_SIZE, // FIXED: $333 position size for $1 profit
       tradeIntervalMs: 60000, // 60s default (user requested)
-      maxPositionSize: 5000,
+      maxPositionSize: FIXED_POSITION_SIZE, // FIXED: $333 per trade
       dailyStopLoss: 0, // No stop-loss
       perTradeStopLoss: 0, // Disabled
       focusPairs: [...TOP_PAIRS],
