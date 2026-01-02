@@ -53,9 +53,10 @@ import { ExchangeStatisticsPanel } from '@/components/bots/ExchangeStatisticsPan
 import { CumulativeProfitChart } from '@/components/bots/CumulativeProfitChart';
 import { OpenPositionsDashboard } from '@/components/bots/OpenPositionsDashboard';
 import { LiveProfitCounter } from '@/components/bots/LiveProfitCounter';
+import { MarketRegimeIndicator } from '@/components/bots/MarketRegimeIndicator';
 import { ProfitBreakdownDashboard } from '@/components/bots/ProfitBreakdownDashboard';
 import { ExchangeSettingsPanel } from '@/components/bots/ExchangeSettingsPanel';
-import { TradeAnalyticsDashboard } from '@/components/bots/TradeAnalyticsDashboard';
+// TradeAnalyticsDashboard removed per strict rule
 import { ComprehensiveAnalyticsDashboard } from '@/components/analytics/ComprehensiveAnalyticsDashboard';
 import { TradingStatusCard } from '@/components/bots/TradingStatusCard';
 import { useAutoCompound } from '@/hooks/useAutoCompound';
@@ -1507,14 +1508,18 @@ export default function Bots() {
             onFilterChange={setActiveFilter}
           />
 
-          {/* Open Positions Dashboard - Real-time P&L */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-            <OpenPositionsDashboard />
+          {/* Market Regime Indicator + Open Positions Dashboard */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+            <MarketRegimeIndicator />
+            <OpenPositionsDashboard className="md:col-span-2" />
+          </div>
+          
+          {/* Live Profit Counter */}
+          <div className="mb-3">
             <LiveProfitCounter />
           </div>
           
-          {/* Trade Analytics Dashboard */}
-          <TradeAnalyticsDashboard className="mb-3" />
+          {/* Trade Analytics Dashboard removed per strict rule */}
 
           {/* AI Strategy Dashboard removed per user request */}
 
