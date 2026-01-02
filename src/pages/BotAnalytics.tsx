@@ -13,7 +13,7 @@ import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
 import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboard';
 import { TradeDistributionChart } from '@/components/bots/TradeDistributionChart';
 import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
-import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
+
 import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { JarvisPerformanceAnalytics } from '@/components/bots/JarvisPerformanceAnalytics';
 import { RegimePerformanceChart } from '@/components/bots/RegimePerformanceChart';
@@ -219,9 +219,8 @@ export default function BotAnalytics() {
           </TabsContent>
 
           <TabsContent value="profits" className="m-0 space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <LivePnLDashboard />
-              <ProfitWithdrawalChart />
             </div>
           </TabsContent>
 

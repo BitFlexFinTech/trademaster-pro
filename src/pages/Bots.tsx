@@ -44,7 +44,6 @@ import { BalanceRequirementBanner } from '@/components/bots/BalanceRequirementBa
 // ProfitEnginePanel moved to BotAnalytics
 import { StuckTradesBanner } from '@/components/bots/StuckTradesBanner';
 import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
-import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
 import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummaryCard';
 import { ActivityTerminal } from '@/components/bots/ActivityTerminal';
@@ -56,6 +55,7 @@ import { LiveProfitCounter } from '@/components/bots/LiveProfitCounter';
 import { ProfitBreakdownDashboard } from '@/components/bots/ProfitBreakdownDashboard';
 import { ExchangeSettingsPanel } from '@/components/bots/ExchangeSettingsPanel';
 import { TradeAnalyticsDashboard } from '@/components/bots/TradeAnalyticsDashboard';
+import { ComprehensiveAnalyticsDashboard } from '@/components/analytics/ComprehensiveAnalyticsDashboard';
 import { useAutoCompound } from '@/hooks/useAutoCompound';
 import { useNotificationStack } from '@/hooks/useNotificationStack';
 
@@ -282,7 +282,6 @@ export default function Bots() {
           }), {} as Record<string, number>),
           autoSpeedAdjust: parsed.autoSpeedAdjust ?? true,
           minProfitThreshold: parsed.minProfitThreshold ?? 1.00, // $1 target
-          autoWithdrawOnTarget: parsed.autoWithdrawOnTarget ?? true,
         };
       } catch { /* ignore parse errors */ }
     }
@@ -302,7 +301,6 @@ export default function Bots() {
       }), {} as Record<string, number>),
       autoSpeedAdjust: true,
       minProfitThreshold: 1.00, // $1 target
-      autoWithdrawOnTarget: true, // Auto-withdraw when daily target is reached
     };
   };
   
@@ -1730,6 +1728,11 @@ export default function Bots() {
               <div className="lg:col-span-4">
                 <ExchangeSettingsPanel />
               </div>
+            </div>
+
+            {/* Trading Analytics Dashboard */}
+            <div className="mt-4">
+              <TradeAnalyticsDashboard defaultExpanded={false} />
             </div>
           </ScrollArea>
         </section>

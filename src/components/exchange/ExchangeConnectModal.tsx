@@ -23,7 +23,6 @@ interface ExchangeConnectModalProps {
 const PERMISSIONS = [
   { id: 'read', label: 'Read Balance', description: 'View your account balance' },
   { id: 'trade', label: 'Trading', description: 'Execute trades on your behalf' },
-  { id: 'withdraw', label: 'Withdraw', description: 'Withdraw funds (not recommended)' },
 ];
 
 export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected }: ExchangeConnectModalProps) {
@@ -267,9 +266,7 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
               {PERMISSIONS.map((perm) => (
                 <div
                   key={perm.id}
-                  className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${
-                    perm.id === 'withdraw' ? 'border-destructive/30 bg-destructive/5' : 'border-border'
-                  }`}
+                  className="flex items-center gap-3 p-2 rounded-lg border border-border transition-colors"
                 >
                   <Checkbox
                     id={perm.id}
@@ -282,9 +279,6 @@ export function ExchangeConnectModal({ open, onOpenChange, exchange, onConnected
                     </label>
                     <p className="text-xs text-muted-foreground">{perm.description}</p>
                   </div>
-                  {perm.id === 'withdraw' && (
-                    <AlertTriangle className="w-4 h-4 text-destructive" />
-                  )}
                 </div>
               ))}
             </div>

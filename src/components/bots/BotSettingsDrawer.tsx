@@ -22,7 +22,6 @@ export interface BotSettings {
   leverageDefaults: Record<string, number>;
   autoSpeedAdjust: boolean;
   minProfitThreshold: number;
-  autoWithdrawOnTarget: boolean;
 }
 
 interface BotSettingsDrawerProps {
@@ -55,28 +54,7 @@ export function BotSettingsDrawer({ settings, onSettingsChange, disabled }: BotS
     if (settings.focusPairs.length !== localSettings.focusPairs.length) {
       changes.push(`Focus Pairs: ${settings.focusPairs.length} → ${localSettings.focusPairs.length}`);
     }
-    if (settings.autoWithdrawOnTarget !== localSettings.autoWithdrawOnTarget) {
-      changes.push(`Auto-Withdraw: ${localSettings.autoWithdrawOnTarget ? 'Enabled' : 'Disabled'}`);
-    }
 
-    // Sync auto_withdraw_on_target to database
-    try {
-      const { createClient } = await import('@supabase/supabase-js');
-      const supabase = (await import('@/integrations/supabase/client')).supabase;
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (user) {
-        await supabase
-          .from('bot_config')
-          .upsert({
-            user_id: user.id,
-            auto_withdraw_on_target: localSettings.autoWithdrawOnTarget,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'user_id' });
-      }
-    } catch (err) {
-      console.error('Failed to sync auto-withdraw setting:', err);
-    }
     
     onSettingsChange(localSettings);
     setOpen(false);
@@ -309,8 +287,9 @@ export function BotSettingsDrawer({ settings, onSettingsChange, disabled }: BotS
                   className="h-8 text-sm"
                 />
                 <span className="text-[10px] text-muted-foreground">100-60000ms (Demo: 100+, Live: 5000+)</span>
+              </div>
+            </div>
           </div>
-
           {/* Auto Speed Adjustment Toggle */}
           <div className="space-y-4 p-3 bg-secondary/30 border border-border rounded-lg">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -340,39 +319,6 @@ export function BotSettingsDrawer({ settings, onSettingsChange, disabled }: BotS
                 Manual mode: Trade speed will use your interval setting regardless of hit rate
               </div>
             )}
-          </div>
-
-          {/* Auto-Withdraw on Target Toggle */}
-          <div className="space-y-4 p-3 bg-primary/10 border border-primary/30 rounded-lg">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Banknote className="w-4 h-4 text-primary" />
-              Profit Protection
-            </div>
-            
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <Label className="text-xs text-foreground">Auto-Withdraw on Target</Label>
-                <span className="text-[10px] text-muted-foreground block">
-                  Automatically secure profits when daily target is reached
-                </span>
-              </div>
-              <Switch
-                checked={localSettings.autoWithdrawOnTarget}
-                onCheckedChange={(checked) => setLocalSettings(prev => ({
-                  ...prev,
-                  autoWithdrawOnTarget: checked
-                }))}
-              />
-            </div>
-            
-            {localSettings.autoWithdrawOnTarget && (
-              <div className="flex items-center gap-1 text-[10px] text-primary">
-                <Banknote className="w-3 h-3" />
-                90% of profits will be secured when you hit ${localSettings.dailyTarget} daily target
-              </div>
-            )}
-          </div>
-            </div>
           </div>
           {/* Leverage Defaults */}
           <div className="space-y-4">
