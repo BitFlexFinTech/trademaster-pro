@@ -11,7 +11,12 @@ interface EventMap {
   'recommendation:applied': { id: string; type: string; value: number | string };
   'recommendation:undone': { id: string; type: string; restoredValue: number | string };
   'balance:updated': { newBalance: number; source: 'trade' | 'manual' | 'sync' };
-  'balance:synced': { exchange: string; spotBalance: number; futuresBalance: number; total: number };
+  'balance:synced': { 
+    totalBalance: number; 
+    exchangeBalances: Record<string, number>; 
+    walletBreakdown?: Record<string, { spot: number; futures: number }>;
+    maxPositions: number;
+  };
   'sync:triggered': { timestamp: Date };
   'hitrate:updated': { current: number; target: number };
 }

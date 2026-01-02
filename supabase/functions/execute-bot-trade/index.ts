@@ -330,12 +330,18 @@ const EXCLUDED_COMBOS = new Set([
 // Spot-safe pairs for LONG trades (>50% win rate historically)
 const SPOT_SAFE_PAIRS = new Set(['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'MATIC/USDT']);
 
-// GREENBACK Safety limits - FIXED for $1 profit strategy
+// GREENBACK Safety limits - DYNAMIC based on balance
 const FIXED_POSITION_SIZE = 333;       // FIXED: Always use $333 per trade for $1 profit
 const DEFAULT_POSITION_SIZE = 333;     // FIXED: $333 minimum for $1 profit (was $50)
 const MIN_POSITION_SIZE = 333;         // FIXED: $333 minimum (was $20)
 const MAX_POSITION_SIZE_CAP = 1000;    // FIXED: Allow larger for faster profits (was $500)
-const MAX_CONCURRENT_PER_EXCHANGE = 3; // Max 3 open trades per exchange
+// Dynamic max positions - calculated based on balance
+function calculateMaxPositions(balance: number, positionSize: number = FIXED_POSITION_SIZE): number {
+  const safetyMargin = 0.8; // Use 80% of balance
+  const maxByBalance = Math.floor((balance * safetyMargin) / positionSize);
+  const absoluteMax = 10; // Never more than 10 per exchange
+  return Math.max(1, Math.min(maxByBalance, absoluteMax));
+}
 const DAILY_LOSS_LIMIT = -6.90;        // 3% of $230 = $6.90
 const MAX_SLIPPAGE_PERCENT = 0.15;     // 0.15% max slippage (tighter for micro-scalping)
 const PROFIT_LOCK_TIMEOUT_MS = 30000;  // 30 second timeout
@@ -1736,6 +1742,10 @@ serve(async (req) => {
     console.log(`Initial position size estimate: $${positionSize.toFixed(2)} (will be recalculated after exchange selection)`);
 
     // Check for open positions BEFORE proceeding
+    // Calculate max positions dynamically based on available balance
+    const maxConcurrentPositions = calculateMaxPositions(availableBalance, FIXED_POSITION_SIZE);
+    const totalMaxPositions = maxConcurrentPositions * connections.length;
+    
     if (!isSandbox) {
       const { count: openPositions, error: countError } = await supabase
         .from('trades')
@@ -1744,14 +1754,16 @@ serve(async (req) => {
         .eq('status', 'open')
         .eq('is_sandbox', false);
 
-      if (!countError && openPositions !== null && openPositions >= MAX_CONCURRENT_PER_EXCHANGE * connections.length) {
-        console.log(`⏸️ Max concurrent positions reached (${openPositions} open), skipping trade`);
+      if (!countError && openPositions !== null && openPositions >= totalMaxPositions) {
+        console.log(`⏸️ Max concurrent positions reached (${openPositions}/${totalMaxPositions} open, based on $${availableBalance.toFixed(2)} balance), skipping trade`);
         return new Response(
           JSON.stringify({
             success: false,
             skipped: true,
-            reason: `Max ${MAX_CONCURRENT_PER_EXCHANGE * connections.length} open positions reached`,
+            reason: `Max ${totalMaxPositions} open positions reached (${openPositions} open)`,
             openPositions,
+            maxPositions: totalMaxPositions,
+            balance: availableBalance,
           }),
           {
             status: 200,
