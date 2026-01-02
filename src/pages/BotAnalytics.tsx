@@ -21,6 +21,7 @@ import { RegimeTransitionHistoryTable } from '@/components/bots/RegimeTransition
 import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
 import { BotHistory } from '@/components/bots/BotHistory';
 import { TradeExecutionStatus } from '@/components/bots/TradeExecutionStatus';
+import { ProfitEnginePanel } from '@/components/bots/ProfitEnginePanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity, Clock, List, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -224,8 +225,11 @@ export default function BotAnalytics() {
             </div>
           </TabsContent>
 
-          <TabsContent value="execution" className="m-0 h-full">
-            <TradeExecutionStatus isRunning={!!activeBot} className="h-full" />
+          <TabsContent value="execution" className="m-0 space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <TradeExecutionStatus isRunning={!!activeBot} />
+              <ProfitEnginePanel />
+            </div>
           </TabsContent>
 
           <TabsContent value="trades" className="m-0 h-full">

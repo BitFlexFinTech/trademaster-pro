@@ -32,7 +32,12 @@ const levelConfig: Record<LogLevel, { color: string; icon: React.ReactNode; labe
   info: { color: 'text-muted-foreground', icon: <Terminal className="w-3 h-3" />, label: 'INFO' },
 };
 
-export function ActivityTerminal() {
+interface ActivityTerminalProps {
+  className?: string;
+  maxHeight?: number;
+}
+
+export function ActivityTerminal({ className, maxHeight = 200 }: ActivityTerminalProps) {
   const { user } = useAuth();
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [filter, setFilter] = useState<LogFilter>('all');
@@ -204,7 +209,7 @@ export function ActivityTerminal() {
   ];
 
   return (
-    <div className="card-terminal border border-border/50 rounded-lg overflow-hidden">
+    <div className={cn("card-terminal border border-border/50 rounded-lg overflow-hidden", className)}>
       {/* Header */}
       <div className="flex items-center justify-between p-2 border-b border-border/50 bg-muted/30">
         <div className="flex items-center gap-2">
@@ -265,7 +270,7 @@ export function ActivityTerminal() {
       </div>
 
       {/* Logs */}
-      <ScrollArea className="h-[180px]" ref={scrollRef}>
+      <ScrollArea className="h-[180px]" style={{ maxHeight: maxHeight }} ref={scrollRef}>
         <div className="p-2 space-y-1 font-mono text-[11px]">
           {filteredLogs.length === 0 ? (
             <div className="text-center text-muted-foreground py-8">
