@@ -157,11 +157,13 @@ export type Database = {
           daily_target: number
           focus_pairs: string[] | null
           id: string
+          last_balance_sync: string | null
           leverage_defaults: Json | null
           min_profit_threshold: number
           per_trade_stop_loss: number
           profit_per_trade: number
           regime_direction_sync: boolean | null
+          synced_portfolio_balance: number | null
           target_profit_usd: number | null
           trade_interval_ms: number
           updated_at: string | null
@@ -180,11 +182,13 @@ export type Database = {
           daily_target?: number
           focus_pairs?: string[] | null
           id?: string
+          last_balance_sync?: string | null
           leverage_defaults?: Json | null
           min_profit_threshold?: number
           per_trade_stop_loss?: number
           profit_per_trade?: number
           regime_direction_sync?: boolean | null
+          synced_portfolio_balance?: number | null
           target_profit_usd?: number | null
           trade_interval_ms?: number
           updated_at?: string | null
@@ -203,11 +207,13 @@ export type Database = {
           daily_target?: number
           focus_pairs?: string[] | null
           id?: string
+          last_balance_sync?: string | null
           leverage_defaults?: Json | null
           min_profit_threshold?: number
           per_trade_stop_loss?: number
           profit_per_trade?: number
           regime_direction_sync?: boolean | null
+          synced_portfolio_balance?: number | null
           target_profit_usd?: number | null
           trade_interval_ms?: number
           updated_at?: string | null
