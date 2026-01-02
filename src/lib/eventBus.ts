@@ -2,12 +2,16 @@ type EventCallback<T = any> = (data: T) => void;
 
 interface EventMap {
   'trade:executed': { pair: string; pnl: number; exchange: string; direction: 'long' | 'short' };
+  'trade:opened': { tradeId: string; pair: string; direction: 'long' | 'short'; exchange: string; entryPrice: number };
+  'trade:closed': { tradeId: string; pair: string; direction: 'long' | 'short'; exchange: string; netPnl: number };
+  'positions:updated': { openCount: number; totalPnl: number };
   'bot:started': { botId: string; botType: 'spot' | 'leverage' };
   'bot:stopped': { botId: string; pnl: number };
   'config:updated': { key: string; value: number | string; previousValue: number | string };
   'recommendation:applied': { id: string; type: string; value: number | string };
   'recommendation:undone': { id: string; type: string; restoredValue: number | string };
   'balance:updated': { newBalance: number; source: 'trade' | 'manual' | 'sync' };
+  'balance:synced': { exchange: string; spotBalance: number; futuresBalance: number; total: number };
   'sync:triggered': { timestamp: Date };
   'hitrate:updated': { current: number; target: number };
 }
