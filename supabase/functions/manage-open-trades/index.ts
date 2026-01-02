@@ -14,7 +14,7 @@ const EXCHANGE_FEES: Record<string, number> = {
   kraken: 0.0032,
 };
 
-// Fetch current price from Binance
+// Fetch current price from Binance (REST fallback)
 async function fetchPrice(symbol: string): Promise<number> {
   try {
     const normalizedSymbol = symbol.replace('/', '');
@@ -25,6 +25,33 @@ async function fetchPrice(symbol: string): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+// WebSocket price data interface (from frontend)
+interface RealtimePriceData {
+  price: number;
+  priceChangePercent: number;
+  volume: number;
+  lastUpdated: number;
+}
+
+// Optimized price fetcher - uses WebSocket prices when available (0ms vs 50-200ms)
+async function fetchPriceOptimized(
+  symbol: string, 
+  realtimePrices?: Record<string, RealtimePriceData>
+): Promise<number> {
+  const normalizedSymbol = symbol.replace('/', '').toUpperCase();
+  
+  // Try WebSocket price first (0ms latency)
+  if (realtimePrices) {
+    const wsData = realtimePrices[normalizedSymbol];
+    if (wsData && wsData.price > 0 && Date.now() - wsData.lastUpdated < 5000) {
+      return wsData.price;
+    }
+  }
+  
+  // Fallback to REST (50-200ms latency)
+  return await fetchPrice(symbol);
 }
 
 // Calculate net P&L after fees
@@ -84,8 +111,9 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const profitTarget = body.profitTarget || 1.00; // Default $1 profit target
     const exchange = body.exchange; // Optional: filter by exchange
+    const realtimePrices = body.realtimePrices; // WebSocket prices from frontend
 
-    console.log(`[manage-open-trades] Checking open trades for user ${user.id}, target: $${profitTarget}`);
+    console.log(`[manage-open-trades] Checking open trades for user ${user.id}, target: $${profitTarget}, WS prices: ${realtimePrices ? Object.keys(realtimePrices).length + ' pairs' : 'none'}`);
 
     // Fetch all open trades
     let query = supabase
@@ -122,7 +150,8 @@ serve(async (req) => {
 
     for (const trade of openTrades) {
       const symbol = trade.pair.replace('/', '');
-      const currentPrice = await fetchPrice(symbol);
+      // Use optimized price fetching (WebSocket first, REST fallback)
+      const currentPrice = await fetchPriceOptimized(symbol, realtimePrices);
       
       if (currentPrice <= 0) {
         console.log(`[manage-open-trades] Skipping ${trade.pair}: could not fetch price`);

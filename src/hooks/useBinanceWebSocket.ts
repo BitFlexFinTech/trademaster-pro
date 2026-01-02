@@ -7,6 +7,23 @@ export interface BinanceTickerData {
   priceChangePercent: number;
   volume: number;
   lastUpdated: number;
+  // NEW: Enhanced trading data
+  highPrice: number;
+  lowPrice: number;
+  bidPrice: number;
+  askPrice: number;
+  spread: number;
+}
+
+// Serializable ticker for passing to edge functions
+export interface SerializableTicker {
+  price: number;
+  priceChangePercent: number;
+  volume: number;
+  lastUpdated: number;
+  bidPrice: number;
+  askPrice: number;
+  spread: number;
 }
 
 // Connection status state machine
@@ -19,7 +36,7 @@ export interface WebSocketState {
   latencyMs: number;
 }
 
-// Top trading pairs to stream
+// Top trading pairs to stream - expanded for better coverage
 const STREAM_SYMBOLS = [
   'btcusdt', 'ethusdt', 'bnbusdt', 'solusdt', 'xrpusdt',
   'dogeusdt', 'adausdt', 'avaxusdt', 'dotusdt', 'maticusdt',
@@ -33,6 +50,7 @@ const BINANCE_WS_URL = 'wss://stream.binance.com:9443/ws';
 const RECONNECT_DELAYS = [1000, 5000, 30000];
 const MAX_RECONNECT_ATTEMPTS = 10;
 const HEARTBEAT_INTERVAL_MS = 30000; // 30 second heartbeat
+const PRICE_FRESHNESS_MS = 5000; // Prices older than 5s considered stale
 
 export function useBinanceWebSocket() {
   const [tickers, setTickers] = useState<Map<string, BinanceTickerData>>(new Map());
@@ -79,7 +97,7 @@ export function useBinanceWebSocket() {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        if (import.meta.env.DEV) console.log('[BinanceWS] Connected');
+        if (import.meta.env.DEV) console.log('[BinanceWS] ⚡ Connected - real-time prices active');
         setWsState({
           status: 'connected',
           reconnectAttempt: 0,
@@ -105,6 +123,14 @@ export function useBinanceWebSocket() {
               priceChangePercent: parseFloat(data.P),
               volume: parseFloat(data.v) * parseFloat(data.c),
               lastUpdated: Date.now(),
+              // Enhanced trading data
+              highPrice: parseFloat(data.h),
+              lowPrice: parseFloat(data.l),
+              bidPrice: parseFloat(data.b),
+              askPrice: parseFloat(data.a),
+              spread: parseFloat(data.c) > 0 
+                ? ((parseFloat(data.a) - parseFloat(data.b)) / parseFloat(data.c)) * 100 
+                : 0,
             };
 
             setTickers(prev => {
@@ -190,6 +216,46 @@ export function useBinanceWebSocket() {
     return tickers.get(normalized);
   }, [tickers]);
 
+  // NEW: Get trading-ready data for a symbol with freshness check
+  const getTradingData = useCallback((symbol: string): {
+    price: number;
+    momentum: number;
+    volume: number;
+    spread: number;
+    isFresh: boolean;
+    lastUpdated: number;
+  } | null => {
+    const normalized = symbol.toUpperCase().replace('/', '');
+    const ticker = tickers.get(normalized);
+    if (!ticker) return null;
+    
+    return {
+      price: ticker.price,
+      momentum: ticker.priceChangePercent,
+      volume: ticker.volume,
+      spread: ticker.spread,
+      isFresh: Date.now() - ticker.lastUpdated < PRICE_FRESHNESS_MS,
+      lastUpdated: ticker.lastUpdated,
+    };
+  }, [tickers]);
+
+  // NEW: Get all prices as serializable object for edge function
+  const getSerializablePrices = useCallback((): Record<string, SerializableTicker> => {
+    const result: Record<string, SerializableTicker> = {};
+    tickers.forEach((ticker, symbol) => {
+      result[symbol] = {
+        price: ticker.price,
+        priceChangePercent: ticker.priceChangePercent,
+        volume: ticker.volume,
+        lastUpdated: ticker.lastUpdated,
+        bidPrice: ticker.bidPrice,
+        askPrice: ticker.askPrice,
+        spread: ticker.spread,
+      };
+    });
+    return result;
+  }, [tickers]);
+
   // Convert tickers map to array for compatibility
   const tickersArray = Array.from(tickers.values());
 
@@ -237,6 +303,8 @@ export function useBinanceWebSocket() {
     error,
     getPrice,
     getTicker,
+    getTradingData,
+    getSerializablePrices,
     connect,
     disconnect,
   };
