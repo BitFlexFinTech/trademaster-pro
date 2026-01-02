@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { DollarSign, Bot, Play, Square, TrendingUp, TrendingDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { AnimatedCounter } from '@/components/ui/AnimatedCounter';
 import { cn } from '@/lib/utils';
 
 export type BotFilter = 'all' | 'running' | 'stopped' | 'profitable' | 'losing';
@@ -30,20 +31,22 @@ export const StickyPnLBar = memo(function StickyPnLBar({
   return (
     <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border px-3 py-2 mb-2 rounded-lg">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        {/* P&L Display */}
+        {/* P&L Display with AnimatedCounter */}
         <div className="flex items-center gap-3">
           <DollarSign className="w-4 h-4 text-primary" />
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
             Total P&L
           </span>
-          <span
-            className={cn(
-              "text-lg font-mono font-bold tabular-nums transition-colors",
-              totalPnL >= 0 ? "text-neon-profit" : "text-destructive"
-            )}
-          >
-            {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}
-          </span>
+          <AnimatedCounter
+            value={totalPnL}
+            prefix="$"
+            decimals={2}
+            duration={400}
+            colorByValue
+            positiveClass="text-neon-profit"
+            negativeClass="text-destructive"
+            className="text-lg font-bold"
+          />
           <Badge variant="outline" className="text-[9px] h-4 px-1.5">
             {runningBotCount} active
           </Badge>

@@ -24,32 +24,31 @@ export default function Dashboard() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* JARVIS Engine Dashboard */}
-      <div className="flex-shrink-0 mb-3">
-        <JarvisEngineDashboard />
-      </div>
-
-      {/* Top Row - Stats Cards - All same height */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 flex-shrink-0 mb-3">
-        <div className="lg:col-span-2 h-[140px] overflow-hidden">
+      {/* Top Row: Compact Jarvis + Stats Cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 flex-shrink-0 mb-2">
+        {/* Jarvis Engine - Compact */}
+        <div className="lg:col-span-5 max-h-[140px] overflow-hidden">
+          <JarvisEngineDashboard />
+        </div>
+        {/* Stats Cards */}
+        <div className="lg:col-span-2 h-[100px] overflow-hidden">
           <PortfolioCard />
         </div>
-        <div className="lg:col-span-2 h-[140px] overflow-hidden">
+        <div className="lg:col-span-2 h-[100px] overflow-hidden">
           <BotStrategyAICard />
         </div>
-        <div className="lg:col-span-2 h-[140px] overflow-hidden">
-          <BotSummaryCard />
-        </div>
-        <div className="lg:col-span-3 h-[140px] overflow-hidden">
+        <div className="lg:col-span-3 h-[100px] overflow-hidden">
           <AiSummaryCard />
         </div>
-        <div className="lg:col-span-3 h-[140px] overflow-hidden">
-          <VideoHighlights />
-        </div>
+      </div>
+
+      {/* Video Highlights - Prominent Row */}
+      <div className="flex-shrink-0 mb-2 h-[220px]">
+        <VideoHighlights />
       </div>
 
       {/* Main Content - Takes remaining space */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1 min-h-0">
         {/* GreenBack Bot Widget */}
         <div className="lg:col-span-9 min-h-0 overflow-hidden">
           <GreenBackWidget />
