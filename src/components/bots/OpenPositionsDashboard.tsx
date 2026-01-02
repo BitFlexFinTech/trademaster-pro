@@ -22,7 +22,11 @@ interface PositionWithPnL {
   progressPercent: number;
 }
 
-export function OpenPositionsDashboard() {
+interface OpenPositionsDashboardProps {
+  className?: string;
+}
+
+export function OpenPositionsDashboard({ className }: OpenPositionsDashboardProps) {
   // Use unified real-time state
   const { openTrades, isLoading } = useTradingRealtimeState();
   const { getPrice, isConnected } = useBinanceWebSocket();
@@ -80,7 +84,7 @@ export function OpenPositionsDashboard() {
   }
 
   return (
-    <Card className="card-terminal">
+    <Card className={cn("card-terminal", className)}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm flex items-center gap-2">
