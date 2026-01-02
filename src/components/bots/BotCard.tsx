@@ -29,6 +29,8 @@ import { profitLockStrategy } from '@/lib/profitLockStrategy';
 import { dailyTargetAnalyzer, type TradeRecord } from '@/lib/dailyTargetAnalyzer';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { usePositionAutoScaling } from '@/hooks/usePositionAutoScaling';
+import { useAutoCompound } from '@/hooks/useAutoCompound';
+import { useBotStrategyAI } from '@/hooks/useBotStrategyAI';
 import { toast } from 'sonner';
 import {
   Tooltip,
@@ -236,6 +238,21 @@ export function BotCard({
     regime,
     deviation: Math.abs(deviation),
   });
+
+  // Auto-compound profits hook
+  const {
+    config: compoundConfig,
+    applyCompound,
+    isEnabled: isCompoundEnabled,
+    currentSize: compoundedSize,
+    multiplier: compoundMultiplier,
+  } = useAutoCompound(localAmountPerTrade);
+
+  // AI Strategy recommendations for auto-fill indicators
+  const { recommendation: aiRecommendation } = useBotStrategyAI();
+  
+  // Track which fields have AI suggestions applied
+  const [aiSuggestedFields, setAiSuggestedFields] = useState<Set<string>>(new Set());
 
   // Load regime direction sync from database
   useEffect(() => {
@@ -460,6 +477,11 @@ export function BotCard({
               const isWin = newTrade.profit_loss! > 0;
               const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
               const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
+              
+              // AUTO-COMPOUND: Apply compounding on profitable trades ($1 target)
+              if (isWin && isCompoundEnabled && newTrade.profit_loss! >= 1.00) {
+                applyCompound(newTrade.profit_loss!);
+              }
               
               metricsRef.current = { currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate, winsCount: wins };
               
@@ -1996,28 +2018,58 @@ export function BotCard({
             {/* Daily Target Slider */}
             <div className="flex items-center gap-2">
               <Target className="w-3.5 h-3.5 text-primary shrink-0" />
-              <span className="text-[10px] text-muted-foreground w-20 shrink-0">Target: ${tempDailyTarget}</span>
+              <div className="flex items-center gap-1 w-24 shrink-0">
+                <span className="text-[10px] text-muted-foreground">Target: ${tempDailyTarget}</span>
+                {aiRecommendation?.recommendations?.dailyTarget && tempDailyTarget === aiRecommendation.recommendations.dailyTarget && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Brain className="w-3 h-3 text-primary animate-pulse" />
+                      </TooltipTrigger>
+                      <TooltipContent>AI Suggested</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
               <Slider
                 value={[tempDailyTarget]}
                 min={10}
                 max={200}
                 step={5}
                 onValueChange={([v]) => setTempDailyTarget(v)}
-                className="flex-1"
+                className={cn(
+                  "flex-1",
+                  aiRecommendation?.recommendations?.dailyTarget && tempDailyTarget === aiRecommendation.recommendations.dailyTarget && "ring-1 ring-primary/50 rounded"
+                )}
               />
             </div>
             
             {/* Profit Per Trade Slider */}
             <div className="flex items-center gap-2">
               <DollarSign className="w-3.5 h-3.5 text-primary shrink-0" />
-              <span className="text-[10px] text-muted-foreground w-20 shrink-0">Profit: ${tempProfitPerTrade.toFixed(2)}</span>
+              <div className="flex items-center gap-1 w-24 shrink-0">
+                <span className="text-[10px] text-muted-foreground">Profit: ${tempProfitPerTrade.toFixed(2)}</span>
+                {tempProfitPerTrade === 1.00 && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Brain className="w-3 h-3 text-primary animate-pulse" />
+                      </TooltipTrigger>
+                      <TooltipContent>$1 Profit Target Strategy</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
               <Slider
                 value={[tempProfitPerTrade * 100]}
                 min={10}
                 max={200}
                 step={5}
                 onValueChange={([v]) => setTempProfitPerTrade(v / 100)}
-                className="flex-1"
+                className={cn(
+                  "flex-1",
+                  tempProfitPerTrade === 1.00 && "ring-1 ring-primary/50 rounded"
+                )}
               />
             </div>
             
@@ -2318,34 +2370,53 @@ export function BotCard({
         <Tooltip>
           <TooltipTrigger asChild>
             <div className={cn(
-              "p-1.5 rounded text-center cursor-help",
+              "p-1.5 rounded text-center cursor-help relative",
+              isCompoundEnabled ? "ring-1 ring-primary/40" : "",
               recentPerformance === 'winning' ? "bg-green-500/20" :
               recentPerformance === 'losing' ? "bg-red-500/20" :
               positionSizing.adjustedForDrawdown ? "bg-yellow-500/20" : "bg-secondary/50"
             )}>
+              {/* AI/Compound indicator */}
+              {isCompoundEnabled && (
+                <div className="absolute -top-1 -right-1">
+                  <Brain className="w-3 h-3 text-primary animate-pulse" />
+                </div>
+              )}
               <div className="text-[8px] text-muted-foreground flex items-center justify-center gap-1">
                 <TrendingUp className="w-2 h-2" /> Size
-                {currentMultiplier !== 1.0 && (
-                  <Badge variant="outline" className="text-[6px] h-3 px-1 ml-0.5">
-                    {(currentMultiplier * 100).toFixed(0)}%
+                {(currentMultiplier !== 1.0 || compoundMultiplier > 1) && (
+                  <Badge variant="outline" className={cn(
+                    "text-[6px] h-3 px-1 ml-0.5",
+                    isCompoundEnabled && "bg-primary/20 border-primary/40"
+                  )}>
+                    {isCompoundEnabled ? `${compoundMultiplier.toFixed(2)}x` : `${(currentMultiplier * 100).toFixed(0)}%`}
                   </Badge>
                 )}
               </div>
               <p className={cn(
                 "text-xs font-bold font-mono",
+                isCompoundEnabled && compoundMultiplier > 1 ? "text-primary" :
                 recentPerformance === 'winning' ? "text-green-400" :
                 recentPerformance === 'losing' ? "text-red-400" :
                 positionSizing.adjustedForDrawdown ? "text-yellow-400" : "text-foreground"
               )}>
-                ${scaledPositionSize.toFixed(0)}
+                ${isCompoundEnabled ? compoundedSize.toFixed(0) : scaledPositionSize.toFixed(0)}
               </p>
             </div>
           </TooltipTrigger>
-          <TooltipContent side="top" className="text-xs max-w-[200px]">
-            <p className="font-medium">{scalingReason}</p>
-            <p className="text-muted-foreground mt-1">
-              Base: ${localAmountPerTrade} → Scaled: ${scaledPositionSize.toFixed(2)}
-            </p>
+          <TooltipContent side="top" className="text-xs max-w-[220px]">
+            <p className="font-medium">{isCompoundEnabled ? '📈 Auto-Compound Active' : scalingReason}</p>
+            {isCompoundEnabled ? (
+              <div className="text-muted-foreground mt-1 space-y-0.5">
+                <p>Base: ${localAmountPerTrade} → Compounded: ${compoundedSize.toFixed(2)}</p>
+                <p>Multiplier: {compoundMultiplier.toFixed(2)}x | Threshold: ${compoundConfig.threshold}</p>
+                <p>Reinvest: {compoundConfig.percentage}% of profits</p>
+              </div>
+            ) : (
+              <p className="text-muted-foreground mt-1">
+                Base: ${localAmountPerTrade} → Scaled: ${scaledPositionSize.toFixed(2)}
+              </p>
+            )}
           </TooltipContent>
         </Tooltip>
       </div>
@@ -2524,8 +2595,20 @@ export function BotCard({
 
         {/* Configuration Row 1: Daily Target & Profit Per Trade */}
         <div className="grid grid-cols-2 gap-2 mb-2">
-          <div>
-            <label className="text-[10px] text-muted-foreground block mb-1">Daily Target ($)</label>
+          <div className="relative">
+            <div className="flex items-center gap-1 mb-1">
+              <label className="text-[10px] text-muted-foreground">Daily Target ($)</label>
+              {aiRecommendation?.recommendations?.dailyTarget && dailyTarget === aiRecommendation.recommendations.dailyTarget && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Brain className="w-3 h-3 text-primary animate-pulse" />
+                    </TooltipTrigger>
+                    <TooltipContent>AI Suggested Value</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
             <Input
               type="number"
               value={dailyTarget}
@@ -2534,13 +2617,28 @@ export function BotCard({
                 if (val >= 0) setDailyTarget(val);
               }}
               disabled={isRunning}
-              className="h-7 text-xs font-mono"
+              className={cn(
+                "h-7 text-xs font-mono",
+                aiRecommendation?.recommendations?.dailyTarget && dailyTarget === aiRecommendation.recommendations.dailyTarget && "ring-1 ring-primary/50"
+              )}
               min={1}
               step={1}
             />
           </div>
-          <div>
-            <label className="text-[10px] text-muted-foreground block mb-1">Profit/Trade ($)</label>
+          <div className="relative">
+            <div className="flex items-center gap-1 mb-1">
+              <label className="text-[10px] text-muted-foreground">Profit/Trade ($)</label>
+              {profitPerTrade === 1.00 && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Brain className="w-3 h-3 text-primary animate-pulse" />
+                    </TooltipTrigger>
+                    <TooltipContent>$1 Profit Target Strategy</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
             <Input
               type="number"
               value={profitPerTrade}
@@ -2552,7 +2650,10 @@ export function BotCard({
                 }
               }}
               disabled={isRunning}
-              className="h-7 text-xs font-mono"
+              className={cn(
+                "h-7 text-xs font-mono",
+                profitPerTrade === 1.00 && "ring-1 ring-primary/50"
+              )}
               min={0.01}
               step={0.01}
             />

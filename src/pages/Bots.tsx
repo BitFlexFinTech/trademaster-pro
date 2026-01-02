@@ -49,6 +49,7 @@ import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummaryCard';
 import { ActivityTerminal } from '@/components/bots/ActivityTerminal';
 import { AIStrategyDashboard } from '@/components/bots/AIStrategyDashboard';
+import { useAutoCompound } from '@/hooks/useAutoCompound';
 
 import { useRegimeTransitionNotifier } from '@/hooks/useRegimeTransitionNotifier';
 import { useBotStrategyAI } from '@/hooks/useBotStrategyAI';
@@ -1541,6 +1542,29 @@ export default function Bots() {
 
           {/* Activity Terminal - Real-time bot actions */}
           <ActivityTerminal className="mb-3" maxHeight={180} />
+
+          {/* AI Strategy Dashboard - Collapsible Panel */}
+          <Collapsible open={aiRecommendationOpen} onOpenChange={setAiRecommendationOpen} className="mb-3">
+            <CollapsibleTrigger asChild>
+              <div className="flex items-center justify-between p-2 bg-primary/5 border border-primary/20 rounded-lg cursor-pointer hover:bg-primary/10 transition-colors">
+                <div className="flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-primary" />
+                  <span className="text-xs font-medium text-foreground">AI Strategy Dashboard</span>
+                  <Badge variant="outline" className="text-[9px] px-1.5 bg-primary/10 border-primary/30 text-primary">
+                    $1 Profit Calculator
+                  </Badge>
+                </div>
+                {aiRecommendationOpen ? (
+                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                )}
+              </div>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2">
+              <AIStrategyDashboard />
+            </CollapsibleContent>
+          </Collapsible>
 
           {/* ============================================
              MICRO-CARDS GRID - High-density bot overview
