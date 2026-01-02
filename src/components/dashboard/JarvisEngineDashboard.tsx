@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,10 +17,11 @@ import {
   RefreshCw,
   StopCircle,
   Brain,
-  Wallet,
   Settings,
   Save,
-  X
+  X,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { useJarvisRegime } from '@/hooks/useJarvisRegime';
 import { useJarvisSentinels } from '@/hooks/useJarvisSentinels';
@@ -31,9 +32,15 @@ import { useEmergencyKillSwitch } from '@/hooks/useEmergencyKillSwitch';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
+const COLLAPSED_KEY = 'jarvis-dashboard-collapsed';
+
 export function JarvisEngineDashboard() {
   const [symbol] = useState('BTCUSDT');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    const saved = localStorage.getItem(COLLAPSED_KEY);
+    return saved === 'true';
+  });
   
   const { regime, adaptiveTarget, isLoading: regimeLoading } = useJarvisRegime(symbol);
   const { rate, liquidation, alerts } = useJarvisSentinels();
@@ -43,6 +50,11 @@ export function JarvisEngineDashboard() {
   
   const currentPnL = (longPosition?.unrealizedProfit ?? 0) + (shortPosition?.unrealizedProfit ?? 0);
   const { triggerKill, isKilling } = useEmergencyKillSwitch({ currentPnL });
+
+  // Persist collapsed state
+  useEffect(() => {
+    localStorage.setItem(COLLAPSED_KEY, String(isCollapsed));
+  }, [isCollapsed]);
 
   // Quick settings state
   const [quickSettings, setQuickSettings] = useState({
@@ -79,8 +91,65 @@ export function JarvisEngineDashboard() {
     }
   };
 
+  // Collapsed mini-mode (40px)
+  if (isCollapsed) {
+    return (
+      <Card className="bg-slate-950 border-slate-800 font-mono text-xs h-10 flex items-center px-3 gap-3">
+        <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        <span className="text-slate-300 font-semibold text-[11px]">JARVIS</span>
+        
+        <Badge variant="outline" className={cn("text-[9px] h-4 border px-1", getRegimeColor())}>
+          {getRegimeIcon()}
+          <span className="ml-0.5">{regime}</span>
+        </Badge>
+        
+        <div className="h-4 w-px bg-slate-700" />
+        
+        <span className="text-slate-500 text-[10px]">P&L:</span>
+        <span className={cn("text-[11px] font-bold", currentPnL >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+          {currentPnL >= 0 ? '+' : ''}${currentPnL.toFixed(2)}
+        </span>
+        
+        <div className="h-4 w-px bg-slate-700" />
+        
+        <span className="text-slate-500 text-[10px]">M:</span>
+        <span className="text-slate-300 text-[10px]">${marginBalance?.toFixed(0) ?? '---'}</span>
+        
+        <span className="text-slate-500 text-[10px] ml-1">A:</span>
+        <span className="text-slate-300 text-[10px]">${availableBalance?.toFixed(0) ?? '---'}</span>
+        
+        <div className="flex-1" />
+        
+        <Button variant="ghost" size="sm" onClick={refetch} className="h-5 w-5 p-0 text-slate-400">
+          <RefreshCw className="h-3 w-3" />
+        </Button>
+        
+        <Button 
+          variant="destructive" 
+          size="sm"
+          className="h-5 px-2 text-[9px] bg-red-600 hover:bg-red-700"
+          onClick={() => triggerKill('manual')}
+          disabled={isKilling}
+        >
+          <StopCircle className="h-2.5 w-2.5 mr-0.5" />
+          KILL
+        </Button>
+        
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          className="h-5 w-5 p-0 text-slate-400"
+          onClick={() => setIsCollapsed(false)}
+        >
+          <Maximize2 className="h-3 w-3" />
+        </Button>
+      </Card>
+    );
+  }
+
+  // Full expanded mode
   return (
-    <Card className="bg-slate-950 border-slate-800 font-mono text-xs overflow-hidden relative h-full">
+    <Card className="bg-slate-950 border-slate-800 font-mono text-xs overflow-hidden relative">
       {/* Compact Header */}
       <div className="border-b border-slate-800 px-3 py-1.5 flex items-center justify-between bg-slate-900/50">
         <div className="flex items-center gap-2">
@@ -183,6 +252,15 @@ export function JarvisEngineDashboard() {
           >
             <StopCircle className="h-2.5 w-2.5 mr-0.5" />
             KILL
+          </Button>
+          
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-5 w-5 p-0 text-slate-400"
+            onClick={() => setIsCollapsed(true)}
+          >
+            <Minimize2 className="h-3 w-3" />
           </Button>
         </div>
       </div>

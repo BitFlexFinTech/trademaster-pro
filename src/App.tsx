@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./hooks/useAuth";
 import { SubscriptionProvider } from "./contexts/SubscriptionContext";
 import { TradingModeProvider } from "./contexts/TradingModeContext";
+import { NotificationProvider } from "./contexts/NotificationContext";
 import { ProtectedRoute } from "./components/layout/ProtectedRoute";
 import { MainLayout } from "./components/layout/MainLayout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -45,11 +46,12 @@ const App = () => (
       <AuthProvider>
         <SubscriptionProvider>
           <TradingModeProvider>
-            <TooltipProvider>
-              <Toaster />
-              <Sonner />
-              <BrowserRouter>
-                <Routes>
+            <NotificationProvider>
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
+                <BrowserRouter>
+                  <Routes>
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/auth" element={<Auth />} />
                   <Route path="/terms" element={<Terms />} />
@@ -83,10 +85,11 @@ const App = () => (
                     <Route path="/trades-history" element={<TradesHistory />} />
                     <Route path="/admin" element={<Admin />} />
                   </Route>
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </BrowserRouter>
-            </TooltipProvider>
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </BrowserRouter>
+              </TooltipProvider>
+            </NotificationProvider>
           </TradingModeProvider>
         </SubscriptionProvider>
       </AuthProvider>

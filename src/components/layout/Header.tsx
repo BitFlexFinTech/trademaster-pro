@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Bell, Clock, LogOut, User, Pencil, Check, X } from 'lucide-react';
+import { RefreshCw, Clock, LogOut, User, Pencil, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
@@ -8,6 +8,7 @@ import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNavigate } from 'react-router-dom';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { NotificationCenterDrawer } from '@/components/bots/NotificationCenterDrawer';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -194,10 +195,7 @@ export function Header() {
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">Refresh</span>
           </Button>
-          <button className="relative text-muted-foreground hover:text-foreground">
-            <Bell className="w-5 h-5" />
-            <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
-          </button>
+          <NotificationCenterDrawer />
 
           {/* User Menu */}
           <DropdownMenu>

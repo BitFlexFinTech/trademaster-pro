@@ -85,6 +85,47 @@ serve(async (req) => {
     const currentSignalThreshold = (botConfig?.min_profit_threshold || 0.001) * 100;
     const currentTradeInterval = botConfig?.trade_interval_ms || 3000;
 
+    // =====================================================
+    // MICRO-SCALP $1 PROFIT STRATEGY CALCULATION
+    // =====================================================
+    // Target: $1 NET profit per trade after fees
+    // Typical exchange fees: 0.1% maker, 0.1% taker = 0.2% round-trip
+    // Formula: Position Size = Target Profit / (TP% - Fees%)
+    
+    const TARGET_NET_PROFIT = 1.00; // $1 per trade
+    const ROUND_TRIP_FEES_PCT = 0.2; // 0.2% total fees (0.1% entry + 0.1% exit)
+    const MIN_TP_PCT = 0.3; // Minimum 0.3% take profit to ensure net $1 after fees
+    const NET_TP_PCT = MIN_TP_PCT - ROUND_TRIP_FEES_PCT; // 0.1% net after fees
+    
+    // Position size needed for $1 net profit: $1 / 0.001 = $1000
+    const microScalpPositionSize = TARGET_NET_PROFIT / (NET_TP_PCT / 100);
+    
+    // Adjust based on available capital
+    const safePositionSize = Math.min(microScalpPositionSize, totalCapital * 0.5, 1000);
+    
+    // Calculate actual net profit with safe position size
+    const actualNetProfit = safePositionSize * (NET_TP_PCT / 100);
+    
+    // Rate limit-aware trade frequency
+    // Each trade = 2 orders (entry + exit), so max trades = ordersPerSecond / 2
+    const maxTradesPerSecond = minOrdersPerSecond / 2;
+    const safeTradesPerSecond = maxTradesPerSecond * 0.4; // 40% capacity for safety
+    const maxTradesPerDay = Math.floor(safeTradesPerSecond * 60 * 60 * 8); // 8 hours active trading
+    
+    // Micro-scalp strategy output
+    const microScalpStrategy = {
+      targetNetProfit: TARGET_NET_PROFIT,
+      requiredPositionSize: microScalpPositionSize,
+      safePositionSize: Math.round(safePositionSize * 100) / 100,
+      takeProfitPct: MIN_TP_PCT,
+      stopLossPct: MIN_TP_PCT * 0.2, // 80/20 rule: SL = 0.06%
+      feesPerTrade: (safePositionSize * ROUND_TRIP_FEES_PCT / 100),
+      netProfitPerTrade: Math.round(actualNetProfit * 100) / 100,
+      maxTradesPerDay,
+      estimatedDailyProfit: Math.round(maxTradesPerDay * actualNetProfit * (currentHitRate / 100 || 0.9) * 100) / 100,
+      apiRateLimit: `${minOrdersPerSecond} orders/sec on ${limitingExchange}`,
+    };
+
     // Analyze patterns and generate recommendations for ALL 9 FIELDS
     let recommendedSignalThreshold = currentSignalThreshold;
     let recommendedProfitPerTrade = botConfig?.profit_per_trade || 0.50;
@@ -92,7 +133,7 @@ serve(async (req) => {
     let recommendedDailyStopLoss = Math.max(5, totalCapital * 0.01); // 1% of capital, min $5
     let recommendedAmountPerTrade = Math.max(10, Math.min(totalCapital * 0.02, 500)); // 2% of capital
     let recommendedMinEdge = 0.3; // 0.3% minimum edge
-    let tradingStrategy: 'profit' | 'signal' = 'profit';
+    let tradingStrategy: 'profit' | 'signal' | 'microScalp' = 'profit';
     let summary = '';
 
     // Strategy adjustments based on hit rate
@@ -100,33 +141,40 @@ serve(async (req) => {
       // Low hit rate - be more conservative
       recommendedSignalThreshold = Math.min(98, currentSignalThreshold + 3);
       recommendedProfitPerTrade = Math.max(0.30, recommendedProfitPerTrade - 0.10);
-      recommendedAmountPerTrade = Math.max(10, recommendedAmountPerTrade * 0.8); // Reduce position
-      recommendedMinEdge = 0.5; // Require higher edge
-      tradingStrategy = 'signal'; // Focus on quality signals
+      recommendedAmountPerTrade = Math.max(10, recommendedAmountPerTrade * 0.8);
+      recommendedMinEdge = 0.5;
+      tradingStrategy = 'signal';
       summary = `Conservative mode: Increase signal threshold to ${recommendedSignalThreshold.toFixed(0)}% and reduce position size`;
-    } else if (currentHitRate < 95) {
+    } else if (currentHitRate >= 95) {
+      // Excellent hit rate - activate micro-scalp mode for $1 profits
+      recommendedSignalThreshold = Math.max(90, currentSignalThreshold - 0.5);
+      recommendedProfitPerTrade = microScalpStrategy.netProfitPerTrade;
+      recommendedAmountPerTrade = microScalpStrategy.safePositionSize;
+      recommendedStopLoss = microScalpStrategy.stopLossPct * microScalpStrategy.safePositionSize / 100;
+      recommendedMinEdge = 0.25;
+      tradingStrategy = 'microScalp';
+      summary = `🎯 MICRO-SCALP ACTIVE: $${microScalpStrategy.safePositionSize} position → $${microScalpStrategy.netProfitPerTrade.toFixed(2)}/trade. Max ${microScalpStrategy.maxTradesPerDay} trades/day = $${microScalpStrategy.estimatedDailyProfit}/day potential`;
+    } else {
       // Close to target - fine tune
       recommendedSignalThreshold = Math.min(96, currentSignalThreshold + 1);
       recommendedMinEdge = 0.4;
-      summary = `Fine-tuning: Signal to ${recommendedSignalThreshold.toFixed(0)}% to reach 95% target`;
-    } else {
-      // Good hit rate - can be slightly more aggressive
-      recommendedSignalThreshold = Math.max(90, currentSignalThreshold - 0.5);
-      recommendedProfitPerTrade = Math.min(1.00, recommendedProfitPerTrade + 0.05);
-      recommendedAmountPerTrade = Math.min(1000, recommendedAmountPerTrade * 1.1); // Increase position slightly
-      recommendedMinEdge = 0.25;
-      tradingStrategy = 'profit'; // Focus on profit optimization
-      summary = `Excellent! Optimizing for higher profits while maintaining 95%+ hit rate`;
+      summary = `Fine-tuning: Signal to ${recommendedSignalThreshold.toFixed(0)}% to reach 95% target for micro-scalp activation`;
     }
 
     // Recalculate stop loss after profit adjustment (80/20 rule)
-    recommendedStopLoss = recommendedProfitPerTrade * 0.2;
+    if (tradingStrategy !== 'microScalp') {
+      recommendedStopLoss = recommendedProfitPerTrade * 0.2;
+    }
 
     // Calculate daily target based on metrics
     const tradesPerHour = 60 * 60 * 1000 / recommendedIntervalMs;
     const tradingHoursPerDay = 8;
-    const estimatedDailyTrades = Math.floor(tradesPerHour * tradingHoursPerDay * (currentHitRate / 100 || 0.9));
-    const recommendedDailyTarget = Math.round(estimatedDailyTrades * recommendedProfitPerTrade * 0.85); // 85% safety factor
+    const estimatedDailyTrades = tradingStrategy === 'microScalp' 
+      ? microScalpStrategy.maxTradesPerDay 
+      : Math.floor(tradesPerHour * tradingHoursPerDay * (currentHitRate / 100 || 0.9));
+    const recommendedDailyTarget = tradingStrategy === 'microScalp'
+      ? Math.round(microScalpStrategy.estimatedDailyProfit)
+      : Math.round(estimatedDailyTrades * recommendedProfitPerTrade * 0.85);
 
     // Analyze which pairs perform best
     const pairPerformance: Record<string, { wins: number; total: number }> = {};
@@ -174,7 +222,7 @@ serve(async (req) => {
       });
     }
 
-    // COMPLETE RESPONSE WITH ALL 9 FIELDS
+    // COMPLETE RESPONSE WITH ALL 9 FIELDS + MICRO-SCALP STRATEGY
     const response = {
       currentHitRate: Math.round(currentHitRate * 10) / 10,
       targetHitRate: 95,
@@ -203,6 +251,8 @@ serve(async (req) => {
         // Field 9: Focus Pairs
         focusPairs: focusPairs.length > 0 ? focusPairs : ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'BNB/USDT'],
       },
+      // NEW: Micro-Scalp $1 Profit Strategy
+      microScalpStrategy,
       summary,
       confidence,
       analyzedAt: new Date().toISOString(),
