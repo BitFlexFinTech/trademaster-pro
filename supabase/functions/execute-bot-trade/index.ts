@@ -331,10 +331,11 @@ const EXCLUDED_COMBOS = new Set([
 const SPOT_SAFE_PAIRS = new Set(['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'MATIC/USDT']);
 
 // GREENBACK Safety limits - DYNAMIC based on balance
-const FIXED_POSITION_SIZE = 333;       // FIXED: Always use $333 per trade for $1 profit
-const DEFAULT_POSITION_SIZE = 333;     // FIXED: $333 minimum for $1 profit (was $50)
-const MIN_POSITION_SIZE = 333;         // FIXED: $333 minimum (was $20)
-const MAX_POSITION_SIZE_CAP = 1000;    // FIXED: Allow larger for faster profits (was $500)
+// UPDATED: Reduced position size to allow more concurrent trades (6 instead of 2)
+const FIXED_POSITION_SIZE = 150;       // REDUCED: $150 per trade for faster $1 profit with more slots
+const DEFAULT_POSITION_SIZE = 150;     // REDUCED: $150 for more concurrent positions
+const MIN_POSITION_SIZE = 100;         // REDUCED: $100 minimum to allow more trades
+const MAX_POSITION_SIZE_CAP = 500;     // REDUCED: Cap at $500 per trade
 // Dynamic max positions - calculated based on balance
 function calculateMaxPositions(balance: number, positionSize: number = FIXED_POSITION_SIZE): number {
   const safetyMargin = 0.8; // Use 80% of balance
@@ -970,6 +971,83 @@ async function analyzeMultiTimeframeMomentum(pair: string): Promise<{
   return { direction, confidence, signals, aligned };
 }
 
+// ============ SMART TRADE FILTER ============
+// Only opens trades when momentum and volatility conditions are optimal
+interface TradeQualityScore {
+  canTrade: boolean;
+  score: number;
+  reasons: string[];
+  momentum: number;
+  volatility: number;
+}
+
+async function evaluateTradeQuality(pair: string): Promise<TradeQualityScore> {
+  const symbol = pair.replace('/', '');
+  const reasons: string[] = [];
+  let score = 50;
+  
+  // 1. Get MTF analysis for momentum
+  const mtf = await analyzeMultiTimeframeMomentum(pair);
+  const momentum1m = Math.abs(mtf.signals[0].momentum);
+  
+  // Check momentum strength (>0.15% preferred)
+  if (momentum1m < 0.10) {
+    reasons.push(`Low momentum: ${(momentum1m * 100).toFixed(2)}% (need >0.10%)`);
+    score -= 20;
+  } else if (momentum1m >= 0.15) {
+    reasons.push(`Strong momentum: ${(momentum1m * 100).toFixed(2)}%`);
+    score += 20;
+  } else {
+    reasons.push(`Moderate momentum: ${(momentum1m * 100).toFixed(2)}%`);
+    score += 10;
+  }
+  
+  // 2. Check volatility from recent candles
+  const candles = await getKlineData(symbol, '5m', 12);
+  let volatilityPct = 0;
+  
+  if (candles.length >= 2) {
+    const avgRange = candles.reduce((sum, c, i) => {
+      if (i === 0) return 0;
+      return sum + Math.abs(c.close - candles[i-1].close) / candles[i-1].close;
+    }, 0) / (candles.length - 1);
+    
+    volatilityPct = avgRange * 100;
+    
+    if (volatilityPct < 0.05) {
+      reasons.push(`Low volatility: ${volatilityPct.toFixed(3)}% (need >0.05%)`);
+      score -= 20;
+    } else if (volatilityPct >= 0.10) {
+      reasons.push(`High volatility: ${volatilityPct.toFixed(3)}%`);
+      score += 15;
+    } else {
+      reasons.push(`Moderate volatility: ${volatilityPct.toFixed(3)}%`);
+      score += 5;
+    }
+  }
+  
+  // 3. Check MTF alignment
+  if (mtf.aligned) {
+    reasons.push('MTF signals aligned ✓');
+    score += 15;
+  } else {
+    reasons.push('MTF signals conflicting');
+    score -= 5;
+  }
+  
+  const canTrade = score >= 45; // Slightly lower threshold to allow more trades
+  
+  console.log(`📊 Trade Quality ${pair}: Score=${score}/100, ${reasons.join(' | ')}`);
+  
+  return {
+    canTrade,
+    score: Math.max(0, Math.min(100, score)),
+    reasons,
+    momentum: momentum1m,
+    volatility: volatilityPct,
+  };
+}
+
 // Get user's holdings of a specific asset
 async function getUserHoldings(
   supabase: any,
@@ -1054,6 +1132,7 @@ async function findUnblockedPair(
 }
 
 // Smart direction selection based on historical win rates + MTF analysis
+// UPDATED: Detect market trend and force SHORT in bearish conditions
 async function selectSmartDirection(
   supabase: any,
   userId: string,
@@ -1061,22 +1140,57 @@ async function selectSmartDirection(
   mode: 'spot' | 'leverage',
   currentPrice?: number
 ): Promise<{ direction: 'long' | 'short'; confidence: number; reasoning: string; mtfAnalysis?: any }> {
+  
+  // FIRST: Check overall market trend to force SHORT in bearish markets
+  const mtfAnalysis = await analyzeMultiTimeframeMomentum(pair);
+  const avgMomentum = mtfAnalysis.signals.reduce((sum: number, s: any) => sum + s.momentum, 0) / mtfAnalysis.signals.length;
+  
+  // Detect bearish market: all timeframes show negative momentum
+  const isBearishMarket = mtfAnalysis.signals.every((s: any) => s.momentum < 0) && avgMomentum < -0.001;
+  const isBullishMarket = mtfAnalysis.signals.every((s: any) => s.momentum > 0) && avgMomentum > 0.001;
+  
+  console.log(`📊 Market Analysis for ${pair}:`);
+  console.log(`   Avg Momentum: ${(avgMomentum * 100).toFixed(3)}%`);
+  console.log(`   Market State: ${isBearishMarket ? '🐻 BEARISH' : isBullishMarket ? '🐂 BULLISH' : '↔️ NEUTRAL'}`);
+  
+  // LEVERAGE MODE: Force SHORT in bearish markets
+  if (mode === 'leverage' && isBearishMarket) {
+    console.log(`📉 BEARISH market detected - forcing SHORT on ${pair}`);
+    return {
+      direction: 'short',
+      confidence: 80,
+      reasoning: `BEARISH market: Avg momentum ${(avgMomentum * 100).toFixed(2)}% - forcing SHORT`,
+      mtfAnalysis,
+    };
+  }
+  
+  // LEVERAGE MODE: Prefer LONG in bullish markets
+  if (mode === 'leverage' && isBullishMarket) {
+    console.log(`📈 BULLISH market detected - preferring LONG on ${pair}`);
+    return {
+      direction: 'long',
+      confidence: 80,
+      reasoning: `BULLISH market: Avg momentum ${(avgMomentum * 100).toFixed(2)}% - preferring LONG`,
+      mtfAnalysis,
+    };
+  }
+  
   // SPOT MODE: Can SHORT if user holds the asset AND market is bearish
   if (mode === 'spot') {
     const baseAsset = pair.split('/')[0]; // e.g., "BTC" from "BTC/USDT"
     const heldQuantity = await getUserHoldings(supabase, userId, baseAsset);
     const holdingsValue = heldQuantity * (currentPrice || 0);
     
-    // Check if user holds enough to short (more than $10 worth)
-    if (holdingsValue > 10) {
+    // Check if user holds enough to short (more than $5 worth - lowered threshold)
+    if (holdingsValue > 5) {
       const momentum = await getMarketMomentum(pair);
       console.log(`📊 SPOT ${pair}: Holdings $${holdingsValue.toFixed(2)}, Momentum ${(momentum * 100).toFixed(2)}%`);
       
-      // FIXED: Lower threshold from -0.5% to -0.1% for easier short triggering
-      if (momentum < -0.001) {
+      // FIXED: Lower threshold from -0.5% to -0.05% for easier short triggering
+      if (momentum < -0.0005 || isBearishMarket) {
         return { 
           direction: 'short', 
-          confidence: 65, 
+          confidence: 70, 
           reasoning: `SPOT SHORT: Selling ${baseAsset} ($${holdingsValue.toFixed(2)}), bearish momentum ${(momentum * 100).toFixed(2)}%` 
         };
       }
@@ -1084,15 +1198,13 @@ async function selectSmartDirection(
     
     // Default to LONG if no holdings or bullish/neutral
     if (!SPOT_SAFE_PAIRS.has(pair)) {
-      return { direction: 'long', confidence: 40, reasoning: `SPOT: ${pair} not in safe list` };
+      return { direction: 'long', confidence: 40, reasoning: `SPOT: ${pair} not in safe list`, mtfAnalysis };
     }
-    return { direction: 'long', confidence: 60, reasoning: `SPOT: LONG on ${pair}` };
+    return { direction: 'long', confidence: 60, reasoning: `SPOT: LONG on ${pair}`, mtfAnalysis };
   }
 
   // LEVERAGE MODE: Smart direction selection with MTF analysis
-  
-  // First, run Multi-Timeframe chart analysis
-  const mtfAnalysis = await analyzeMultiTimeframeMomentum(pair);
+  // (mtfAnalysis already computed at start of function)
   
   // If MTF signals are aligned with good confidence, use that direction
   // FIXED: Lower threshold for SHORT signals from 70 to 55

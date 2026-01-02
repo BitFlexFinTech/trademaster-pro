@@ -150,75 +150,71 @@ export function OpenPositionsDashboard({ className }: OpenPositionsDashboardProp
             <p className="text-xs">No open positions</p>
           </div>
         ) : (
-          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 max-h-64 overflow-y-auto">
             {positionsWithPnL.map(pos => (
               <div 
                 key={pos.id}
                 className={cn(
-                  "p-2 rounded-lg border transition-colors relative group",
+                  "p-2.5 rounded-lg border transition-all hover:shadow-md",
                   pos.pnl >= 0 
                     ? "border-emerald-500/30 bg-emerald-500/5" 
                     : "border-amber-500/30 bg-amber-500/5"
                 )}
               >
-                {/* Manual Close Button */}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="absolute top-1 right-1 h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10"
-                  onClick={() => handleManualClose(pos.id, pos.pair)}
-                  disabled={closingTradeId === pos.id}
-                  title="Close position"
-                >
-                  {closingTradeId === pos.id ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <X className="h-3 w-3" />
-                  )}
-                </Button>
-
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-xs">{pos.pair}</span>
+                {/* Header Row with Pair, Direction, and Close Button */}
+                <div className="flex items-center justify-between gap-1 mb-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-semibold text-xs truncate">{pos.pair}</span>
                     <Badge 
                       variant="outline" 
                       className={cn(
-                        "text-[8px] h-4 px-1",
+                        "text-[8px] h-4 px-1 shrink-0",
                         pos.direction === 'long' 
                           ? "text-emerald-400 border-emerald-500/50" 
                           : "text-red-400 border-red-500/50"
                       )}
                     >
-                      {pos.direction === 'long' ? (
-                        <><TrendingUp className="h-2 w-2 mr-0.5" />L</>
-                      ) : (
-                        <><TrendingDown className="h-2 w-2 mr-0.5" />S</>
-                      )}
+                      {pos.direction === 'long' ? '↑L' : '↓S'}
                     </Badge>
-                    {/* MTF Alignment Indicator */}
-                    <MTFAlignmentIndicator 
-                      analysis={mtfSignals[pos.pair] || null}
-                      positionDirection={pos.direction}
-                      compact
-                    />
-                    {/* Profit ETA Badge */}
-                    <ProfitETABadge
-                      pair={pos.pair}
-                      direction={pos.direction}
-                      entryPrice={pos.entryPrice}
-                      currentPnL={pos.pnl}
-                      targetProfit={pos.targetProfit}
-                      positionSize={pos.positionSize}
-                    />
                   </div>
+                  {/* Manual Close Button - Always Visible */}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 gap-1 shrink-0 border-destructive/50 text-destructive hover:bg-destructive hover:text-white"
+                    onClick={() => handleManualClose(pos.id, pos.pair)}
+                    disabled={closingTradeId === pos.id}
+                  >
+                    {closingTradeId === pos.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <>
+                        <X className="h-3 w-3" />
+                        <span className="text-[10px]">Close</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* P&L Display */}
+                <div className="flex items-center justify-between mb-1">
                   <span className={cn(
-                    "font-mono font-bold text-xs",
+                    "font-mono font-bold text-sm",
                     pos.pnl >= 0 ? "text-profit" : "text-loss"
                   )}>
                     {pos.pnl >= 0 ? '+' : ''}${pos.pnl.toFixed(2)}
                   </span>
+                  <ProfitETABadge
+                    pair={pos.pair}
+                    direction={pos.direction}
+                    entryPrice={pos.entryPrice}
+                    currentPnL={pos.pnl}
+                    targetProfit={pos.targetProfit}
+                    positionSize={pos.positionSize}
+                  />
                 </div>
 
+                {/* Price Info */}
                 <div className="flex items-center justify-between text-[9px] text-muted-foreground mb-1">
                   <span>${pos.entryPrice.toFixed(pos.entryPrice < 1 ? 4 : 2)} → ${pos.currentPrice.toFixed(pos.currentPrice < 1 ? 4 : 2)}</span>
                   <span className="flex items-center gap-0.5">
@@ -227,25 +223,24 @@ export function OpenPositionsDashboard({ className }: OpenPositionsDashboardProp
                   </span>
                 </div>
 
-                <div className="space-y-0.5">
-                  <Progress 
-                    value={pos.progressPercent} 
-                    className={cn(
-                      "h-1",
-                      pos.progressPercent >= 100 ? "bg-emerald-900" : ""
-                    )}
-                  />
-                  <div className="flex items-center justify-between text-[8px]">
-                    <span className="text-muted-foreground">
-                      {pos.progressPercent.toFixed(0)}%
+                {/* Progress Bar */}
+                <Progress 
+                  value={pos.progressPercent} 
+                  className={cn(
+                    "h-1.5",
+                    pos.progressPercent >= 100 ? "bg-emerald-900" : ""
+                  )}
+                />
+                <div className="flex items-center justify-between text-[8px] mt-0.5">
+                  <span className="text-muted-foreground">
+                    {pos.progressPercent.toFixed(0)}% to target
+                  </span>
+                  {pos.progressPercent >= 100 && (
+                    <span className="text-emerald-400 flex items-center gap-0.5">
+                      <Target className="h-2 w-2" />
+                      Target!
                     </span>
-                    {pos.progressPercent >= 100 && (
-                      <span className="text-emerald-400 flex items-center gap-0.5">
-                        <Target className="h-2 w-2" />
-                        Target!
-                      </span>
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
             ))}

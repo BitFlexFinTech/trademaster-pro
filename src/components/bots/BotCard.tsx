@@ -189,6 +189,10 @@ export function BotCard({
   const [connectionHealth, setConnectionHealth] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
   const [pendingTrades, setPendingTrades] = useState<Array<{ orderId: string; exchange: string; symbol: string; tradeId?: string }>>([]);
   
+  // Trade search indicator state
+  const [isSearchingTrade, setIsSearchingTrade] = useState(false);
+  const [searchReason, setSearchReason] = useState<string>('');
+  
   // Active trade tracking for real-time display
   const [activeTrade, setActiveTrade] = useState<{
     pair: string;
@@ -601,6 +605,10 @@ export function BotCard({
           
           console.log('🚀 Triggering IMMEDIATE trade search (bypassing interval)');
           
+          // Show search indicator
+          setIsSearchingTrade(true);
+          setSearchReason(`Trade ${payload.new.pair} closed at $${(payload.new.profit_loss || 0).toFixed(2)}`);
+          
           // Clear any pending delayed search
           if (immediateTradeSearchRef.current) {
             clearTimeout(immediateTradeSearchRef.current);
@@ -630,7 +638,12 @@ export function BotCard({
                 }
               } catch (err) {
                 console.error('❌ Immediate trade search exception:', err);
+              } finally {
+                // Hide search indicator after 5 seconds
+                setTimeout(() => setIsSearchingTrade(false), 3000);
               }
+            } else {
+              setIsSearchingTrade(false);
             }
           }, 2000);
         }
