@@ -174,26 +174,6 @@ export function GreenBackWidget() {
     refetch();
   };
 
-  const handleWithdrawProfits = async () => {
-    if (metrics.currentPnL <= 0) return;
-    setWithdrawing(true);
-    try {
-      const botId = spotBot?.id || leverageBot?.id;
-      const { data, error } = await supabase.functions.invoke('withdraw-bot-profits', {
-        body: { botId }
-      });
-      if (error) throw error;
-      
-      // P&L is now synced globally via useTradingDataSync - just show success
-      sonnerToast.success(`💰 Withdrew $${data?.withdrawnAmount?.toFixed(2) || metrics.currentPnL.toFixed(2)}`);
-      refetch();
-    } catch (err) {
-      console.error('Withdraw failed:', err);
-      sonnerToast.error('Withdrawal failed. Try again.');
-    } finally {
-      setWithdrawing(false);
-    }
-  };
 
   // Manual trade execution for Live mode
   const handleExecuteTradeNow = async () => {
@@ -583,12 +563,6 @@ export function GreenBackWidget() {
           >
             {isExecutingTrade ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
             Trade
-          </Button>
-        )}
-        {metrics.currentPnL > 0 && (
-          <Button variant="outline" size="sm" className="gap-1" onClick={handleWithdrawProfits} disabled={withdrawing}>
-            {withdrawing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Banknote className="w-3 h-3" />}
-            ${metrics.currentPnL.toFixed(0)}
           </Button>
         )}
         <Link to="/bots">
