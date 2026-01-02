@@ -67,6 +67,7 @@ import { NotificationPopup, NotificationStack } from '@/components/bots/Notifica
 
 import { BotsOnboardingTips } from '@/components/bots/BotsOnboardingTips';
 import { ProfitTargetWizard } from '@/components/wizard/ProfitTargetWizard';
+import { RealTimeTradingFeed } from '@/components/bots/RealTimeTradingFeed';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { ProfitGoalTracker } from '@/components/bots/ProfitGoalTracker';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
@@ -1708,10 +1709,10 @@ export default function Bots() {
               </Button>
             </div>
 
-            {/* Right Column - Activity Terminal + Charts */}
+            {/* Right Column - Real-Time Trading Feed + Charts */}
             <div className="lg:col-span-3 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
-              {/* Activity Terminal - Tall vertical strip */}
-              <ActivityTerminal className="flex-1" maxHeight={300} />
+              {/* Real-Time Trading Feed */}
+              <RealTimeTradingFeed className="flex-1" />
               
               {/* Cumulative Profit Chart */}
               <CumulativeProfitChart />
