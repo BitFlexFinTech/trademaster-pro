@@ -4,8 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
+import { useTradingRealtimeState } from '@/hooks/useTradingRealtimeState';
 import { formatDistanceToNow } from 'date-fns';
 
 type LogLevel = 'trade' | 'hold' | 'block' | 'error' | 'info';
@@ -38,141 +37,129 @@ interface ActivityTerminalProps {
 }
 
 export function ActivityTerminal({ className, maxHeight = 400 }: ActivityTerminalProps) {
-  const { user } = useAuth();
+  // Use unified real-time state
+  const { openTrades, recentClosedTrades, auditEvents, isLoading, lastUpdate } = useTradingRealtimeState();
+  
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [filter, setFilter] = useState<LogFilter>('all');
   const [isPaused, setIsPaused] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const processedIdsRef = useRef<Set<string>>(new Set());
 
   // Add a log entry
-  const addLog = useCallback((log: Omit<ActivityLog, 'id' | 'timestamp'>) => {
+  const addLog = useCallback((log: Omit<ActivityLog, 'id' | 'timestamp'> & { id?: string; timestamp?: Date }) => {
     if (isPaused) return;
+    
+    const logId = log.id || crypto.randomUUID();
+    
+    // Skip if already processed
+    if (processedIdsRef.current.has(logId)) return;
+    processedIdsRef.current.add(logId);
     
     setLogs(prev => {
       const newLog: ActivityLog = {
         ...log,
-        id: crypto.randomUUID(),
-        timestamp: new Date(),
+        id: logId,
+        timestamp: log.timestamp || new Date(),
       };
       const updated = [newLog, ...prev].slice(0, MAX_LOGS);
       return updated;
     });
   }, [isPaused]);
 
-  // Subscribe to trades and audit logs
+  // Hydrate initial state from unified hook
   useEffect(() => {
-    if (!user) return;
-
-    // Subscribe to new trades
-    const tradesChannel = supabase
-      .channel('activity-terminal-trades')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'trades',
-        filter: `user_id=eq.${user.id}`,
-      }, (payload) => {
-        const trade = payload.new as any;
-        if (trade.status === 'open') {
-          addLog({
-            level: 'info',
-            message: `Position opened: ${trade.pair} ${trade.direction?.toUpperCase()}`,
-            pair: trade.pair,
-            direction: trade.direction,
-          });
-        }
-      })
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'trades',
-        filter: `user_id=eq.${user.id}`,
-      }, (payload) => {
-        const trade = payload.new as any;
-        const oldTrade = payload.old as any;
-        
-        // Trade closed
-        if (trade.status === 'closed' && oldTrade.status === 'open') {
-          const pnl = trade.profit_loss || 0;
-          addLog({
-            level: pnl >= 1 ? 'trade' : pnl > 0 ? 'info' : 'error',
-            message: pnl >= 1 
-              ? `✅ $1 TARGET HIT: ${trade.pair} ${trade.direction?.toUpperCase()} → $${pnl.toFixed(2)}`
-              : `Trade closed: ${trade.pair} → $${pnl.toFixed(2)}`,
-            pair: trade.pair,
-            direction: trade.direction,
-            pnl,
-          });
-        }
-        
-        // Holding for profit
-        if (trade.holding_for_profit && !oldTrade.holding_for_profit) {
-          addLog({
-            level: 'hold',
-            message: `⏳ HOLDING FOR $1: ${trade.pair} ${trade.direction?.toUpperCase()} - waiting for profit target`,
-            pair: trade.pair,
-            direction: trade.direction,
-          });
-        }
-      })
-      .subscribe();
-
-    // Subscribe to profit audit logs
-    const auditChannel = supabase
-      .channel('activity-terminal-audit')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'profit_audit_log',
-        filter: `user_id=eq.${user.id}`,
-      }, (payload) => {
-        const audit = payload.new as any;
-        
-        if (audit.action === 'trade_blocked') {
-          addLog({
-            level: 'block',
-            message: `🚫 BLOCKED: ${audit.symbol} - ${audit.error_message || 'Protection triggered'}`,
-            pair: audit.symbol,
-            reason: audit.error_message,
-          });
-        } else if (audit.action === 'consecutive_loss_protection') {
-          addLog({
-            level: 'block',
-            message: `⚠️ CONSECUTIVE LOSS PROTECTION: ${audit.symbol} - ${audit.error_message}`,
-            pair: audit.symbol,
-            reason: audit.error_message,
-          });
-        } else if (!audit.success && audit.error_message) {
-          addLog({
-            level: 'error',
-            message: `❌ ${audit.action}: ${audit.symbol} - ${audit.error_message}`,
-            pair: audit.symbol,
-            reason: audit.error_message,
-          });
-        } else if (audit.action === 'holding_for_profit') {
-          addLog({
-            level: 'hold',
-            message: `⏳ ${audit.symbol}: Net P&L $${audit.net_pnl?.toFixed(4)} < $1.00 - HOLDING`,
-            pair: audit.symbol,
-            pnl: audit.net_pnl,
-          });
-        }
-      })
-      .subscribe();
-
-    // Initial log
-    addLog({
-      level: 'info',
-      message: '🚀 Activity Terminal connected - monitoring trades in real-time',
+    if (isLoading) return;
+    
+    // Add open positions as info logs
+    openTrades.forEach(trade => {
+      addLog({
+        id: `open-${trade.id}`,
+        level: trade.holdingForProfit ? 'hold' : 'info',
+        message: trade.holdingForProfit 
+          ? `⏳ HOLDING FOR $1: ${trade.pair} ${trade.direction.toUpperCase()}`
+          : `Position open: ${trade.pair} ${trade.direction.toUpperCase()}`,
+        pair: trade.pair,
+        direction: trade.direction,
+        timestamp: trade.openedAt,
+      });
     });
 
-    return () => {
-      supabase.removeChannel(tradesChannel);
-      supabase.removeChannel(auditChannel);
-    };
-  }, [user, addLog]);
+    // Add recent closed trades
+    recentClosedTrades.forEach(trade => {
+      const pnl = trade.profitLoss;
+      addLog({
+        id: `closed-${trade.id}`,
+        level: pnl >= 1 ? 'trade' : pnl > 0 ? 'info' : 'error',
+        message: pnl >= 1 
+          ? `✅ $1 TARGET HIT: ${trade.pair} ${trade.direction.toUpperCase()} → $${pnl.toFixed(2)}`
+          : `Trade closed: ${trade.pair} → $${pnl.toFixed(2)}`,
+        pair: trade.pair,
+        direction: trade.direction,
+        pnl,
+        timestamp: trade.closedAt,
+      });
+    });
+
+    // Add recent audit events
+    auditEvents.forEach(event => {
+      if (event.action === 'trade_blocked') {
+        addLog({
+          id: `audit-${event.id}`,
+          level: 'block',
+          message: `🚫 BLOCKED: ${event.symbol} - ${event.errorMessage || 'Protection triggered'}`,
+          pair: event.symbol,
+          reason: event.errorMessage || undefined,
+          timestamp: event.createdAt,
+        });
+      } else if (event.action === 'consecutive_loss_protection') {
+        addLog({
+          id: `audit-${event.id}`,
+          level: 'block',
+          message: `⚠️ CONSECUTIVE LOSS PROTECTION: ${event.symbol} - ${event.errorMessage}`,
+          pair: event.symbol,
+          reason: event.errorMessage || undefined,
+          timestamp: event.createdAt,
+        });
+      } else if (!event.success && event.errorMessage) {
+        addLog({
+          id: `audit-${event.id}`,
+          level: 'error',
+          message: `❌ ${event.action}: ${event.symbol} - ${event.errorMessage}`,
+          pair: event.symbol,
+          reason: event.errorMessage || undefined,
+          timestamp: event.createdAt,
+        });
+      } else if (event.action === 'holding_for_profit') {
+        addLog({
+          id: `audit-${event.id}`,
+          level: 'hold',
+          message: `⏳ ${event.symbol}: Net P&L $${event.netPnl?.toFixed(4)} < $1.00 - HOLDING`,
+          pair: event.symbol,
+          pnl: event.netPnl || undefined,
+          timestamp: event.createdAt,
+        });
+      } else if (event.action === 'profit_target_hit') {
+        addLog({
+          id: `audit-${event.id}`,
+          level: 'trade',
+          message: `✅ $1 TARGET HIT: ${event.symbol} → $${event.netPnl?.toFixed(2)}`,
+          pair: event.symbol,
+          pnl: event.netPnl || undefined,
+          timestamp: event.createdAt,
+        });
+      }
+    });
+
+    // Initial connected log
+    addLog({
+      id: 'init',
+      level: 'info',
+      message: `🚀 Activity Terminal connected - ${openTrades.length} open positions`,
+    });
+  }, [isLoading, openTrades, recentClosedTrades, auditEvents, addLog]);
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {

@@ -3,13 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Activity, TrendingUp, TrendingDown, Target, Clock } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
+import { useTradingRealtimeState } from '@/hooks/useTradingRealtimeState';
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 
-interface OpenPosition {
+interface PositionWithPnL {
   id: string;
   pair: string;
   direction: 'long' | 'short';
@@ -18,66 +17,22 @@ interface OpenPosition {
   positionSize: number;
   targetProfit: number;
   openedAt: Date;
-}
-
-interface PositionWithPnL extends OpenPosition {
   currentPrice: number;
   pnl: number;
   progressPercent: number;
 }
 
 export function OpenPositionsDashboard() {
-  const { user } = useAuth();
+  // Use unified real-time state
+  const { openTrades, isLoading } = useTradingRealtimeState();
   const { getPrice, isConnected } = useBinanceWebSocket();
-  const [positions, setPositions] = useState<OpenPosition[]>([]);
   const [positionsWithPnL, setPositionsWithPnL] = useState<PositionWithPnL[]>([]);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Fetch open positions from database
-  useEffect(() => {
-    if (!user) return;
-
-    const fetchPositions = async () => {
-      const { data } = await supabase
-        .from('trades')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'open')
-        .order('created_at', { ascending: false });
-
-      if (data) {
-        setPositions(data.map(t => ({
-          id: t.id,
-          pair: t.pair,
-          direction: t.direction as 'long' | 'short',
-          exchange: t.exchange_name || 'Unknown',
-          entryPrice: t.entry_price,
-          positionSize: t.amount,
-          targetProfit: t.target_profit_usd || 1,
-          openedAt: new Date(t.created_at),
-        })));
-      }
-    };
-
-    fetchPositions();
-
-    const channel = supabase
-      .channel('open-positions')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'trades',
-        filter: `user_id=eq.${user.id}`,
-      }, () => fetchPositions())
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [user]);
 
   // Update P&L every 500ms using WebSocket prices
   useEffect(() => {
     const updatePnL = () => {
-      const updated = positions.map(pos => {
+      const updated = openTrades.map(pos => {
         const symbol = pos.pair.replace('/', '');
         const currentPrice = getPrice(symbol) || pos.entryPrice;
         
@@ -109,9 +64,20 @@ export function OpenPositionsDashboard() {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [positions, getPrice]);
+  }, [openTrades, getPrice]);
 
   const totalPnL = positionsWithPnL.reduce((sum, p) => sum + p.pnl, 0);
+
+  if (isLoading) {
+    return (
+      <Card className="card-terminal">
+        <CardContent className="py-6 text-center">
+          <Activity className="h-8 w-8 mx-auto mb-2 animate-spin" />
+          <p className="text-sm text-muted-foreground">Loading positions...</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="card-terminal">
@@ -121,7 +87,7 @@ export function OpenPositionsDashboard() {
             <Activity className="h-4 w-4 text-primary animate-pulse" />
             Open Positions
             <Badge variant="outline" className="text-[10px]">
-              {positions.length} active
+              {openTrades.length} active
             </Badge>
           </CardTitle>
           <div className="flex items-center gap-2">

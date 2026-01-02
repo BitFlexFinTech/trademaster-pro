@@ -54,8 +54,8 @@ async function hmacSha256(secret: string, message: string): Promise<string> {
     .join('');
 }
 
-// Fetch Binance balances
-async function fetchBinanceBalances(apiKey: string, apiSecret: string): Promise<{ asset: string; amount: number }[]> {
+// Fetch Binance SPOT balances
+async function fetchBinanceBalances(apiKey: string, apiSecret: string): Promise<{ asset: string; amount: number; wallet: string }[]> {
   try {
     const timestamp = Date.now();
     const queryString = `timestamp=${timestamp}`;
@@ -71,7 +71,7 @@ async function fetchBinanceBalances(apiKey: string, apiSecret: string): Promise<
     );
 
     if (!response.ok) {
-      console.error('Binance API error:', await response.text());
+      console.error('Binance Spot API error:', await response.text());
       return [];
     }
 
@@ -81,15 +81,51 @@ async function fetchBinanceBalances(apiKey: string, apiSecret: string): Promise<
       .map((b: any) => ({
         asset: b.asset,
         amount: parseFloat(b.free) + parseFloat(b.locked),
+        wallet: 'spot',
       }));
   } catch (error) {
-    console.error('Binance fetch error:', error);
+    console.error('Binance Spot fetch error:', error);
+    return [];
+  }
+}
+
+// Fetch Binance FUTURES balances (USDT-M)
+async function fetchBinanceFuturesBalances(apiKey: string, apiSecret: string): Promise<{ asset: string; amount: number; wallet: string }[]> {
+  try {
+    const timestamp = Date.now();
+    const queryString = `timestamp=${timestamp}`;
+    const signature = await hmacSha256(apiSecret, queryString);
+
+    const response = await fetch(
+      `https://fapi.binance.com/fapi/v2/balance?${queryString}&signature=${signature}`,
+      {
+        headers: {
+          'X-MBX-APIKEY': apiKey,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error('Binance Futures API error:', await response.text());
+      return [];
+    }
+
+    const data = await response.json();
+    return (data || [])
+      .filter((b: any) => parseFloat(b.balance) > 0 || parseFloat(b.availableBalance) > 0)
+      .map((b: any) => ({
+        asset: b.asset,
+        amount: parseFloat(b.balance) || 0,
+        wallet: 'futures',
+      }));
+  } catch (error) {
+    console.error('Binance Futures fetch error:', error);
     return [];
   }
 }
 
 // Fetch Bybit balances
-async function fetchBybitBalances(apiKey: string, apiSecret: string): Promise<{ asset: string; amount: number }[]> {
+async function fetchBybitBalances(apiKey: string, apiSecret: string): Promise<{ asset: string; amount: number; wallet: string }[]> {
   try {
     const timestamp = Date.now().toString();
     const recvWindow = '5000';
@@ -225,7 +261,7 @@ serve(async (req) => {
 
     console.log(`[SYNC] Found ${connections.length} connected exchanges`);
 
-    const allBalances: { exchange: string; asset: string; amount: number }[] = [];
+    const allBalances: { exchange: string; asset: string; amount: number; wallet: string }[] = [];
 
     for (const conn of connections) {
       if (!conn.encrypted_api_secret || !conn.encryption_iv) {
@@ -242,19 +278,25 @@ serve(async (req) => {
         const apiKey = await decryptSecret(conn.encrypted_api_key, conn.encryption_iv, encryptionKey);
         const apiSecret = await decryptSecret(conn.encrypted_api_secret, conn.encryption_iv, encryptionKey);
 
-        let balances: { asset: string; amount: number }[] = [];
+        let balances: { asset: string; amount: number; wallet: string }[] = [];
 
         switch (conn.exchange_name.toLowerCase()) {
           case 'binance':
-            balances = await fetchBinanceBalances(apiKey, apiSecret);
+            // Fetch BOTH spot and futures balances
+            const spotBalances = await fetchBinanceBalances(apiKey, apiSecret);
+            const futuresBalances = await fetchBinanceFuturesBalances(apiKey, apiSecret);
+            balances = [...spotBalances, ...futuresBalances];
+            console.log(`[SYNC] Binance: ${spotBalances.length} spot, ${futuresBalances.length} futures assets`);
             break;
           case 'bybit':
-            balances = await fetchBybitBalances(apiKey, apiSecret);
+            const bybitBalances = await fetchBybitBalances(apiKey, apiSecret);
+            balances = bybitBalances.map(b => ({ ...b, wallet: 'unified' }));
             break;
           case 'okx':
             if (conn.encrypted_passphrase) {
               const passphrase = await decryptSecret(conn.encrypted_passphrase, conn.encryption_iv, encryptionKey);
-              balances = await fetchOkxBalances(apiKey, apiSecret, passphrase);
+              const okxBalances = await fetchOkxBalances(apiKey, apiSecret, passphrase);
+              balances = okxBalances.map(b => ({ ...b, wallet: 'trading' }));
             }
             break;
           default:
@@ -262,7 +304,12 @@ serve(async (req) => {
         }
 
         balances.forEach(b => {
-          allBalances.push({ exchange: conn.exchange_name, asset: b.asset, amount: b.amount });
+          allBalances.push({ 
+            exchange: conn.exchange_name, 
+            asset: b.asset, 
+            amount: b.amount,
+            wallet: b.wallet,
+          });
         });
 
         console.log(`[SYNC] Fetched ${balances.length} balances from ${conn.exchange_name}:`, 
