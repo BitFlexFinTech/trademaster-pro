@@ -148,8 +148,6 @@ export type Database = {
           amount_per_trade: number
           auto_apply_ai: boolean | null
           auto_compound_enabled: boolean | null
-          auto_convert_to_usdt: boolean | null
-          auto_withdraw_on_target: boolean | null
           compound_max_multiplier: number | null
           compound_percentage: number | null
           compound_threshold: number | null
@@ -169,16 +167,11 @@ export type Database = {
           trade_interval_ms: number
           updated_at: string | null
           user_id: string
-          withdrawal_min_amount: number | null
-          withdrawal_network: string | null
-          withdrawal_wallet_address: string | null
         }
         Insert: {
           amount_per_trade?: number
           auto_apply_ai?: boolean | null
           auto_compound_enabled?: boolean | null
-          auto_convert_to_usdt?: boolean | null
-          auto_withdraw_on_target?: boolean | null
           compound_max_multiplier?: number | null
           compound_percentage?: number | null
           compound_threshold?: number | null
@@ -198,16 +191,11 @@ export type Database = {
           trade_interval_ms?: number
           updated_at?: string | null
           user_id: string
-          withdrawal_min_amount?: number | null
-          withdrawal_network?: string | null
-          withdrawal_wallet_address?: string | null
         }
         Update: {
           amount_per_trade?: number
           auto_apply_ai?: boolean | null
           auto_compound_enabled?: boolean | null
-          auto_convert_to_usdt?: boolean | null
-          auto_withdraw_on_target?: boolean | null
           compound_max_multiplier?: number | null
           compound_percentage?: number | null
           compound_threshold?: number | null
@@ -227,9 +215,6 @@ export type Database = {
           trade_interval_ms?: number
           updated_at?: string | null
           user_id?: string
-          withdrawal_min_amount?: number | null
-          withdrawal_network?: string | null
-          withdrawal_wallet_address?: string | null
         }
         Relationships: []
       }
@@ -246,7 +231,6 @@ export type Database = {
           max_drawdown: number | null
           mode: string
           profit_per_trade: number | null
-          profits_withdrawn: number | null
           started_at: string | null
           status: string | null
           stopped_at: string | null
@@ -266,7 +250,6 @@ export type Database = {
           max_drawdown?: number | null
           mode?: string
           profit_per_trade?: number | null
-          profits_withdrawn?: number | null
           started_at?: string | null
           status?: string | null
           stopped_at?: string | null
@@ -286,7 +269,6 @@ export type Database = {
           max_drawdown?: number | null
           mode?: string
           profit_per_trade?: number | null
-          profits_withdrawn?: number | null
           started_at?: string | null
           status?: string | null
           stopped_at?: string | null
