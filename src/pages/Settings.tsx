@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Settings as SettingsIcon, Link, AlertTriangle, CheckCircle2, Unlink, RefreshCw, Loader2, Bell, DollarSign, TrendingDown, Target } from 'lucide-react';
+import { Settings as SettingsIcon, Link, AlertTriangle, CheckCircle2, Unlink, RefreshCw, Loader2, Bell, DollarSign, TrendingDown, Target, Rocket } from 'lucide-react';
 import { ExchangeConnectModal } from '@/components/exchange/ExchangeConnectModal';
 import { SecurityConfigPanel } from '@/components/settings/SecurityConfigPanel';
 import { SoundNotificationSettings } from '@/components/settings/SoundNotificationSettings';
@@ -12,6 +12,7 @@ import { JarvisSettingsPanel } from '@/components/settings/JarvisSettingsPanel';
 import { ColorThemeSwitcher } from '@/components/settings/ColorThemeSwitcher';
 import { ExchangeFeeSettings } from '@/components/settings/ExchangeFeeSettings';
 import { ExchangeStatusWidget } from '@/components/dashboard/ExchangeStatusWidget';
+import { ExchangeSetupWizard } from '@/components/settings/ExchangeSetupWizard';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -65,6 +66,7 @@ export default function Settings() {
   const [syncing, setSyncing] = useState(false);
   const [alertThresholds, setAlertThresholds] = useState<AlertThresholds>(DEFAULT_ALERT_THRESHOLDS);
   const [savingAlerts, setSavingAlerts] = useState(false);
+  const [showFuturesWizard, setShowFuturesWizard] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -415,8 +417,29 @@ export default function Settings() {
       {/* JARVIS Engine Settings */}
       <JarvisSettingsPanel />
 
-      {/* Exchange Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* Connected Exchanges Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Link className="w-5 h-5 text-primary" />
+              <CardTitle>Connected Exchanges</CardTitle>
+            </div>
+            <Button 
+              onClick={() => setShowFuturesWizard(true)}
+              className="gap-2"
+              variant="outline"
+            >
+              <Rocket className="w-4 h-4" />
+              Setup Futures Trading
+            </Button>
+          </div>
+          <CardDescription>
+            Connect your exchange accounts to enable live trading. API keys are encrypted with AES-256-GCM.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {EXCHANGES.map((exchange) => {
           const connection = connections[exchange.name];
           const isConnected = connection?.is_connected || false;
@@ -480,7 +503,22 @@ export default function Settings() {
             </div>
           );
         })}
-      </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Exchange Setup Wizard */}
+      <ExchangeSetupWizard 
+        open={showFuturesWizard} 
+        onOpenChange={setShowFuturesWizard}
+        onComplete={() => {
+          fetchConnections();
+          toast({
+            title: 'Futures Trading Enabled',
+            description: 'Your exchange is now configured for bidirectional trading.',
+          });
+        }}
+      />
 
       {/* Admin Security Panel */}
       {isAdmin && <SecurityConfigPanel />}

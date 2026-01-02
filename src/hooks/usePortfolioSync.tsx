@@ -13,7 +13,7 @@ export interface PortfolioSyncResult {
   maxPositions: number;
 }
 
-const MINIMUM_POSITION_SIZE = 333; // Minimum for $1 profit target
+const MINIMUM_POSITION_SIZE = 150; // Updated: $150 for more concurrent trades
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 // Calculate max concurrent positions based on balance
