@@ -158,6 +158,8 @@ async function fetchOkxBalances(apiKey: string, apiSecret: string, passphrase: s
     }
 
     const data = await response.json();
+    console.log('[OKX] Raw API response:', JSON.stringify(data));
+    
     const details = data.data?.[0]?.details || [];
     return details
       .filter((d: any) => parseFloat(d.cashBal) > 0)
@@ -202,7 +204,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Syncing balances for user: ${user.id}`);
+    console.log(`[SYNC] Starting balance sync for user: ${user.id}`);
 
     // Fetch connected exchanges
     const { data: connections, error: connError } = await supabase
@@ -221,19 +223,18 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Found ${connections.length} connected exchanges`);
+    console.log(`[SYNC] Found ${connections.length} connected exchanges`);
 
     const allBalances: { exchange: string; asset: string; amount: number }[] = [];
 
     for (const conn of connections) {
       if (!conn.encrypted_api_secret || !conn.encryption_iv) {
-        console.log(`Skipping ${conn.exchange_name}: missing credentials`);
+        console.log(`[SYNC] Skipping ${conn.exchange_name}: missing credentials`);
         continue;
       }
 
-      // Check for encrypted API key - if missing, user needs to re-connect
       if (!conn.encrypted_api_key) {
-        console.log(`Skipping ${conn.exchange_name}: API key needs to be re-connected (missing encrypted_api_key)`);
+        console.log(`[SYNC] Skipping ${conn.exchange_name}: API key needs to be re-connected`);
         continue;
       }
 
@@ -256,67 +257,61 @@ serve(async (req) => {
               balances = await fetchOkxBalances(apiKey, apiSecret, passphrase);
             }
             break;
-          // Add more exchanges as needed
           default:
-            console.log(`Exchange ${conn.exchange_name} not yet supported for balance sync`);
+            console.log(`[SYNC] Exchange ${conn.exchange_name} not yet supported`);
         }
 
         balances.forEach(b => {
           allBalances.push({ exchange: conn.exchange_name, asset: b.asset, amount: b.amount });
         });
 
-        console.log(`Fetched ${balances.length} balances from ${conn.exchange_name}`);
+        console.log(`[SYNC] Fetched ${balances.length} balances from ${conn.exchange_name}:`, 
+          balances.map(b => `${b.asset}: ${b.amount}`).join(', '));
       } catch (err) {
-        console.error(`Error fetching from ${conn.exchange_name}:`, err);
+        console.error(`[SYNC] Error fetching from ${conn.exchange_name}:`, err);
       }
     }
 
-    // Use service role for upserting
+    // Use service role for upserting with proper ON CONFLICT handling
     const supabaseService = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
     let synced = 0;
     for (const balance of allBalances) {
-      // Check if holding exists
-      const { data: existing } = await supabaseService
+      // Use upsert with the unique constraint we added
+      const { error: upsertError } = await supabaseService
         .from('portfolio_holdings')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('asset_symbol', balance.asset)
-        .eq('exchange_name', balance.exchange)
-        .single();
-
-      if (existing) {
-        // Update
-        await supabaseService
-          .from('portfolio_holdings')
-          .update({ quantity: balance.amount, updated_at: new Date().toISOString() })
-          .eq('id', existing.id);
-      } else {
-        // Insert
-        await supabaseService
-          .from('portfolio_holdings')
-          .insert({
+        .upsert(
+          {
             user_id: user.id,
             asset_symbol: balance.asset,
             quantity: balance.amount,
             exchange_name: balance.exchange,
-            average_buy_price: 0, // Unknown from exchange
-          });
+            updated_at: new Date().toISOString(),
+          },
+          {
+            onConflict: 'user_id,exchange_name,asset_symbol',
+          }
+        );
+
+      if (upsertError) {
+        console.error(`[SYNC] Upsert error for ${balance.exchange}/${balance.asset}:`, upsertError);
+      } else {
+        synced++;
       }
-      synced++;
     }
 
-    console.log(`Synced ${synced} holdings`);
+    console.log(`[SYNC] Successfully synced ${synced} holdings`);
 
     return new Response(JSON.stringify({ 
       message: 'Balances synced successfully', 
       synced,
       exchanges: connections.map(c => c.exchange_name),
+      balances: allBalances.map(b => ({ exchange: b.exchange, asset: b.asset, amount: b.amount })),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Sync error:', error);
+    console.error('[SYNC] Error:', error);
     return new Response(JSON.stringify({ error: 'Failed to sync balances' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

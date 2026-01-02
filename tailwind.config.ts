@@ -104,6 +104,26 @@ export default {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.5" },
         },
+        "pnl-glow-positive": {
+          "0%, 100%": { 
+            boxShadow: "0 0 0 0 hsl(var(--primary) / 0)",
+            transform: "scale(1)"
+          },
+          "50%": { 
+            boxShadow: "0 0 20px 8px hsl(var(--primary) / 0.4)",
+            transform: "scale(1.05)"
+          },
+        },
+        "pnl-glow-negative": {
+          "0%, 100%": { 
+            boxShadow: "0 0 0 0 hsl(var(--destructive) / 0)",
+            transform: "scale(1)"
+          },
+          "50%": { 
+            boxShadow: "0 0 20px 8px hsl(var(--destructive) / 0.4)",
+            transform: "scale(1.05)"
+          },
+        },
         "trade-pulse": {
           "0%": { boxShadow: "0 0 0 0 hsl(var(--primary) / 0.7)" },
           "70%": { boxShadow: "0 0 0 10px hsl(var(--primary) / 0)" },
@@ -154,6 +174,8 @@ export default {
         "accordion-up": "accordion-up 0.2s ease-out",
         "ticker-scroll": "ticker-scroll 60s linear infinite",
         "pulse-glow": "pulse-glow 2s ease-in-out infinite",
+        "pnl-glow-positive": "pnl-glow-positive 0.8s ease-in-out 3",
+        "pnl-glow-negative": "pnl-glow-negative 0.8s ease-in-out 3",
         "trade-pulse": "trade-pulse 0.6s ease-out",
         "trade-pulse-loss": "trade-pulse-loss 0.6s ease-out",
         "number-pop": "number-pop 0.3s ease-out",
