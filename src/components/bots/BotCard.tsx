@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw, CheckCircle2, XCircle, Radio, SlidersHorizontal, Check, Gauge } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw, CheckCircle2, XCircle, Radio, SlidersHorizontal, Check, Gauge, Wifi, WifiOff } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -15,6 +15,7 @@ import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useOrderBookScanning } from '@/hooks/useOrderBookScanning';
 import { useJarvisRegime } from '@/hooks/useJarvisRegime';
+import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
 import { supabase } from '@/integrations/supabase/client';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
 import { calculateNetProfit, MIN_NET_PROFIT, getFeeRate, hasMinimumEdge, calculateRequiredTPPercent } from '@/lib/exchangeFees';
@@ -112,6 +113,13 @@ export function BotCard({
     scanIntervalMs: 5000,
     enabled: isRunning && tradingMode === 'demo',
   });
+
+  // WebSocket real-time price feeds for faster trade execution
+  const { 
+    isConnected: wsConnected, 
+    getSerializablePrices, 
+    wsState,
+  } = useBinanceWebSocket();
 
   // Core trading config - use botConfig props as source of truth, only override with existingBot if running
   // FIXED: Default to $1 profit target and $333 minimum position size
@@ -852,6 +860,8 @@ export function BotCard({
               body: {
                 profitTarget: 1.00,
                 exchanges: availableExchanges,
+                // Pass WebSocket prices for faster position monitoring
+                realtimePrices: wsConnected ? getSerializablePrices() : undefined,
               }
             });
             
@@ -898,6 +908,9 @@ export function BotCard({
           
           let data, error;
           try {
+            // Get real-time WebSocket prices for faster execution
+            const realtimePrices = wsConnected ? getSerializablePrices() : undefined;
+            
             // FIXED: Use FIXED_POSITION_SIZE ($333) for consistent $1 profit trades
             const result = await supabase.functions.invoke('execute-bot-trade', {
               body: {
@@ -909,6 +922,9 @@ export function BotCard({
                 isSandbox: false,
                 maxPositionSize: FIXED_POSITION_SIZE, // Always $333 per trade
                 stopLossPercent: 0, // No stop loss - hold for profit
+                // NEW: Pass WebSocket prices for faster execution
+                realtimePrices,
+                wsConnected,
               }
             });
             data = result.data;
@@ -1982,6 +1998,36 @@ export function BotCard({
                   {connectionHealth === 'connected' && 'Connected to exchange APIs'}
                   {connectionHealth === 'disconnected' && 'Network connection lost'}
                   {connectionHealth === 'reconnecting' && 'Reconnecting...'}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {/* WebSocket Price Feed Status - shows when bot is running */}
+          {isRunning && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger>
+                  <Badge 
+                    variant={wsConnected ? 'outline' : 'secondary'} 
+                    className={cn(
+                      "text-[8px] px-1.5 py-0 h-4 flex items-center gap-0.5",
+                      wsConnected && "border-primary/50"
+                    )}
+                  >
+                    {wsConnected ? (
+                      <Wifi className="w-2.5 h-2.5 text-primary shrink-0" />
+                    ) : (
+                      <WifiOff className="w-2.5 h-2.5 text-muted-foreground shrink-0" />
+                    )}
+                    <span className="hidden sm:inline">
+                      {wsConnected ? 'WS' : 'REST'}
+                    </span>
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {wsConnected 
+                    ? `⚡ WebSocket prices active (${wsState.latencyMs}ms latency)` 
+                    : '🔄 Using REST API fallback for prices'}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
