@@ -126,12 +126,28 @@ serve(async (req) => {
       apiRateLimit: `${minOrdersPerSecond} orders/sec on ${limitingExchange}`,
     };
 
+    // =====================================================
+    // FIX: Use $1 profit formula instead of 2% capital rule
+    // positionSize = $1 / (edgePercent - 2 * feeRate)
+    // With 0.6% edge and 0.2% round-trip fees:
+    // positionSize = $1 / (0.006 - 0.002) = $1 / 0.004 = $250
+    // Minimum $333 for safety buffer
+    // =====================================================
+    const CALC_FEE_RATE = 0.001; // 0.1% per side
+    const CALC_MIN_EDGE = 0.006; // 0.6%
+    const CALC_ROUND_TRIP_FEES = CALC_FEE_RATE * 2;
+    const MINIMUM_POSITION_SIZE = 333; // Minimum for $1 profit
+
+    // Calculate position size using correct formula
+    const calculatedPositionSize = 1.00 / (CALC_MIN_EDGE - CALC_ROUND_TRIP_FEES);
+    
     // Analyze patterns and generate recommendations for ALL 9 FIELDS
     let recommendedSignalThreshold = currentSignalThreshold;
-    let recommendedProfitPerTrade = botConfig?.profit_per_trade || 0.50;
+    let recommendedProfitPerTrade = Math.max(botConfig?.profit_per_trade || 1.00, 1.00); // FIXED: $1 minimum
     let recommendedStopLoss = recommendedProfitPerTrade * 0.2; // 80/20 rule
     let recommendedDailyStopLoss = Math.max(5, totalCapital * 0.01); // 1% of capital, min $5
-    let recommendedAmountPerTrade = Math.max(10, Math.min(totalCapital * 0.02, 500)); // 2% of capital
+    // FIXED: Use $1 profit formula, enforce $333 minimum
+    let recommendedAmountPerTrade = Math.max(MINIMUM_POSITION_SIZE, Math.min(calculatedPositionSize, totalCapital * 0.5, 1000));
     let recommendedMinEdge = 0.3; // 0.3% minimum edge
     let tradingStrategy: 'profit' | 'signal' | 'microScalp' = 'profit';
     let summary = '';
@@ -290,11 +306,11 @@ serve(async (req) => {
       recommendations: {
         tradingStrategy: 'profit',
         dailyTarget: 40,
-        profitPerTrade: 0.50,
-        amountPerTrade: 100,
+        profitPerTrade: 1.00, // FIXED: $1 minimum (was 0.50)
+        amountPerTrade: 333,  // FIXED: $333 minimum (was 100)
         tradeIntervalMs: 60000,
         dailyStopLoss: 5,
-        stopLoss: 0.10,
+        stopLoss: 0.20, // FIXED: 20% of profit (was 0.10)
         signalThreshold: 94,
         minEdge: 0.3,
         focusPairs: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']

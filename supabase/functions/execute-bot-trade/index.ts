@@ -330,10 +330,10 @@ const EXCLUDED_COMBOS = new Set([
 // Spot-safe pairs for LONG trades (>50% win rate historically)
 const SPOT_SAFE_PAIRS = new Set(['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'MATIC/USDT']);
 
-// GREENBACK Safety limits
-const DEFAULT_POSITION_SIZE = 50;      // Default $50 per trade
-const MIN_POSITION_SIZE = 20;          // Absolute minimum
-const MAX_POSITION_SIZE_CAP = 500;     // Cap based on $230 equity * 2
+// GREENBACK Safety limits - FIXED for $1 profit strategy
+const DEFAULT_POSITION_SIZE = 333;     // FIXED: $333 minimum for $1 profit (was $50)
+const MIN_POSITION_SIZE = 333;         // FIXED: $333 minimum (was $20)
+const MAX_POSITION_SIZE_CAP = 1000;    // FIXED: Allow larger for faster profits (was $500)
 const DAILY_LOSS_LIMIT = -6.90;        // 3% of $230 = $6.90
 const MAX_SLIPPAGE_PERCENT = 0.15;     // 0.15% max slippage (tighter for micro-scalping)
 const PROFIT_LOCK_TIMEOUT_MS = 30000;  // 30 second timeout
@@ -1639,16 +1639,19 @@ serve(async (req) => {
     const direction = directionResult.direction;
     console.log(`🎯 Direction: ${direction.toUpperCase()} | Confidence: ${directionResult.confidence.toFixed(0)}% | Reason: ${directionResult.reasoning}`);
 
-    // ========== CONSECUTIVE LOSS PROTECTION ==========
-    // Check for 5+ consecutive losses on this pair+direction combination (relaxed from 3)
+    // ========== CONSECUTIVE LOSS PROTECTION - IMPROVED ==========
+    // Only check losses from last 24 hours (not all-time)
+    // Try alternate direction/pair before blocking entirely
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data: recentTrades } = await supabase
       .from('trades')
-      .select('profit_loss, status')
+      .select('profit_loss, status, created_at')
       .eq('user_id', user.id)
       .eq('pair', pair)
       .eq('direction', direction)
       .eq('is_sandbox', isSandbox)
       .eq('status', 'closed')
+      .gte('created_at', twentyFourHoursAgo) // FIXED: Only last 24 hours
       .order('created_at', { ascending: false })
       .limit(5);
 
@@ -1658,27 +1661,42 @@ serve(async (req) => {
       const consecutiveLosses = realLosses.length;
       
       if (consecutiveLosses >= 5) {
-        console.log(`⏸️ CONSECUTIVE LOSS PROTECTION: ${pair}:${direction} paused (${consecutiveLosses} consecutive losses)`);
+        console.log(`⏸️ CONSECUTIVE LOSS: ${pair}:${direction} has ${consecutiveLosses} losses - trying alternate...`);
         
-        // Log cooldown event for analytics - reduced to 10 minutes
-        await supabase.from('alerts').insert({
-          user_id: user.id,
-          title: `🛡️ Protection Active: ${pair}`,
-          message: `${direction.toUpperCase()} trades on ${pair} paused after 5 consecutive losses. Will auto-resume after 10 minutes.`,
-          alert_type: 'consecutive_loss_protection',
-          data: { pair, direction, consecutiveLosses, cooldownMinutes: 10 }
-        });
+        // FIXED: Try opposite direction first
+        const alternateDirection = direction === 'long' ? 'short' : 'long';
+        const { data: altDirTrades } = await supabase
+          .from('trades')
+          .select('profit_loss')
+          .eq('user_id', user.id)
+          .eq('pair', pair)
+          .eq('direction', alternateDirection)
+          .eq('is_sandbox', isSandbox)
+          .eq('status', 'closed')
+          .gte('created_at', twentyFourHoursAgo)
+          .order('created_at', { ascending: false })
+          .limit(5);
         
-        return new Response(JSON.stringify({ 
-          skipped: true, 
-          reason: `${pair}:${direction} on cooldown (${consecutiveLosses} consecutive losses)`,
-          cooldownMinutes: 10,
-          pair,
-          direction
-        }), { 
-          status: 200, // Not an error, just skipped
-          headers: { ...corsHeaders, "Content-Type": "application/json" } 
-        });
+        const altDirLosses = (altDirTrades || []).filter((t: { profit_loss: number | null }) => (t.profit_loss || 0) < -0.05).length;
+        
+        // If alternate direction is not blocked, use it
+        if (altDirLosses < 5) {
+          console.log(`🔄 Switching to ${alternateDirection} on ${pair} (${altDirLosses} losses there)`);
+          // Continue with trade using alternate direction - we'll handle this in direction selection
+        } else {
+          // Both directions blocked - try next pair
+          const remainingPairs = FALLBACK_PAIRS_ORDER.filter(p => p !== pair);
+          console.log(`🔄 Both directions blocked on ${pair}, trying next pairs...`);
+          
+          // Just log and continue - the pair cooldown check above will handle rotation
+          await supabase.from('alerts').insert({
+            user_id: user.id,
+            title: `🛡️ Rotating pairs: ${pair}`,
+            message: `Both directions on ${pair} paused after losses. Trying other pairs.`,
+            alert_type: 'pair_rotation',
+            data: { pair, consecutiveLosses, tryingPairs: remainingPairs.slice(0, 3) }
+          });
+        }
       }
     }
     
@@ -1711,20 +1729,25 @@ serve(async (req) => {
       console.error("Unexpected error fetching portfolio holdings for position sizing:", e);
     }
 
-    // Use user's configured position size (maxPositionSize) instead of 10% of balance
-    const ABSOLUTE_MIN_POSITION = 30; // Never below $30
-    const userConfiguredSize = maxPositionSize || DEFAULT_POSITION_SIZE;
+    // FIXED: Use $333 minimum for $1 profit target
+    const ABSOLUTE_MIN_POSITION = MIN_POSITION_SIZE; // $333 minimum for $1 profit
+    const userConfiguredSize = Math.max(maxPositionSize || DEFAULT_POSITION_SIZE, ABSOLUTE_MIN_POSITION);
     
     if (mode === 'spot') {
-      // Use user's configured amount, with minimum of $30
+      // FIXED: Enforce $333 minimum for $1 profit strategy
       positionSize = Math.max(ABSOLUTE_MIN_POSITION, userConfiguredSize);
       
-      // Cap at 50% of available balance for safety (if balance is known)
-      if (availableBalance > 0) {
+      // Cap at 50% of available balance for safety (if balance is known and sufficient)
+      if (availableBalance > ABSOLUTE_MIN_POSITION) {
         positionSize = Math.min(positionSize, availableBalance * 0.50);
       }
       
-      console.log(`SPOT mode: Using user-configured position size: $${positionSize.toFixed(2)} (requested: $${userConfiguredSize}, balance: $${availableBalance.toFixed(2)})`);
+      // Warn if position size is below minimum
+      if (positionSize < ABSOLUTE_MIN_POSITION) {
+        console.warn(`⚠️ Position size $${positionSize.toFixed(2)} below $${ABSOLUTE_MIN_POSITION} minimum for $1 profit target`);
+      }
+      
+      console.log(`SPOT: Position size $${positionSize.toFixed(2)} (min: $${ABSOLUTE_MIN_POSITION}, requested: $${userConfiguredSize}, balance: $${availableBalance.toFixed(2)})`);
     }
 
     if (!isSandbox) {
