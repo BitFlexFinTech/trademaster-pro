@@ -331,9 +331,11 @@ const EXCLUDED_COMBOS = new Set([
 const SPOT_SAFE_PAIRS = new Set(['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'MATIC/USDT']);
 
 // GREENBACK Safety limits - FIXED for $1 profit strategy
+const FIXED_POSITION_SIZE = 333;       // FIXED: Always use $333 per trade for $1 profit
 const DEFAULT_POSITION_SIZE = 333;     // FIXED: $333 minimum for $1 profit (was $50)
 const MIN_POSITION_SIZE = 333;         // FIXED: $333 minimum (was $20)
 const MAX_POSITION_SIZE_CAP = 1000;    // FIXED: Allow larger for faster profits (was $500)
+const MAX_CONCURRENT_PER_EXCHANGE = 3; // Max 3 open trades per exchange
 const DAILY_LOSS_LIMIT = -6.90;        // 3% of $230 = $6.90
 const MAX_SLIPPAGE_PERCENT = 0.15;     // 0.15% max slippage (tighter for micro-scalping)
 const PROFIT_LOCK_TIMEOUT_MS = 30000;  // 30 second timeout
@@ -1729,51 +1731,34 @@ serve(async (req) => {
       console.error("Unexpected error fetching portfolio holdings for position sizing:", e);
     }
 
-    // FIXED: Use $333 minimum for $1 profit target
-    const ABSOLUTE_MIN_POSITION = MIN_POSITION_SIZE; // $333 minimum for $1 profit
-    const userConfiguredSize = Math.max(maxPositionSize || DEFAULT_POSITION_SIZE, ABSOLUTE_MIN_POSITION);
-    
-    if (mode === 'spot') {
-      // FIXED: Enforce $333 minimum for $1 profit strategy
-      positionSize = Math.max(ABSOLUTE_MIN_POSITION, userConfiguredSize);
-      
-      // Cap at 50% of available balance for safety (if balance is known and sufficient)
-      if (availableBalance > ABSOLUTE_MIN_POSITION) {
-        positionSize = Math.min(positionSize, availableBalance * 0.50);
-      }
-      
-      // Warn if position size is below minimum
-      if (positionSize < ABSOLUTE_MIN_POSITION) {
-        console.warn(`⚠️ Position size $${positionSize.toFixed(2)} below $${ABSOLUTE_MIN_POSITION} minimum for $1 profit target`);
-      }
-      
-      console.log(`SPOT: Position size $${positionSize.toFixed(2)} (min: $${ABSOLUTE_MIN_POSITION}, requested: $${userConfiguredSize}, balance: $${availableBalance.toFixed(2)})`);
-    }
+    // NOTE: Position sizing will be recalculated AFTER exchange selection
+    // to use the correct balance from the selected exchange
+    console.log(`Initial position size estimate: $${positionSize.toFixed(2)} (will be recalculated after exchange selection)`);
 
+    // Check for open positions BEFORE proceeding
     if (!isSandbox) {
-      console.log(
-        `Available stable balance on ${connections[0].exchange_name}: $${availableBalance}`,
-      );
+      const { count: openPositions, error: countError } = await supabase
+        .from('trades')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('status', 'open')
+        .eq('is_sandbox', false);
 
-      if (availableBalance <= 0) {
+      if (!countError && openPositions !== null && openPositions >= MAX_CONCURRENT_PER_EXCHANGE * connections.length) {
+        console.log(`⏸️ Max concurrent positions reached (${openPositions} open), skipping trade`);
         return new Response(
           JSON.stringify({
-            error: "Insufficient stablecoin balance",
-            reason: `No USDT/USDC/USD balance on ${connections[0].exchange_name} for live trade`,
-            exchange: connections[0].exchange_name,
+            success: false,
+            skipped: true,
+            reason: `Max ${MAX_CONCURRENT_PER_EXCHANGE * connections.length} open positions reached`,
+            openPositions,
           }),
           {
-            status: 400,
+            status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           },
         );
       }
-
-      const maxByBalance = availableBalance * 0.9; // keep 10% buffer
-      positionSize = Math.min(positionSize, maxByBalance);
-      console.log(
-        `LIVE MODE: Position size capped by available balance: $${positionSize} (max by balance: $${maxByBalance})`,
-      );
     }
 
     
@@ -1930,6 +1915,28 @@ serve(async (req) => {
       selectedExchange = connections[0];
       exchangeName = selectedExchange.exchange_name.toLowerCase();
     }
+
+    // ============ FINAL POSITION SIZING - FIXED $333 PER TRADE ============
+    // CRITICAL FIX: Use FIXED $333 per trade, not dynamic balance-based sizing
+    // This ensures the bot opens multiple trades instead of using whole balance
+    const FINAL_POSITION_SIZE = FIXED_POSITION_SIZE; // $333 fixed
+    
+    // Only cap if exchange balance is too low
+    if (freeBalance > 0 && freeBalance < FINAL_POSITION_SIZE) {
+      // If balance is less than $333, we can't trade - skip
+      console.warn(`⚠️ Exchange ${selectedExchange.exchange_name} has $${freeBalance.toFixed(2)} but needs $${FINAL_POSITION_SIZE} minimum`);
+    } else if (freeBalance > 0) {
+      // Cap at 25% of balance to allow multiple concurrent trades
+      positionSize = Math.min(FINAL_POSITION_SIZE, freeBalance * 0.25);
+    } else {
+      // Sandbox or unknown balance - use fixed size
+      positionSize = FINAL_POSITION_SIZE;
+    }
+    
+    // Enforce minimum
+    positionSize = Math.max(positionSize, MIN_POSITION_SIZE);
+    
+    console.log(`📊 FINAL POSITION SIZE: $${positionSize.toFixed(2)} (fixed: $${FINAL_POSITION_SIZE}, exchange: ${selectedExchange.exchange_name}, balance: $${freeBalance.toFixed(2)})`);
     
     let tradeResult = {
       success: true,

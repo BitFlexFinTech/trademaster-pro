@@ -71,9 +71,14 @@ export function usePortfolioSync() {
       
       if (data?.balances) {
         for (const balance of data.balances) {
-          const usdtAmount = balance.usdt || balance.USDT || 0;
-          exchangeBalances[balance.exchange] = usdtAmount;
-          totalBalance += usdtAmount;
+          // FIXED: Parse correct response structure { exchange, asset, amount }
+          // Only count stablecoin balances for trading capital
+          if (['USDT', 'USDC', 'USD'].includes(balance.asset)) {
+            const exchange = balance.exchange;
+            const amount = balance.amount || 0;
+            exchangeBalances[exchange] = (exchangeBalances[exchange] || 0) + amount;
+            totalBalance += amount;
+          }
         }
       }
       
