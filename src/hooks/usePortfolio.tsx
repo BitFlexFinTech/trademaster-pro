@@ -4,6 +4,7 @@ import { useAuth } from './useAuth';
 import { useTradingMode } from '@/contexts/TradingModeContext';
 import { useRealtimePrices } from './useRealtimePrices';
 import { generateDemoPortfolio, calculateDemoPortfolioValue } from '@/lib/demoPortfolio';
+import { eventBus } from '@/lib/eventBus';
 
 interface Holding {
   symbol: string;
@@ -143,6 +144,54 @@ export function usePortfolio() {
   useEffect(() => {
     fetchPortfolio();
   }, [fetchPortfolio, syncTrigger]);
+
+  // Subscribe to real-time trade events for immediate portfolio updates
+  useEffect(() => {
+    if (!user) return;
+
+    // Subscribe to trades table changes (INSERT, UPDATE with status='closed')
+    const tradesChannel = supabase
+      .channel('portfolio-trades-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trades',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          // Refetch on any trade change, especially when status changes to 'closed'
+          if (payload.eventType === 'UPDATE' && (payload.new as any)?.status === 'closed') {
+            console.log('[PORTFOLIO] Trade closed, refreshing portfolio...');
+            fetchPortfolio();
+          } else if (payload.eventType === 'INSERT') {
+            fetchPortfolio();
+          }
+        }
+      )
+      .subscribe();
+
+    // Subscribe to trading-events broadcast channel for trade_closed events
+    const eventsChannel = supabase
+      .channel('portfolio-trading-events')
+      .on('broadcast', { event: 'trade_closed' }, () => {
+        console.log('[PORTFOLIO] trade_closed broadcast received');
+        fetchPortfolio();
+        // Emit portfolio_updated event for other components
+        eventBus.emit('portfolio_updated', {});
+      })
+      .on('broadcast', { event: 'balance_synced' }, () => {
+        console.log('[PORTFOLIO] balance_synced broadcast received');
+        fetchPortfolio();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(tradesChannel);
+      supabase.removeChannel(eventsChannel);
+    };
+  }, [user, fetchPortfolio]);
 
   return { portfolio, loading, refetch: fetchPortfolio, tradingMode, lastSyncTime };
 }

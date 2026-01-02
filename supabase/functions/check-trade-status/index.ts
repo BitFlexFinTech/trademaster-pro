@@ -1341,10 +1341,10 @@ serve(async (req) => {
           
           console.log(`Trade ${trade.id} (${tradingSymbol}): Entry ${actualEntryPrice}, Current ${currentPrice}, Unrealized: $${netUnrealizedPnL.toFixed(3)} (${(unrealizedPnLPercent * 100).toFixed(3)}%)`);
           
-          // CONTINUOUS PROFIT-TAKING: Take profit as soon as fees are covered
-          // Exit when: net P&L > $0.01 (absolute minimum after fees)
-          // This ensures we NEVER wait for a fixed TP - we take any profit available
-          const shouldTakeProfit = netUnrealizedPnL > 0.01; // Just $0.01 net profit after fees
+          // $1.00 NET PROFIT TARGET - Only close when $1 net profit is reached
+          // This ensures trades are held until the target is achieved
+          const MINIMUM_PROFIT_TARGET = 1.00; // $1.00 NET profit minimum - NEVER close below this
+          const shouldTakeProfit = netUnrealizedPnL >= MINIMUM_PROFIT_TARGET;
           
           if (shouldTakeProfit) {
             console.log(`🎯 PROFIT THRESHOLD MET! Taking profit on trade ${trade.id}: $${netUnrealizedPnL.toFixed(3)}`);
@@ -1444,38 +1444,59 @@ serve(async (req) => {
                 : undefined
             });
             
-            // FIXED BUG-004: Handle dust amounts - close trade even if can't sell
+            // FIXED BUG-004: Handle dust amounts - ONLY close if $1 profit target is met
             if (parseFloat(sellQty) < parseFloat(lotInfo.minQty)) {
-              console.log(`⚠️ Profit-take quantity ${sellQty} below min ${lotInfo.minQty} - marking as dust close`);
-              
-              // Dust amount: can't sell but mark trade as closed
-              await supabase.from('trades').update({
-                status: 'closed',
-                exit_price: currentPrice,
-                profit_loss: netUnrealizedPnL,
-                profit_percentage: (netUnrealizedPnL / positionSize) * 100,
-                closed_at: new Date().toISOString(),
-              }).eq('id', trade.id);
-              
-              await logProfitAudit(supabase, {
-                user_id: user.id,
-                trade_id: trade.id,
-                action: 'dust_close',
-                symbol: tradingSymbol,
-                exchange: exchangeName,
-                entry_price: actualEntryPrice,
-                current_price: currentPrice,
-                quantity: availableQty,
-                gross_pnl: grossUnrealizedPnL,
-                net_pnl: netUnrealizedPnL,
-                success: true,
-                error_message: `Dust amount ${sellQty} below min ${lotInfo.minQty} - closed with estimated P&L`,
-                balance_available: availableQty
-              });
-              
-              closedCount++;
-              if (netUnrealizedPnL > 0) profitsTaken++;
-              await updateBotRunPnL(supabase, user.id, netUnrealizedPnL);
+              // Dust amount: only close if profit target is met
+              if (netUnrealizedPnL >= MINIMUM_PROFIT_TARGET) {
+                console.log(`✅ Dust close with profit target met: $${netUnrealizedPnL.toFixed(3)} >= $1.00`);
+                
+                await supabase.from('trades').update({
+                  status: 'closed',
+                  exit_price: currentPrice,
+                  profit_loss: netUnrealizedPnL,
+                  profit_percentage: (netUnrealizedPnL / positionSize) * 100,
+                  closed_at: new Date().toISOString(),
+                }).eq('id', trade.id);
+                
+                await logProfitAudit(supabase, {
+                  user_id: user.id,
+                  trade_id: trade.id,
+                  action: 'dust_close',
+                  symbol: tradingSymbol,
+                  exchange: exchangeName,
+                  entry_price: actualEntryPrice,
+                  current_price: currentPrice,
+                  quantity: availableQty,
+                  gross_pnl: grossUnrealizedPnL,
+                  net_pnl: netUnrealizedPnL,
+                  success: true,
+                  error_message: `Dust amount ${sellQty} - profit target met, closed at $${netUnrealizedPnL.toFixed(2)}`,
+                  balance_available: availableQty
+                });
+                
+                closedCount++;
+                profitsTaken++;
+                await updateBotRunPnL(supabase, user.id, netUnrealizedPnL);
+              } else {
+                // Dust but profit target NOT met - keep holding
+                console.log(`⏳ Dust amount but P&L $${netUnrealizedPnL.toFixed(3)} < $1.00 target - KEEPING OPEN`);
+                
+                await logProfitAudit(supabase, {
+                  user_id: user.id,
+                  trade_id: trade.id,
+                  action: 'dust_hold',
+                  symbol: tradingSymbol,
+                  exchange: exchangeName,
+                  entry_price: actualEntryPrice,
+                  current_price: currentPrice,
+                  quantity: availableQty,
+                  gross_pnl: grossUnrealizedPnL,
+                  net_pnl: netUnrealizedPnL,
+                  success: true,
+                  error_message: `Dust amount but $${netUnrealizedPnL.toFixed(2)} < $1.00 target - still holding`,
+                  balance_available: availableQty
+                });
+              }
               continue;
             }
             
