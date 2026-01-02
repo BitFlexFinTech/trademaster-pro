@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { TradeReplayModal } from '@/components/bots/TradeReplayModal';
+import { TradeReplayTimeline } from '@/components/bots/TradeReplayTimeline';
 import { cn } from '@/lib/utils';
 import { TrendingUp, TrendingDown, Clock, Activity, Zap, XCircle, Loader2, PlayCircle } from 'lucide-react';
 import { format } from 'date-fns';
@@ -466,8 +466,8 @@ export function RecentBotTrades() {
         </div>
       </ScrollArea>
       
-      {/* Trade Replay Modal */}
-      <TradeReplayModal 
+      {/* Trade Replay Timeline */}
+      <TradeReplayTimeline 
         open={replayOpen} 
         onClose={() => setReplayOpen(false)} 
         trades={formattedTrades}

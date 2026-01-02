@@ -207,7 +207,7 @@ export default function Settings() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="h-full overflow-auto space-y-6 pb-8">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <SettingsIcon className="w-6 h-6 text-primary" />

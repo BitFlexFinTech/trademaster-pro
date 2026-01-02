@@ -60,14 +60,14 @@ import { useNotificationStack } from '@/hooks/useNotificationStack';
 import { useRegimeTransitionNotifier } from '@/hooks/useRegimeTransitionNotifier';
 import { useBotStrategyAI } from '@/hooks/useBotStrategyAI';
 import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
-import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
+// AIRecommendationsPanel removed per user request
 import { NotificationPopup, NotificationStack } from '@/components/bots/NotificationPopup';
 
 import { BotsOnboardingTips } from '@/components/bots/BotsOnboardingTips';
 import { ProfitTargetWizard } from '@/components/wizard/ProfitTargetWizard';
 import { RealTimeTradingFeed } from '@/components/bots/RealTimeTradingFeed';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
-import { ProfitGoalTracker } from '@/components/bots/ProfitGoalTracker';
+// ProfitGoalTracker removed per user request
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AuditReport } from '@/lib/selfAuditReporter';
@@ -1277,55 +1277,39 @@ export default function Bots() {
           )}
 
           {/* Profit Goal Tracker */}
-          <ProfitGoalTracker className="mb-3" compact />
-
           {/* Notification-based warnings are now handled via useNotificationStack hook */}
           {/* See useEffect hooks below for notification triggers */}
 
-          {/* Compact Cards Row - Portfolio, AI Target, AI Strategy */}
+          {/* Portfolio Value Card - Simplified, no AI cards per user request */}
           <TooltipProvider delayDuration={300}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
-            {/* Portfolio Value by Exchange - Compact Inline Card with Tooltip */}
+          <div className="mb-3">
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="card-terminal p-2 cursor-help">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <DollarSign className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-xs font-semibold text-foreground whitespace-nowrap">
-                        {tradingMode === 'demo' ? 'VIRTUAL' : 'PORTFOLIO'}
-                      </span>
-                      <span className="text-sm font-mono font-bold text-primary">
-                        ${usdtFloat.reduce((sum, f) => sum + f.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                      </span>
-                    </div>
-                    
-                    {/* Exchange chips - inline, max 2 visible */}
-                    <div className="flex items-center gap-1 overflow-hidden">
-                      {(tradingMode === 'demo' ? activeExchanges.slice(0, 2) : usdtFloat.slice(0, 2)).map((item) => {
-                        const exchange = tradingMode === 'demo' ? (item as typeof activeExchanges[0]).name : (item as UsdtFloat).exchange;
-                        const amount = tradingMode === 'demo' 
-                          ? Math.round(suggestedUSDT * EXCHANGE_ALLOCATION_PERCENTAGES[(item as typeof activeExchanges[0]).confidence])
-                          : (item as UsdtFloat).amount;
-                        return (
-                          <Badge key={exchange} variant="outline" className="text-[9px] px-1 py-0 h-4 font-mono shrink-0">
-                            {exchange.slice(0, 3).toUpperCase()} ${amount >= 1000 ? `${(amount/1000).toFixed(1)}K` : amount.toFixed(0)}
-                          </Badge>
-                        );
-                      })}
-                      {(tradingMode === 'demo' ? activeExchanges.length : usdtFloat.length) > 2 && (
-                        <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 shrink-0">
-                          +{(tradingMode === 'demo' ? activeExchanges.length : usdtFloat.length) - 2}
+                <div className="card-terminal p-2 cursor-help inline-flex">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-primary shrink-0" />
+                    <span className="text-xs font-semibold text-foreground whitespace-nowrap">
+                      {tradingMode === 'demo' ? 'VIRTUAL' : 'PORTFOLIO'}
+                    </span>
+                    <span className="text-sm font-mono font-bold text-primary">
+                      ${usdtFloat.reduce((sum, f) => sum + f.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                    {(tradingMode === 'demo' ? activeExchanges.slice(0, 3) : usdtFloat.slice(0, 3)).map((item) => {
+                      const exchange = tradingMode === 'demo' ? (item as typeof activeExchanges[0]).name : (item as UsdtFloat).exchange;
+                      const amount = tradingMode === 'demo' 
+                        ? Math.round(suggestedUSDT * EXCHANGE_ALLOCATION_PERCENTAGES[(item as typeof activeExchanges[0]).confidence])
+                        : (item as UsdtFloat).amount;
+                      return (
+                        <Badge key={exchange} variant="outline" className="text-[9px] px-1 py-0 h-4 font-mono">
+                          {exchange.slice(0, 3).toUpperCase()} ${amount >= 1000 ? `${(amount/1000).toFixed(1)}K` : amount.toFixed(0)}
                         </Badge>
-                      )}
-                    </div>
-                    
-                    {/* Refresh button - Live mode only */}
+                      );
+                    })}
                     {tradingMode === 'live' && (
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-5 w-5 p-0 shrink-0"
+                        className="h-5 w-5 p-0"
                         onClick={(e) => {
                           e.stopPropagation();
                           fetchExchangeBalances();
@@ -1351,147 +1335,8 @@ export default function Bots() {
                     </p>
                   );
                 })}
-                <p className="text-xs text-muted-foreground mt-1 border-t pt-1">
-                  Total: ${usdtFloat.reduce((sum, f) => sum + f.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </p>
               </TooltipContent>
             </Tooltip>
-
-            {/* AI Daily Target Recommendation - Compact Inline Card with Tooltip */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="card-terminal p-2 cursor-help">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Brain className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-xs font-semibold text-foreground whitespace-nowrap">AI TARGET</span>
-                      {aiTargetRecommendation ? (
-                        <>
-                          <span className="text-sm font-mono font-bold text-primary">
-                            ${aiTargetRecommendation.dailyTarget}
-                          </span>
-                          <Badge 
-                            variant="outline" 
-                            className={cn(
-                              "text-[9px] px-1 h-4",
-                              aiTargetRecommendation.confidence >= 80 ? "border-primary text-primary" :
-                              aiTargetRecommendation.confidence >= 60 ? "border-warning text-warning" : "border-destructive text-destructive"
-                            )}
-                          >
-                            {aiTargetRecommendation.confidence}%
-                          </Badge>
-                        </>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground">Click Get</span>
-                      )}
-                    </div>
-                    
-                    <div className="flex items-center gap-1 shrink-0">
-                      {aiTargetRecommendation && (
-                        <Button
-                          size="sm"
-                          variant="default"
-                          className="h-5 text-[10px] px-1.5"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            applyAITargetRecommendation((target, profit) => {
-                              setBotConfig(prev => ({
-                                ...prev,
-                                dailyTarget: target,
-                                profitPerTrade: profit,
-                              }));
-                            });
-                          }}
-                        >
-                          Apply
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-5 text-[10px] px-1.5"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const floatData = usdtFloat.map(f => ({
-                            exchange: f.exchange,
-                            amount: f.amount,
-                            baseBalance: 0,
-                            availableFloat: f.amount,
-                          }));
-                          fetchAITargetRecommendation({
-                            usdtFloat: floatData,
-                            historicalHitRate: combinedHitRate,
-                            averageProfitPerTrade: botConfig.profitPerTrade,
-                            tradingHoursPerDay: 8,
-                            riskTolerance: 'moderate',
-                          });
-                        }}
-                        disabled={aiTargetLoading || usdtFloat.length === 0}
-                      >
-                        {aiTargetLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Get'}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs">
-                {aiTargetRecommendation ? (
-                  <>
-                    <p className="font-semibold mb-1">AI Daily Target Recommendation</p>
-                    <p className="text-xs">Daily Target: <span className="font-mono font-bold">${aiTargetRecommendation.dailyTarget}</span></p>
-                    <p className="text-xs">Profit/Trade: <span className="font-mono">${aiTargetRecommendation.profitPerTrade?.toFixed(2)}</span></p>
-                    <p className="text-xs">Confidence: <span className="font-mono">{aiTargetRecommendation.confidence}%</span></p>
-                    {aiTargetRecommendation.reasoning && (
-                      <p className="text-xs text-muted-foreground mt-1 border-t pt-1">{aiTargetRecommendation.reasoning.slice(0, 100)}...</p>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-xs text-muted-foreground">Click "Get" to receive AI-powered daily target recommendations based on your capital and trading history.</p>
-                )}
-              </TooltipContent>
-            </Tooltip>
-
-            {/* AI Strategy Recommendations - Compact Inline Card (has built-in tooltip in modal) */}
-            <AIRecommendationsPanel
-              botConfig={botConfig}
-              onApplyField={(field, value) => {
-                setBotConfig(prev => {
-                  const updatedConfig = { ...prev };
-                  switch (field) {
-                    case 'dailyTarget':
-                      updatedConfig.dailyTarget = value;
-                      break;
-                    case 'profitPerTrade':
-                      updatedConfig.profitPerTrade = value;
-                      break;
-                    case 'amountPerTrade':
-                      updatedConfig.amountPerTrade = value;
-                      break;
-                    case 'tradeIntervalMs':
-                      updatedConfig.tradeIntervalMs = value;
-                      break;
-                    case 'dailyStopLoss':
-                      updatedConfig.dailyStopLoss = value;
-                      break;
-                    case 'perTradeStopLoss':
-                      updatedConfig.perTradeStopLoss = value;
-                      break;
-                    case 'minProfitThreshold':
-                      updatedConfig.minProfitThreshold = value;
-                      break;
-                    case 'focusPairs':
-                      updatedConfig.focusPairs = value;
-                      break;
-                    default:
-                      (updatedConfig as any)[field] = value;
-                  }
-                  localStorage.setItem('greenback-bot-settings', JSON.stringify(updatedConfig));
-                  return updatedConfig;
-                });
-              }}
-              onApplyAll={() => refetch()}
-              compact={true}
-            />
           </div>
           </TooltipProvider>
 
@@ -1695,19 +1540,22 @@ export default function Bots() {
               </div>
             </ErrorBoundary>
 
-            {/* Middle Column - Live P&L Dashboard */}
+            {/* Middle Column - Open Positions + Live P&L */}
             <div className="lg:col-span-4 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
+              {/* Open Positions Dashboard - Horizontal list layout */}
+              <OpenPositionsDashboard className="flex-shrink-0" />
+              
               {/* Total Unrealized P&L Widget */}
               <TotalUnrealizedPnLWidget />
               
               {/* Live P&L Dashboard */}
-              <LivePnLDashboard className="flex-1" />
+              <LivePnLDashboard className="flex-1 min-h-0" />
 
               {/* Link to full analytics page */}
               <Button asChild variant="outline" className="h-8 gap-2">
                 <Link to="/bot-analytics">
                   <Brain className="w-4 h-4" />
-                  View Full Analytics (Trades, History, Execution)
+                  View Full Analytics
                 </Link>
               </Button>
             </div>
