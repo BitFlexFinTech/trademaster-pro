@@ -28,8 +28,9 @@ export interface TradeContext {
   minProfitThreshold?: number;
 }
 
-// Minimum profit threshold in dollars (0.5% of typical position)
-export const DEFAULT_MIN_PROFIT_THRESHOLD = 0.05; // $0.05 minimum
+// Minimum profit threshold in dollars - $1 NET profit target
+// This is the ONLY exit condition - no stop loss, hold until profitable
+export const DEFAULT_MIN_PROFIT_THRESHOLD = 1.00; // $1.00 minimum NET profit
 
 /**
  * MASTER PROFIT CALCULATION FUNCTION
