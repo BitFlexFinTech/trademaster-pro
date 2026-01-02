@@ -55,7 +55,9 @@ import { OpenPositionsDashboard } from '@/components/bots/OpenPositionsDashboard
 import { LiveProfitCounter } from '@/components/bots/LiveProfitCounter';
 import { ProfitBreakdownDashboard } from '@/components/bots/ProfitBreakdownDashboard';
 import { ExchangeSettingsPanel } from '@/components/bots/ExchangeSettingsPanel';
+import { TradeAnalyticsDashboard } from '@/components/bots/TradeAnalyticsDashboard';
 import { useAutoCompound } from '@/hooks/useAutoCompound';
+import { useNotificationStack } from '@/hooks/useNotificationStack';
 
 import { useRegimeTransitionNotifier } from '@/hooks/useRegimeTransitionNotifier';
 import { useBotStrategyAI } from '@/hooks/useBotStrategyAI';
@@ -1550,10 +1552,13 @@ export default function Bots() {
           />
 
           {/* Open Positions Dashboard - Real-time P&L */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
-            <OpenPositionsDashboard className="md:col-span-3" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <OpenPositionsDashboard />
             <LiveProfitCounter />
           </div>
+          
+          {/* Trade Analytics Dashboard */}
+          <TradeAnalyticsDashboard className="mb-3" />
 
           {/* AI Strategy Dashboard removed per user request */}
 
