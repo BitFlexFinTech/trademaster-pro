@@ -147,11 +147,14 @@ export default function Bots() {
   // Filter state for micro-cards grid
   const [activeFilter, setActiveFilter] = useState<BotFilter>('all');
   
-  // Dismissed notifications state
+  // Dismissed notifications state (legacy - now handled by useNotificationStack)
   const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set());
   const dismissNotification = useCallback((id: string) => {
     setDismissedNotifications(prev => new Set([...prev, id]));
   }, []);
+  
+  // Pop-up notifications via useNotificationStack
+  const { notifications, notify, dismiss } = useNotificationStack();
   
   // Profit Target Wizard state
   const [showProfitWizard, setShowProfitWizard] = useState(false);
@@ -198,6 +201,50 @@ export default function Bots() {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
+
+  // ============ NOTIFICATION TRIGGERS FOR WARNING BANNERS ============
+  
+  // Exchange Reconnection Warning Notification
+  useEffect(() => {
+    if (tradingMode === 'live' && needsReconnection.length > 0) {
+      notify({
+        type: 'error',
+        title: 'Exchange Reconnection Needed',
+        message: `${needsReconnection.map(e => e.name).join(', ')} - API credentials missing or expired`,
+        autoDismiss: false,
+      });
+    }
+  }, [tradingMode, needsReconnection.length, notify]);
+  
+  // No Valid Credentials Warning Notification
+  useEffect(() => {
+    if (tradingMode === 'live' && hasConnections && !hasValidCredentials && needsReconnection.length === 0) {
+      notify({
+        type: 'warning',
+        title: 'No Exchanges Ready',
+        message: 'Connect at least one exchange with valid API credentials to enable live trading',
+        autoDismiss: false,
+      });
+    }
+  }, [tradingMode, hasConnections, hasValidCredentials, needsReconnection.length, notify]);
+  
+  // Low Balance Warning Notifications
+  useEffect(() => {
+    if (tradingMode === 'live' && exchangeBalances) {
+      exchangeBalances.forEach(balanceInfo => {
+        const minRequired = 5;
+        const actualBalance = balanceInfo.usdtBalance || 0;
+        if (actualBalance > 0 && actualBalance < minRequired) {
+          notify({
+            type: 'error',
+            title: `Low Balance: ${balanceInfo.exchange}`,
+            message: `Current: $${actualBalance.toFixed(2)} | Need: $${minRequired}`,
+            autoDismiss: false,
+          });
+        }
+      });
+    }
+  }, [tradingMode, exchangeBalances, notify]);
     debounceTimerRef.current = setTimeout(() => {
       setDebouncedPrices(prices);
     }, 5000);
@@ -1235,104 +1282,8 @@ export default function Bots() {
           {/* Profit Goal Tracker */}
           <ProfitGoalTracker className="mb-3" compact />
 
-          {/* Exchange Re-Connection Warning - Live Mode Only */}
-          {tradingMode === 'live' && needsReconnection.length > 0 && (
-            <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 mb-3">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-destructive">
-                    {needsReconnection.length} exchange{needsReconnection.length > 1 ? 's' : ''} need{needsReconnection.length === 1 ? 's' : ''} re-connection
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {needsReconnection.map(e => e.name).join(', ')} - API credentials missing or expired.
-                    Live trading will not work until re-connected.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 text-xs border-destructive/50 text-destructive hover:bg-destructive/10"
-                  onClick={() => navigate('/settings')}
-                >
-                  Fix in Settings
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* No Valid Credentials Warning - Live Mode Only */}
-          {tradingMode === 'live' && hasConnections && !hasValidCredentials && needsReconnection.length === 0 && (
-            <div className="bg-warning/10 border border-warning/30 rounded-lg p-3 mb-3">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-warning">No exchanges ready for live trading</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Connect at least one exchange with valid API credentials to enable live trading.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 text-xs"
-                  onClick={() => navigate('/settings')}
-                >
-                  Connect Exchange
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Balance Requirement Banner - Live Mode Only */}
-          {tradingMode === 'live' && hasValidCredentials && exchangeBalanceRequirements.length > 0 && (
-            <BalanceRequirementBanner 
-              balances={exchangeBalanceRequirements}
-              onRefresh={handleRefreshBalances}
-              isRefreshing={isRefreshingBalances}
-            />
-          )}
-
-          {/* Low Balance Warning Banner - Critical Alert */}
-          {tradingMode === 'live' && exchangeBalances && exchangeBalances.map((balanceInfo) => {
-            const minRequired = 5; // $5 minimum for any trade
-            const actualBalance = balanceInfo.usdtBalance || 0;
-            const isLowBalance = actualBalance > 0 && actualBalance < minRequired;
-            
-            if (!isLowBalance) return null;
-            
-            return (
-              <div key={`low-balance-${balanceInfo.exchange}`} className="bg-destructive/10 border border-destructive/40 rounded-lg p-3 mb-3">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5 animate-pulse" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-destructive">
-                      Insufficient Balance on {balanceInfo.exchange}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Current: <span className="font-mono font-medium text-destructive">${actualBalance.toFixed(2)}</span> USDT | 
-                      Minimum Required: <span className="font-mono font-medium">${minRequired}</span> USDT
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Deposit at least <span className="font-medium text-foreground">${(minRequired - actualBalance).toFixed(2)}</span> more USDT to resume trading.
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs border-destructive/50 text-destructive hover:bg-destructive/10"
-                    onClick={() => {
-                      fetchExchangeBalances();
-                      toast.info('Refreshing balance...');
-                    }}
-                  >
-                    <RefreshCw className="w-3 h-3 mr-1" />
-                    Refresh
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
+          {/* Notification-based warnings are now handled via useNotificationStack hook */}
+          {/* See useEffect hooks below for notification triggers */}
 
           {/* Compact Cards Row - Portfolio, AI Target, AI Strategy */}
           <TooltipProvider delayDuration={300}>
@@ -1806,6 +1757,32 @@ export default function Bots() {
         open={showProfitWizard}
         onOpenChange={setShowProfitWizard}
       />
+
+      {/* Pop-up Notification Stack */}
+      <NotificationStack>
+        {notifications.map(n => (
+          <NotificationPopup
+            key={n.id}
+            id={n.id}
+            type={n.type}
+            title={n.title}
+            message={n.message}
+            onDismiss={dismiss}
+            actions={
+              n.title.includes('Reconnection') || n.title.includes('Exchanges Ready') ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-xs"
+                  onClick={() => navigate('/settings')}
+                >
+                  Fix in Settings
+                </Button>
+              ) : undefined
+            }
+          />
+        ))}
+      </NotificationStack>
     </div>
   );
 }
