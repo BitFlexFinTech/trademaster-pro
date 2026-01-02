@@ -35,21 +35,19 @@ export function JarvisEngineDashboard() {
   const [symbol] = useState('BTCUSDT');
   const [settingsOpen, setSettingsOpen] = useState(false);
   
-  const { regime, ema200, currentPrice, deviation, adaptiveTarget, isLoading: regimeLoading } = useJarvisRegime(symbol);
+  const { regime, adaptiveTarget, isLoading: regimeLoading } = useJarvisRegime(symbol);
   const { rate, liquidation, alerts } = useJarvisSentinels();
-  const { longPosition, shortPosition, marginBalance, availableBalance, isLoading: positionsLoading, refetch } = useJarvisFuturesPositions();
+  const { longPosition, shortPosition, marginBalance, availableBalance, refetch } = useJarvisFuturesPositions();
   const { suggestions, currentAnalysis, isLoading: advisorLoading } = useJarvisAIAdvisor(symbol);
   const { settings, updateSettings, isSaving } = useJarvisSettings();
   
   const currentPnL = (longPosition?.unrealizedProfit ?? 0) + (shortPosition?.unrealizedProfit ?? 0);
-  const { killStatus, triggerKill, isKilling } = useEmergencyKillSwitch({ currentPnL });
+  const { triggerKill, isKilling } = useEmergencyKillSwitch({ currentPnL });
 
   // Quick settings state
   const [quickSettings, setQuickSettings] = useState({
     target_bull_profit: settings?.target_bull_profit ?? 2.10,
     target_bear_profit: settings?.target_bear_profit ?? 2.10,
-    liquidation_warning_threshold: settings?.liquidation_warning_threshold ?? 25,
-    rate_cooldown_threshold: (settings?.rate_cooldown_threshold ?? 0.80) * 100,
   });
 
   const handleQuickSettingsSave = async () => {
@@ -57,8 +55,6 @@ export function JarvisEngineDashboard() {
       await updateSettings({
         target_bull_profit: quickSettings.target_bull_profit,
         target_bear_profit: quickSettings.target_bear_profit,
-        liquidation_warning_threshold: quickSettings.liquidation_warning_threshold,
-        rate_cooldown_threshold: quickSettings.rate_cooldown_threshold / 100,
       });
       toast.success('Settings saved');
       setSettingsOpen(false);
@@ -69,9 +65,9 @@ export function JarvisEngineDashboard() {
 
   const getRegimeIcon = () => {
     switch (regime) {
-      case 'BULL': return <TrendingUp className="h-4 w-4" />;
-      case 'BEAR': return <TrendingDown className="h-4 w-4" />;
-      default: return <Minus className="h-4 w-4" />;
+      case 'BULL': return <TrendingUp className="h-3 w-3" />;
+      case 'BEAR': return <TrendingDown className="h-3 w-3" />;
+      default: return <Minus className="h-3 w-3" />;
     }
   };
 
@@ -83,59 +79,58 @@ export function JarvisEngineDashboard() {
     }
   };
 
-  const getRateColor = () => {
-    if (rate.load < 50) return 'bg-emerald-500';
-    if (rate.load < 80) return 'bg-amber-500';
-    return 'bg-red-500';
-  };
-
   return (
-    <Card className="bg-slate-950 border-slate-800 font-mono text-sm overflow-hidden relative">
-      {/* Header */}
-      <div className="border-b border-slate-800 px-4 py-3 flex items-center justify-between bg-slate-900/50">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-slate-300 font-semibold">JARVIS ENGINE: 24/7</span>
-          </div>
-          <Badge variant="outline" className="text-emerald-400 border-emerald-500/50 bg-emerald-500/10">
-            <Activity className="h-3 w-3 mr-1" />
-            ACTIVE
+    <Card className="bg-slate-950 border-slate-800 font-mono text-xs overflow-hidden relative h-full">
+      {/* Compact Header */}
+      <div className="border-b border-slate-800 px-3 py-1.5 flex items-center justify-between bg-slate-900/50">
+        <div className="flex items-center gap-2">
+          <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-slate-300 font-semibold text-[11px]">JARVIS 24/7</span>
+          <Badge variant="outline" className={cn("text-[9px] h-4 border px-1", getRegimeColor())}>
+            {getRegimeIcon()}
+            <span className="ml-0.5">{regime}</span>
           </Badge>
         </div>
         
-        <div className="flex items-center gap-3">
-          <Badge variant="outline" className={cn("border", getRegimeColor())}>
-            {getRegimeIcon()}
-            <span className="ml-1">{regime}</span>
-          </Badge>
+        <div className="flex items-center gap-1.5">
+          {/* Balance Strip */}
+          <div className="flex items-center gap-2 text-[10px] mr-2">
+            <span className="text-slate-500">M:</span>
+            <span className="text-slate-300">${marginBalance?.toFixed(0) ?? '---'}</span>
+            <span className="text-slate-600">|</span>
+            <span className="text-slate-500">A:</span>
+            <span className="text-slate-300">${availableBalance?.toFixed(0) ?? '---'}</span>
+            <span className="text-slate-600">|</span>
+            <span className="text-slate-500">P&L:</span>
+            <span className={cn(currentPnL >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+              {currentPnL >= 0 ? '+' : ''}{currentPnL.toFixed(2)}
+            </span>
+            <span className="text-slate-600">|</span>
+            <span className="text-slate-500">Target:</span>
+            <span className="text-cyan-400">${adaptiveTarget.toFixed(2)}</span>
+          </div>
           
-          {/* Quick Settings Button */}
+          {/* Quick Settings */}
           <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
             <CollapsibleTrigger asChild>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className={cn("h-7 text-slate-400 hover:text-slate-200", settingsOpen && "bg-slate-800")}
-              >
-                <Settings className="h-3.5 w-3.5" />
+              <Button variant="ghost" size="sm" className={cn("h-5 w-5 p-0 text-slate-400", settingsOpen && "bg-slate-800")}>
+                <Settings className="h-3 w-3" />
               </Button>
             </CollapsibleTrigger>
             
-            {/* Quick Settings Panel */}
-            <CollapsibleContent className="absolute right-4 top-14 z-50 w-72 bg-slate-900 border border-slate-700 rounded-lg p-4 shadow-xl">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-sm font-semibold text-slate-200">Quick Settings</span>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setSettingsOpen(false)}>
-                  <X className="h-3.5 w-3.5" />
+            <CollapsibleContent className="absolute right-3 top-8 z-50 w-56 bg-slate-900 border border-slate-700 rounded-lg p-3 shadow-xl">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-semibold text-slate-200">Quick Settings</span>
+                <Button variant="ghost" size="sm" className="h-4 w-4 p-0" onClick={() => setSettingsOpen(false)}>
+                  <X className="h-2.5 w-2.5" />
                 </Button>
               </div>
               
-              <div className="space-y-4">
-                <div className="space-y-2">
+              <div className="space-y-2">
+                <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <Label className="text-xs text-slate-400">BULL Target Profit</Label>
-                    <span className="text-xs text-emerald-400">${quickSettings.target_bull_profit.toFixed(2)}</span>
+                    <Label className="text-[9px] text-slate-400">BULL Target</Label>
+                    <span className="text-[9px] text-emerald-400">${quickSettings.target_bull_profit.toFixed(2)}</span>
                   </div>
                   <Slider
                     value={[quickSettings.target_bull_profit]}
@@ -147,10 +142,10 @@ export function JarvisEngineDashboard() {
                   />
                 </div>
                 
-                <div className="space-y-2">
+                <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <Label className="text-xs text-slate-400">BEAR Target Profit</Label>
-                    <span className="text-xs text-red-400">${quickSettings.target_bear_profit.toFixed(2)}</span>
+                    <Label className="text-[9px] text-slate-400">BEAR Target</Label>
+                    <span className="text-[9px] text-red-400">${quickSettings.target_bear_profit.toFixed(2)}</span>
                   </div>
                   <Slider
                     value={[quickSettings.target_bear_profit]}
@@ -162,306 +157,160 @@ export function JarvisEngineDashboard() {
                   />
                 </div>
                 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs text-slate-400">Liquidation Warning %</Label>
-                    <span className="text-xs text-amber-400">{quickSettings.liquidation_warning_threshold}%</span>
-                  </div>
-                  <Slider
-                    value={[quickSettings.liquidation_warning_threshold]}
-                    onValueChange={([v]) => setQuickSettings(s => ({ ...s, liquidation_warning_threshold: v }))}
-                    min={20}
-                    max={35}
-                    step={1}
-                    className="w-full"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs text-slate-400">API Cooldown Threshold</Label>
-                    <span className="text-xs text-cyan-400">{quickSettings.rate_cooldown_threshold}%</span>
-                  </div>
-                  <Slider
-                    value={[quickSettings.rate_cooldown_threshold]}
-                    onValueChange={([v]) => setQuickSettings(s => ({ ...s, rate_cooldown_threshold: v }))}
-                    min={60}
-                    max={95}
-                    step={5}
-                    className="w-full"
-                  />
-                </div>
-                
                 <Button 
                   size="sm" 
-                  className="w-full bg-emerald-600 hover:bg-emerald-700"
+                  className="w-full h-6 text-[10px] bg-emerald-600 hover:bg-emerald-700"
                   onClick={handleQuickSettingsSave}
                   disabled={isSaving}
                 >
-                  <Save className="h-3.5 w-3.5 mr-1.5" />
-                  {isSaving ? 'Saving...' : 'Save Settings'}
+                  <Save className="h-2.5 w-2.5 mr-1" />
+                  {isSaving ? 'Saving...' : 'Save'}
                 </Button>
               </div>
             </CollapsibleContent>
           </Collapsible>
           
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={refetch}
-            className="h-7 text-slate-400 hover:text-slate-200"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
+          <Button variant="ghost" size="sm" onClick={refetch} className="h-5 w-5 p-0 text-slate-400">
+            <RefreshCw className="h-3 w-3" />
           </Button>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Left Section - Balance & Positions */}
-        <div className="lg:col-span-7 space-y-4">
-          {/* Balance Row */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800">
-              <div className="flex items-center gap-1.5 text-slate-500 text-xs mb-1">
-                <Wallet className="h-3 w-3" />
-                MARGIN BALANCE
-              </div>
-              <div className="text-lg font-bold text-slate-200">
-                ${marginBalance?.toFixed(2) ?? '---'}
-              </div>
-            </div>
-            <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800">
-              <div className="text-slate-500 text-xs mb-1">AVAILABLE</div>
-              <div className="text-lg font-bold text-slate-200">
-                ${availableBalance?.toFixed(2) ?? '---'}
-              </div>
-            </div>
-            <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800">
-              <div className="text-slate-500 text-xs mb-1">UNREALIZED P&L</div>
-              <div className={cn("text-lg font-bold", currentPnL >= 0 ? 'text-emerald-400' : 'text-red-400')}>
-                {currentPnL >= 0 ? '+' : ''}{currentPnL.toFixed(2)}
-              </div>
-            </div>
-            <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800">
-              <div className="text-slate-500 text-xs mb-1">ADAPTIVE TARGET</div>
-              <div className="text-lg font-bold text-cyan-400">
-                ${adaptiveTarget.toFixed(2)}
-              </div>
-            </div>
-          </div>
-
-          {/* Positions */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* LONG Position */}
-            <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-emerald-400" />
-                  <span className="text-emerald-400 font-semibold">LONG</span>
-                </div>
-                {longPosition && (
-                  <Badge variant="outline" className="text-xs border-slate-700">
-                    {longPosition.leverage}x
-                  </Badge>
-                )}
-              </div>
-              
-              {longPosition ? (
-                <div className="space-y-2">
-                  <div className="text-slate-400 text-xs">{longPosition.symbol}</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-slate-500">Entry:</span>
-                      <span className="text-slate-300 ml-1">${longPosition.entryPrice.toFixed(2)}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Size:</span>
-                      <span className="text-slate-300 ml-1">{longPosition.positionAmt}</span>
-                    </div>
-                  </div>
-                  <div className={cn("font-bold", longPosition.unrealizedProfit >= 0 ? 'text-emerald-400' : 'text-red-400')}>
-                    P&L: {longPosition.unrealizedProfit >= 0 ? '+' : ''}${longPosition.unrealizedProfit.toFixed(2)}
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-500">Liq: ${longPosition.liquidationPrice.toFixed(2)}</span>
-                      <span className={cn(
-                        longPosition.liquidationDistance > 25 ? 'text-emerald-400' :
-                        longPosition.liquidationDistance > 22 ? 'text-amber-400' : 'text-red-400'
-                      )}>
-                        {longPosition.liquidationDistance.toFixed(1)}%
-                      </span>
-                    </div>
-                    <Progress 
-                      value={Math.min(100, (100 - longPosition.liquidationDistance))} 
-                      className="h-1.5 bg-slate-800"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="text-slate-600 text-xs">No LONG position</div>
-              )}
-            </div>
-
-            {/* SHORT Position */}
-            <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <TrendingDown className="h-4 w-4 text-red-400" />
-                  <span className="text-red-400 font-semibold">SHORT</span>
-                </div>
-                {shortPosition && (
-                  <Badge variant="outline" className="text-xs border-slate-700">
-                    {shortPosition.leverage}x
-                  </Badge>
-                )}
-              </div>
-              
-              {shortPosition ? (
-                <div className="space-y-2">
-                  <div className="text-slate-400 text-xs">{shortPosition.symbol}</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-slate-500">Entry:</span>
-                      <span className="text-slate-300 ml-1">${shortPosition.entryPrice.toFixed(2)}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Size:</span>
-                      <span className="text-slate-300 ml-1">{Math.abs(shortPosition.positionAmt)}</span>
-                    </div>
-                  </div>
-                  <div className={cn("font-bold", shortPosition.unrealizedProfit >= 0 ? 'text-emerald-400' : 'text-red-400')}>
-                    P&L: {shortPosition.unrealizedProfit >= 0 ? '+' : ''}${shortPosition.unrealizedProfit.toFixed(2)}
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-500">Liq: ${shortPosition.liquidationPrice.toFixed(2)}</span>
-                      <span className={cn(
-                        shortPosition.liquidationDistance > 25 ? 'text-emerald-400' :
-                        shortPosition.liquidationDistance > 22 ? 'text-amber-400' : 'text-red-400'
-                      )}>
-                        {shortPosition.liquidationDistance.toFixed(1)}%
-                      </span>
-                    </div>
-                    <Progress 
-                      value={Math.min(100, (100 - shortPosition.liquidationDistance))} 
-                      className="h-1.5 bg-slate-800"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="text-slate-600 text-xs">No SHORT position</div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Section - Status & AI */}
-        <div className="lg:col-span-5 space-y-4">
-          {/* API Load & Liquidation Status */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800">
-              <div className="flex items-center gap-1.5 text-slate-500 text-xs mb-2">
-                <Zap className="h-3 w-3" />
-                API LOAD
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className={cn(
-                    "text-lg font-bold",
-                    rate.load < 50 ? 'text-emerald-400' :
-                    rate.load < 80 ? 'text-amber-400' : 'text-red-400'
-                  )}>
-                    {rate.load.toFixed(0)}%
-                  </span>
-                  <span className="text-slate-500 text-xs">{rate.requestsPerMinute}/min</span>
-                </div>
-                <Progress 
-                  value={rate.load} 
-                  className={cn("h-1.5 bg-slate-800", getRateColor())}
-                />
-              </div>
-            </div>
-
-            <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800">
-              <div className="flex items-center gap-1.5 text-slate-500 text-xs mb-2">
-                <Shield className="h-3 w-3" />
-                LIQ STATUS
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={cn(
-                  "text-lg font-bold",
-                  liquidation.alertLevel === 'safe' ? 'text-emerald-400' :
-                  liquidation.alertLevel === 'warning' ? 'text-amber-400' : 'text-red-400'
-                )}>
-                  {liquidation.minDistance.toFixed(1)}%
-                </span>
-                <Badge 
-                  variant="outline" 
-                  className={cn(
-                    "text-xs",
-                    liquidation.alertLevel === 'safe' ? 'border-emerald-500/50 text-emerald-400' :
-                    liquidation.alertLevel === 'warning' ? 'border-amber-500/50 text-amber-400' : 
-                    'border-red-500/50 text-red-400'
-                  )}
-                >
-                  {liquidation.alertLevel.toUpperCase()}
-                </Badge>
-              </div>
-            </div>
-          </div>
-
-          {/* AI Advisor */}
-          <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800">
-            <div className="flex items-center gap-1.5 text-cyan-400 text-xs mb-2">
-              <Brain className="h-3 w-3" />
-              AI ADVISOR
-            </div>
-            <div className="text-slate-400 text-xs mb-2 line-clamp-2">
-              {advisorLoading ? 'Analyzing market conditions...' : currentAnalysis}
-            </div>
-            {suggestions.length > 0 && (
-              <div className="space-y-1.5">
-                {suggestions.slice(-2).map((s, i) => (
-                  <div 
-                    key={i} 
-                    className={cn(
-                      "text-xs p-2 rounded border",
-                      s.type === 'entry' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' :
-                      s.type === 'exit' ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' :
-                      s.type === 'warning' ? 'bg-red-500/10 border-red-500/30 text-red-300' :
-                      'bg-slate-800 border-slate-700 text-slate-300'
-                    )}
-                  >
-                    {s.message}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Emergency Stop */}
+          
           <Button 
             variant="destructive" 
-            className="w-full bg-red-600 hover:bg-red-700 text-white font-bold"
+            size="sm"
+            className="h-5 px-2 text-[9px] bg-red-600 hover:bg-red-700"
             onClick={() => triggerKill('manual')}
             disabled={isKilling}
           >
-            <StopCircle className="h-4 w-4 mr-2" />
-            {isKilling ? 'EXECUTING KILL...' : 'EMERGENCY STOP'}
+            <StopCircle className="h-2.5 w-2.5 mr-0.5" />
+            KILL
           </Button>
         </div>
       </div>
 
-      {/* Alerts Footer */}
+      {/* Compact Content */}
+      <div className="p-2 grid grid-cols-12 gap-2">
+        {/* Positions - Side by side */}
+        <div className="col-span-5 flex gap-2">
+          {/* LONG */}
+          <div className="flex-1 bg-slate-900/50 rounded p-1.5 border border-slate-800">
+            <div className="flex items-center gap-1 mb-1">
+              <TrendingUp className="h-2.5 w-2.5 text-emerald-400" />
+              <span className="text-emerald-400 text-[9px] font-semibold">LONG</span>
+              {longPosition && (
+                <Badge variant="outline" className="text-[8px] h-3 px-1 border-slate-700">{longPosition.leverage}x</Badge>
+              )}
+            </div>
+            {longPosition ? (
+              <div className="space-y-0.5">
+                <div className="flex justify-between text-[9px]">
+                  <span className="text-slate-500">Entry:</span>
+                  <span className="text-slate-300">${longPosition.entryPrice.toFixed(0)}</span>
+                </div>
+                <div className={cn("text-[10px] font-bold", longPosition.unrealizedProfit >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                  {longPosition.unrealizedProfit >= 0 ? '+' : ''}${longPosition.unrealizedProfit.toFixed(2)}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Progress value={Math.min(100, (100 - longPosition.liquidationDistance))} className="h-1 flex-1 bg-slate-800" />
+                  <span className="text-[8px] text-slate-500">{longPosition.liquidationDistance.toFixed(0)}%</span>
+                </div>
+              </div>
+            ) : (
+              <div className="text-slate-600 text-[9px]">No position</div>
+            )}
+          </div>
+          
+          {/* SHORT */}
+          <div className="flex-1 bg-slate-900/50 rounded p-1.5 border border-slate-800">
+            <div className="flex items-center gap-1 mb-1">
+              <TrendingDown className="h-2.5 w-2.5 text-red-400" />
+              <span className="text-red-400 text-[9px] font-semibold">SHORT</span>
+              {shortPosition && (
+                <Badge variant="outline" className="text-[8px] h-3 px-1 border-slate-700">{shortPosition.leverage}x</Badge>
+              )}
+            </div>
+            {shortPosition ? (
+              <div className="space-y-0.5">
+                <div className="flex justify-between text-[9px]">
+                  <span className="text-slate-500">Entry:</span>
+                  <span className="text-slate-300">${shortPosition.entryPrice.toFixed(0)}</span>
+                </div>
+                <div className={cn("text-[10px] font-bold", shortPosition.unrealizedProfit >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                  {shortPosition.unrealizedProfit >= 0 ? '+' : ''}${shortPosition.unrealizedProfit.toFixed(2)}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Progress value={Math.min(100, (100 - shortPosition.liquidationDistance))} className="h-1 flex-1 bg-slate-800" />
+                  <span className="text-[8px] text-slate-500">{shortPosition.liquidationDistance.toFixed(0)}%</span>
+                </div>
+              </div>
+            ) : (
+              <div className="text-slate-600 text-[9px]">No position</div>
+            )}
+          </div>
+        </div>
+
+        {/* Status Bar */}
+        <div className="col-span-7 flex items-center gap-2">
+          {/* API Load */}
+          <div className="bg-slate-900/50 rounded p-1.5 border border-slate-800 flex-1">
+            <div className="flex items-center gap-1 text-[8px] text-slate-500 mb-0.5">
+              <Zap className="h-2 w-2" />
+              API
+            </div>
+            <div className="flex items-center gap-1">
+              <span className={cn(
+                "text-[10px] font-bold",
+                rate.load < 50 ? 'text-emerald-400' : rate.load < 80 ? 'text-amber-400' : 'text-red-400'
+              )}>
+                {rate.load.toFixed(0)}%
+              </span>
+              <Progress value={rate.load} className="h-1 flex-1 bg-slate-800" />
+            </div>
+          </div>
+          
+          {/* Liq Status */}
+          <div className="bg-slate-900/50 rounded p-1.5 border border-slate-800 flex-1">
+            <div className="flex items-center gap-1 text-[8px] text-slate-500 mb-0.5">
+              <Shield className="h-2 w-2" />
+              LIQ
+            </div>
+            <div className="flex items-center gap-1">
+              <span className={cn(
+                "text-[10px] font-bold",
+                liquidation.alertLevel === 'safe' ? 'text-emerald-400' :
+                liquidation.alertLevel === 'warning' ? 'text-amber-400' : 'text-red-400'
+              )}>
+                {liquidation.minDistance.toFixed(0)}%
+              </span>
+              <Badge variant="outline" className={cn(
+                "text-[7px] h-3 px-1",
+                liquidation.alertLevel === 'safe' ? 'border-emerald-500/50 text-emerald-400' :
+                liquidation.alertLevel === 'warning' ? 'border-amber-500/50 text-amber-400' : 
+                'border-red-500/50 text-red-400'
+              )}>
+                {liquidation.alertLevel.toUpperCase()}
+              </Badge>
+            </div>
+          </div>
+          
+          {/* AI Advisor Mini */}
+          <div className="bg-slate-900/50 rounded p-1.5 border border-slate-800 flex-[2]">
+            <div className="flex items-center gap-1 text-[8px] text-cyan-400 mb-0.5">
+              <Brain className="h-2 w-2" />
+              AI
+            </div>
+            <div className="text-slate-400 text-[9px] line-clamp-1">
+              {advisorLoading ? 'Analyzing...' : (suggestions[0]?.message || currentAnalysis || 'Monitoring...')}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Alerts Footer - Only if alerts exist */}
       {alerts.length > 0 && (
-        <div className="border-t border-slate-800 px-4 py-2 bg-slate-900/30">
-          <div className="flex items-center gap-2 text-xs">
-            <AlertTriangle className="h-3 w-3 text-amber-400" />
-            <span className="text-slate-400">
-              {alerts[alerts.length - 1]?.message}
-            </span>
+        <div className="border-t border-slate-800 px-2 py-1 bg-slate-900/30">
+          <div className="flex items-center gap-1 text-[9px]">
+            <AlertTriangle className="h-2.5 w-2.5 text-amber-400" />
+            <span className="text-slate-400 truncate">{alerts[alerts.length - 1]?.message}</span>
           </div>
         </div>
       )}

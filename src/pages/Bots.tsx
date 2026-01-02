@@ -51,6 +51,7 @@ import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummary
 import { useRegimeTransitionNotifier } from '@/hooks/useRegimeTransitionNotifier';
 import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
 import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
+import { NotificationPopup, NotificationStack } from '@/components/bots/NotificationPopup';
 
 import { BotsOnboardingTips } from '@/components/bots/BotsOnboardingTips';
 import { ProfitTargetWizard } from '@/components/wizard/ProfitTargetWizard';
@@ -133,6 +134,12 @@ export default function Bots() {
   
   // Filter state for micro-cards grid
   const [activeFilter, setActiveFilter] = useState<BotFilter>('all');
+  
+  // Dismissed notifications state
+  const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set());
+  const dismissNotification = useCallback((id: string) => {
+    setDismissedNotifications(prev => new Set([...prev, id]));
+  }, []);
   
   // Profit Target Wizard state
   const [showProfitWizard, setShowProfitWizard] = useState(false);
@@ -982,23 +989,18 @@ export default function Bots() {
 
   return (
     <div className="h-[calc(100vh-64px)] flex flex-col overflow-hidden">
-      {/* Emergency Kill Banner - Sticky at top */}
-      <EmergencyKillBanner
-        currentPnL={currentPnL}
-        killStatus={killStatus}
-        config={killConfig}
-        onConfigChange={updateKillConfig}
-        onKillTriggered={() => triggerKill('manual')}
-        isKilling={isKilling}
-        lastKillRecovery={lastKillEvent?.total_usdt_recovered}
-        isAnyBotRunning={!!spotBot || !!leverageBot}
-      />
-
-      {/* Stuck Trades Banner */}
-      <StuckTradesBanner />
-
-      {/* Balance Reconciliation Banner */}
-      <BalanceReconciliationBanner />
+      {/* Notification Popups - Bottom Right */}
+      <NotificationStack>
+        {!dismissedNotifications.has('emergency-kill') && isKilling && (
+          <NotificationPopup
+            id="emergency-kill"
+            type="error"
+            title="Emergency Kill Active"
+            message="All positions are being closed."
+            onDismiss={dismissNotification}
+          />
+        )}
+      </NotificationStack>
 
       <div className="flex-1 min-h-0 flex flex-col gap-3">
         {/* Top Panels: scroll if too tall (prevents bot cards from being pushed off-screen) */}
