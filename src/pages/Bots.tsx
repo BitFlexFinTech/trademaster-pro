@@ -1740,10 +1740,7 @@ export default function Bots() {
               <TradingStatusCard />
             </div>
 
-            {/* Trading Analytics Dashboard */}
-            <div className="mt-4">
-              <TradeAnalyticsDashboard defaultExpanded={false} />
-            </div>
+            {/* TradeAnalyticsDashboard moved to Bot Analytics tab */}
 
             {/* Comprehensive Analytics Dashboard */}
             <Collapsible defaultOpen={false} className="mt-4">
