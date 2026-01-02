@@ -1146,6 +1146,45 @@ export type Database = {
         }
         Relationships: []
       }
+      user_exchange_fees: {
+        Row: {
+          bnb_discount: boolean | null
+          created_at: string | null
+          exchange_name: string
+          fee_tier: string | null
+          id: string
+          maker_fee: number | null
+          okx_discount: boolean | null
+          taker_fee: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          bnb_discount?: boolean | null
+          created_at?: string | null
+          exchange_name: string
+          fee_tier?: string | null
+          id?: string
+          maker_fee?: number | null
+          okx_discount?: boolean | null
+          taker_fee?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          bnb_discount?: boolean | null
+          created_at?: string | null
+          exchange_name?: string
+          fee_tier?: string | null
+          id?: string
+          maker_fee?: number | null
+          okx_discount?: boolean | null
+          taker_fee?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string

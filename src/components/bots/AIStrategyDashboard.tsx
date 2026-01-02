@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { Brain, Calculator, TrendingUp, Zap, DollarSign, Target, RefreshCw, Check, AlertTriangle, Settings2 } from 'lucide-react';
+import { Brain, Calculator, TrendingUp, Zap, DollarSign, Target, RefreshCw, Check, AlertTriangle, Settings2, BarChart3, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,12 +10,17 @@ import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
-import { useBotStrategyAI, StrategyRecommendation } from '@/hooks/useBotStrategyAI';
+import { useBotStrategyAI } from '@/hooks/useBotStrategyAI';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import {
+  calculatePositionSizesForAllExchanges,
+  calculatePositionForOneDollarProfit,
+  DEFAULT_EXCHANGE_FEES,
+} from '@/lib/positionSizing';
 
-// Exchange fee rates
+// Exchange fee rates (fallback)
 const EXCHANGE_FEES: Record<string, number> = {
   binance: 0.001,
   bybit: 0.001,
@@ -34,6 +39,17 @@ interface PositionCalculation {
   estimatedDailyProfit: number;
 }
 
+interface ExchangePositionResult {
+  exchange: string;
+  tier: string;
+  hasDiscount: boolean;
+  effectiveFeeRate: number;
+  positionNeeded: number;
+  requiredMove: number;
+  isViable: boolean;
+  reason?: string;
+}
+
 export function AIStrategyDashboard() {
   const { user } = useAuth();
   const { recommendation, loading, applying, fetchRecommendation, applyRecommendation, lastUpdated } = useBotStrategyAI();
@@ -48,6 +64,11 @@ export function AIStrategyDashboard() {
   const [targetProfit, setTargetProfit] = useState(1.00);
   const [calcEntryPrice, setCalcEntryPrice] = useState(95000);
 
+  // Position sizing by exchange state
+  const [exchangePositions, setExchangePositions] = useState<ExchangePositionResult[]>([]);
+  const [loadingPositions, setLoadingPositions] = useState(false);
+  const [portfolioBalance, setPortfolioBalance] = useState(5000);
+
   // Load auto-apply setting from database
   useEffect(() => {
     if (!user) return;
@@ -57,7 +78,7 @@ export function AIStrategyDashboard() {
         .from('bot_config')
         .select('auto_apply_ai')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
       
       if (data) {
         setAutoApplyEnabled(data.auto_apply_ai ?? false);
@@ -66,6 +87,30 @@ export function AIStrategyDashboard() {
     
     loadSettings();
   }, [user]);
+
+  // Fetch position sizes for all exchanges using user's VIP settings
+  const fetchExchangePositions = useCallback(async () => {
+    if (!user) return;
+    
+    setLoadingPositions(true);
+    try {
+      const results = await calculatePositionSizesForAllExchanges(
+        user.id,
+        portfolioBalance,
+        ['binance', 'okx', 'bybit']
+      );
+      setExchangePositions(results);
+    } catch (err) {
+      console.error('Failed to fetch position sizes:', err);
+    } finally {
+      setLoadingPositions(false);
+    }
+  }, [user, portfolioBalance]);
+
+  // Load exchange positions on mount
+  useEffect(() => {
+    fetchExchangePositions();
+  }, [fetchExchangePositions]);
 
   // Auto-apply when recommendation changes and enabled
   useEffect(() => {
@@ -135,6 +180,15 @@ export function AIStrategyDashboard() {
     };
   }, [calcExchange, calcPositionSize, targetProfit, calcEntryPrice]);
 
+  // Find the best exchange (lowest position requirement)
+  const bestExchange = useMemo(() => {
+    const viable = exchangePositions.filter(e => e.isViable);
+    if (viable.length === 0) return null;
+    return viable.reduce((best, current) => 
+      current.positionNeeded < best.positionNeeded ? current : best
+    );
+  }, [exchangePositions]);
+
   return (
     <div className="space-y-4">
       {/* Header with Auto-Apply Toggle */}
@@ -173,17 +227,132 @@ export function AIStrategyDashboard() {
         </div>
       </div>
 
-      <Tabs defaultValue="calculator" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+      <Tabs defaultValue="position-sizing" className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="position-sizing" className="gap-1">
+            <BarChart3 className="w-3 h-3" />
+            Position Sizing
+          </TabsTrigger>
           <TabsTrigger value="calculator" className="gap-1">
             <Calculator className="w-3 h-3" />
-            $1 Profit Calculator
+            $1 Calculator
           </TabsTrigger>
           <TabsTrigger value="recommendation" className="gap-1">
             <Brain className="w-3 h-3" />
             AI Recommendation
           </TabsTrigger>
         </TabsList>
+
+        {/* Position Sizing by Exchange */}
+        <TabsContent value="position-sizing" className="mt-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Target className="w-4 h-4 text-primary" />
+                  Position Sizing for $1 Net Profit
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={fetchExchangePositions}
+                  disabled={loadingPositions}
+                >
+                  <RefreshCw className={cn("w-3 h-3", loadingPositions && "animate-spin")} />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Portfolio Balance Input */}
+              <div className="flex items-center gap-4">
+                <Label className="text-xs whitespace-nowrap">Portfolio Balance:</Label>
+                <div className="flex-1">
+                  <Slider
+                    value={[portfolioBalance]}
+                    onValueChange={([v]) => setPortfolioBalance(v)}
+                    min={100}
+                    max={50000}
+                    step={100}
+                  />
+                </div>
+                <span className="text-sm font-bold min-w-[80px] text-right">${portfolioBalance.toLocaleString()}</span>
+              </div>
+
+              {/* Exchange comparison table */}
+              <div className="space-y-2">
+                {loadingPositions ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : exchangePositions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No exchange data available. Configure your fee settings in Settings.
+                  </p>
+                ) : (
+                  exchangePositions.map((result) => (
+                    <div
+                      key={result.exchange}
+                      className={cn(
+                        "p-3 rounded-lg border",
+                        result.exchange === bestExchange?.exchange
+                          ? "bg-primary/10 border-primary/30"
+                          : "bg-muted/30"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold capitalize">{result.exchange}</span>
+                          <Badge variant="outline" className="text-xs">
+                            {result.tier}
+                          </Badge>
+                          {result.hasDiscount && (
+                            <Badge variant="secondary" className="text-xs">
+                              <Sparkles className="w-3 h-3 mr-1" />
+                              Discount
+                            </Badge>
+                          )}
+                          {result.exchange === bestExchange?.exchange && (
+                            <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                              Best
+                            </Badge>
+                          )}
+                        </div>
+                        {result.isViable ? (
+                          <div className="text-right">
+                            <div className="text-xl font-bold text-primary">
+                              ${result.positionNeeded.toFixed(0)}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {(result.effectiveFeeRate * 100).toFixed(3)}% fee • {result.requiredMove.toFixed(3)}% move
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-right">
+                            <span className="text-sm text-red-400">{result.reason}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {bestExchange && (
+                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-green-400" />
+                    <span className="text-sm">
+                      <strong className="capitalize">{bestExchange.exchange}</strong> requires the smallest position (${bestExchange.positionNeeded.toFixed(0)}) for $1 profit
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    With your ${portfolioBalance.toLocaleString()} portfolio, you can open up to {Math.floor(portfolioBalance * 0.5 / bestExchange.positionNeeded)} trades simultaneously.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* $1 Profit Calculator */}
         <TabsContent value="calculator" className="mt-4">
@@ -272,21 +441,21 @@ export function AIStrategyDashboard() {
                   
                   <div className="p-3 rounded-lg bg-background border">
                     <div className="text-xs text-muted-foreground">Round-Trip Fees</div>
-                    <div className="text-xl font-bold text-loss">
+                    <div className="text-xl font-bold text-red-400">
                       ${calculation.estimatedFees.toFixed(2)}
                     </div>
                   </div>
                   
                   <div className="p-3 rounded-lg bg-background border">
                     <div className="text-xs text-muted-foreground">Take Profit Price</div>
-                    <div className="text-xl font-bold text-profit">
+                    <div className="text-xl font-bold text-green-400">
                       ${calculation.tpPrice.toFixed(2)}
                     </div>
                   </div>
                   
                   <div className="p-3 rounded-lg bg-background border">
                     <div className="text-xs text-muted-foreground">Net Profit</div>
-                    <div className="text-xl font-bold text-profit">
+                    <div className="text-xl font-bold text-green-400">
                       ${calculation.netProfit.toFixed(2)}
                     </div>
                   </div>
@@ -297,7 +466,7 @@ export function AIStrategyDashboard() {
                     <span className="text-xs text-muted-foreground">Est. Daily Profit</span>
                     <Badge variant="outline">{calculation.tradesPerDay} trades/day</Badge>
                   </div>
-                  <div className="text-2xl font-bold text-profit">
+                  <div className="text-2xl font-bold text-green-400">
                     ${calculation.estimatedDailyProfit.toFixed(2)}
                   </div>
                 </div>

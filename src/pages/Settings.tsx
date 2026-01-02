@@ -4,12 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Settings as SettingsIcon, Link, AlertTriangle, CheckCircle2, Unlink, RefreshCw, Loader2, Bell, DollarSign, TrendingDown, Target, Volume2 } from 'lucide-react';
+import { Settings as SettingsIcon, Link, AlertTriangle, CheckCircle2, Unlink, RefreshCw, Loader2, Bell, DollarSign, TrendingDown, Target } from 'lucide-react';
 import { ExchangeConnectModal } from '@/components/exchange/ExchangeConnectModal';
 import { SecurityConfigPanel } from '@/components/settings/SecurityConfigPanel';
 import { SoundNotificationSettings } from '@/components/settings/SoundNotificationSettings';
 import { JarvisSettingsPanel } from '@/components/settings/JarvisSettingsPanel';
 import { ColorThemeSwitcher } from '@/components/settings/ColorThemeSwitcher';
+import { ExchangeFeeSettings } from '@/components/settings/ExchangeFeeSettings';
 import { ExchangeStatusWidget } from '@/components/dashboard/ExchangeStatusWidget';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -404,6 +405,9 @@ export default function Settings() {
 
       {/* Color Theme Switcher */}
       <ColorThemeSwitcher />
+
+      {/* Exchange Fee Configuration */}
+      <ExchangeFeeSettings />
 
       {/* Exchange Status Widget */}
       <ExchangeStatusWidget />

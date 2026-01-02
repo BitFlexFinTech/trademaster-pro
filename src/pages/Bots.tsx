@@ -208,40 +208,41 @@ export default function Bots() {
       try {
         const parsed = JSON.parse(saved);
         return {
-          dailyTarget: parsed.dailyTarget ?? 40,
-          profitPerTrade: parsed.profitPerTrade ?? 0.50,
-          amountPerTrade: parsed.amountPerTrade ?? 100,
+          dailyTarget: parsed.dailyTarget ?? 20,
+          // ENFORCE $1 minimum profit per trade
+          profitPerTrade: Math.max(parsed.profitPerTrade ?? 1.00, 1.00),
+          amountPerTrade: parsed.amountPerTrade ?? 250,
           tradeIntervalMs: parsed.tradeIntervalMs ?? 60000, // 60s default
           maxPositionSize: parsed.maxPositionSize ?? 5000,
-          dailyStopLoss: parsed.dailyStopLoss ?? 5,
-          perTradeStopLoss: parsed.perTradeStopLoss ?? 0.10,
+          dailyStopLoss: parsed.dailyStopLoss ?? 0, // No stop-loss in $1 strategy
+          perTradeStopLoss: parsed.perTradeStopLoss ?? 0,
           focusPairs: parsed.focusPairs ?? [...TOP_PAIRS],
           leverageDefaults: parsed.leverageDefaults ?? EXCHANGE_CONFIGS.reduce((acc, config) => ({
             ...acc,
             [config.name]: Math.min(3, config.maxLeverage),
           }), {} as Record<string, number>),
           autoSpeedAdjust: parsed.autoSpeedAdjust ?? true,
-          minProfitThreshold: parsed.minProfitThreshold ?? 0.0005,
+          minProfitThreshold: parsed.minProfitThreshold ?? 1.00, // $1 target
           autoWithdrawOnTarget: parsed.autoWithdrawOnTarget ?? true,
         };
       } catch { /* ignore parse errors */ }
     }
-    // Default values if no saved settings
+    // Default values if no saved settings - $1 profit strategy
     return {
-      dailyTarget: 40,
-      profitPerTrade: 0.50,
-      amountPerTrade: 100,
+      dailyTarget: 20,
+      profitPerTrade: 1.00, // $1 minimum profit per trade
+      amountPerTrade: 250, // Position size for $1 profit
       tradeIntervalMs: 60000, // 60s default (user requested)
       maxPositionSize: 5000,
-      dailyStopLoss: 5,
-      perTradeStopLoss: 0.10,
+      dailyStopLoss: 0, // No stop-loss
+      perTradeStopLoss: 0, // Disabled
       focusPairs: [...TOP_PAIRS],
       leverageDefaults: EXCHANGE_CONFIGS.reduce((acc, config) => ({
         ...acc,
         [config.name]: Math.min(3, config.maxLeverage),
       }), {} as Record<string, number>),
       autoSpeedAdjust: true,
-      minProfitThreshold: 0.0005, // 0.05% default for adaptive profit-taking
+      minProfitThreshold: 1.00, // $1 target
       autoWithdrawOnTarget: true, // Auto-withdraw when daily target is reached
     };
   };
