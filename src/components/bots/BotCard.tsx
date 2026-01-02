@@ -119,6 +119,7 @@ export function BotCard({
     isConnected: wsConnected, 
     getSerializablePrices, 
     wsState,
+    latencyMetrics,
   } = useBinanceWebSocket();
 
   // Core trading config - use botConfig props as source of truth, only override with existingBot if running
@@ -2002,7 +2003,7 @@ export function BotCard({
               </Tooltip>
             </TooltipProvider>
           )}
-          {/* WebSocket Price Feed Status - shows when bot is running */}
+          {/* WebSocket Price Feed Status with Latency - shows when bot is running */}
           {isRunning && (
             <TooltipProvider>
               <Tooltip>
@@ -2015,19 +2016,45 @@ export function BotCard({
                     )}
                   >
                     {wsConnected ? (
-                      <Wifi className="w-2.5 h-2.5 text-primary shrink-0" />
+                      <>
+                        <Wifi className="w-2.5 h-2.5 text-primary shrink-0" />
+                        <span className="hidden sm:inline text-primary">
+                          {latencyMetrics.wsAvgLatencyMs < 1 ? '<1' : Math.round(latencyMetrics.wsAvgLatencyMs)}ms
+                        </span>
+                      </>
                     ) : (
-                      <WifiOff className="w-2.5 h-2.5 text-muted-foreground shrink-0" />
+                      <>
+                        <WifiOff className="w-2.5 h-2.5 text-muted-foreground shrink-0" />
+                        <span className="hidden sm:inline">REST</span>
+                      </>
                     )}
-                    <span className="hidden sm:inline">
-                      {wsConnected ? 'WS' : 'REST'}
-                    </span>
                   </Badge>
                 </TooltipTrigger>
-                <TooltipContent>
-                  {wsConnected 
-                    ? `⚡ WebSocket prices active (${wsState.latencyMs}ms latency)` 
-                    : '🔄 Using REST API fallback for prices'}
+                <TooltipContent className="w-56">
+                  <div className="space-y-1.5 text-xs">
+                    <div className="font-medium border-b pb-1">Price Feed Latency</div>
+                    <div className="flex justify-between">
+                      <span>⚡ WebSocket:</span>
+                      <span className={wsConnected ? 'text-green-500' : 'text-muted-foreground'}>
+                        {latencyMetrics.wsAvgLatencyMs < 1 ? '<1' : Math.round(latencyMetrics.wsAvgLatencyMs)}ms avg
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>🐢 REST fallback:</span>
+                      <span className="text-yellow-500">
+                        {latencyMetrics.restAvgLatencyMs > 0 ? `${Math.round(latencyMetrics.restAvgLatencyMs)}ms` : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Updates/sec:</span>
+                      <span className="text-primary">{latencyMetrics.wsUpdatesPerSec.toFixed(0)}</span>
+                    </div>
+                    {latencyMetrics.restAvgLatencyMs > 0 && latencyMetrics.wsAvgLatencyMs > 0 && (
+                      <div className="text-green-500 text-center pt-1 border-t">
+                        WebSocket is {Math.round(latencyMetrics.restAvgLatencyMs / Math.max(1, latencyMetrics.wsAvgLatencyMs))}x faster
+                      </div>
+                    )}
+                  </div>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
