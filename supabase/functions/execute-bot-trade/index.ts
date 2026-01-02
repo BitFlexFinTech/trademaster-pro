@@ -464,7 +464,120 @@ function calculateSLPrice(
     : entryPrice * (1 + slDistance);
 }
 
-// ============ JARVIS FUTURES CONFIG ============
+// ============ EXECUTE SINGLE TRADE ON SPECIFIC EXCHANGE ============
+// Helper function for parallel multi-exchange trading
+async function executeSingleTradeOnExchange(
+  supabaseClient: any, // Using any to avoid complex generic typing issues
+  user: { id: string },
+  exData: {
+    connection: { exchange_name: string };
+    exchangeName: string;
+    apiKey: string;
+    apiSecret: string;
+    passphrase: string;
+    balance: number;
+    lotInfo: { stepSize: string; minQty: string; minNotional: number };
+  },
+  pair: string,
+  direction: 'long' | 'short',
+  currentPrice: number,
+  positionSize: number,
+  leverage: number,
+  botId: string,
+  isSandbox: boolean
+): Promise<{ success: boolean; tradeId?: string; error?: string }> {
+  const symbol = pair.replace('/', '');
+  const exchangeName = exData.exchangeName;
+  const feeRate = EXCHANGE_FEES[exchangeName] || 0.001;
+  
+  try {
+    // Calculate quantity
+    const rawQuantity = positionSize / currentPrice;
+    const quantity = roundToStepSize(rawQuantity, exData.lotInfo.stepSize);
+    const side = direction === 'long' ? 'BUY' : 'SELL';
+    
+    console.log(`🔄 Executing ${direction.toUpperCase()} ${pair} on ${exchangeName}: $${positionSize} @ ${currentPrice}`);
+    
+    // Execute order based on exchange
+    let entryOrder: { orderId?: string; avgPrice?: number } | null = null;
+    
+    if (exchangeName === 'binance') {
+      const clientOrderId = `${botId.slice(0, 8)}_${side}_${Date.now()}`;
+      entryOrder = await placeBinanceOrder(exData.apiKey, exData.apiSecret, symbol, side, quantity, clientOrderId);
+    } else if (exchangeName === 'bybit') {
+      entryOrder = await placeBybitOrder(exData.apiKey, exData.apiSecret, symbol, side === 'BUY' ? 'Buy' : 'Sell', quantity);
+    } else if (exchangeName === 'okx') {
+      entryOrder = await placeOKXOrder(exData.apiKey, exData.apiSecret, exData.passphrase, pair.replace('/', '-'), side.toLowerCase(), quantity);
+    } else if (exchangeName === 'kraken') {
+      entryOrder = await placeKrakenOrder(exData.apiKey, exData.apiSecret, symbol, side.toLowerCase(), quantity);
+    }
+    
+    if (!entryOrder) {
+      return { success: false, error: 'Order placement failed' };
+    }
+    
+    const entryPrice = entryOrder.avgPrice || currentPrice;
+    
+    // Calculate take profit price for $1 NET profit
+    const roundTripFees = positionSize * feeRate * 2;
+    const targetNetProfit = 1.00;
+    const requiredGrossProfit = targetNetProfit + roundTripFees;
+    const requiredMovePercent = requiredGrossProfit / positionSize;
+    
+    const takeProfitPrice = direction === 'long'
+      ? entryPrice * (1 + requiredMovePercent)
+      : entryPrice * (1 - requiredMovePercent);
+    
+    // Record trade as OPEN
+    const { data: insertedTrade, error: insertError } = await supabaseClient.from('trades').insert({
+      user_id: user.id,
+      pair,
+      direction,
+      entry_price: entryPrice,
+      exit_price: null,
+      amount: positionSize,
+      leverage,
+      profit_loss: null,
+      profit_percentage: null,
+      exchange_name: exData.connection.exchange_name,
+      is_sandbox: isSandbox,
+      status: 'open',
+      bot_run_id: botId,
+      target_profit_usd: 1.00,
+      holding_for_profit: true,
+    }).select().single();
+    
+    if (insertError) {
+      console.error(`Failed to insert trade record:`, insertError);
+      return { success: false, error: 'Failed to record trade' };
+    }
+    
+    console.log(`✅ Trade opened: ${insertedTrade?.id} | ${direction.toUpperCase()} ${pair} @ ${entryPrice.toFixed(2)} | TP: ${takeProfitPrice.toFixed(2)}`);
+    
+    // Create alert
+    await supabaseClient.from('alerts').insert({
+      user_id: user.id,
+      title: `📈 ${direction.toUpperCase()} ${pair}`,
+      message: `Opened on ${exData.connection.exchange_name} @ $${entryPrice.toFixed(2)} | Target: $1.00 profit`,
+      alert_type: 'position_opened',
+      data: { 
+        tradeId: insertedTrade?.id,
+        symbol,
+        direction,
+        entryPrice,
+        takeProfitPrice,
+        targetProfitUsd: 1.00,
+        exchange: exchangeName
+      }
+    });
+    
+    return { success: true, tradeId: insertedTrade?.id };
+  } catch (e) {
+    console.error(`executeSingleTradeOnExchange error:`, e);
+    return { success: false, error: e instanceof Error ? e.message : 'Unknown error' };
+  }
+}
+
 const JARVIS_FUTURES_CONFIG = {
   default_leverage: 4,
   effective_multiplier: 4,
@@ -1710,9 +1823,9 @@ serve(async (req) => {
       });
     }
     
-    // ========== BUG-005 FIX: PER-PAIR COOLDOWN ==========
-    // Check for recent trades on this pair to prevent rapid duplicate entries
-    const PAIR_COOLDOWN_SECONDS = 60; // 60 second cooldown per pair
+    // ========== BUG-005 FIX: REDUCED PAIR COOLDOWN FOR FASTER TRADING ==========
+    // CHANGED: Reduced from 60s to 5s to allow rapid trading across pairs
+    const PAIR_COOLDOWN_SECONDS = 5; // Was 60, now 5 seconds
     const { data: recentPairTrades } = await supabase
       .from('trades')
       .select('created_at')
@@ -1859,37 +1972,13 @@ serve(async (req) => {
     // to use the correct balance from the selected exchange
     console.log(`Initial position size estimate: $${positionSize.toFixed(2)} (will be recalculated after exchange selection)`);
 
-    // Check for open positions BEFORE proceeding
-    // Calculate max positions dynamically based on available balance
-    const maxConcurrentPositions = calculateMaxPositions(availableBalance, FIXED_POSITION_SIZE);
-    const totalMaxPositions = maxConcurrentPositions * connections.length;
+    // ============ PARALLEL TRADING: CALCULATE POSITIONS PER EXCHANGE ============
+    // CRITICAL FIX: Calculate max positions for EACH exchange based on ITS balance
+    // NOT a global calculation - each exchange has its own slots
     
-    if (!isSandbox) {
-      const { count: openPositions, error: countError } = await supabase
-        .from('trades')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('status', 'open')
-        .eq('is_sandbox', false);
-
-      if (!countError && openPositions !== null && openPositions >= totalMaxPositions) {
-        console.log(`⏸️ Max concurrent positions reached (${openPositions}/${totalMaxPositions} open, based on $${availableBalance.toFixed(2)} balance), skipping trade`);
-        return new Response(
-          JSON.stringify({
-            success: false,
-            skipped: true,
-            reason: `Max ${totalMaxPositions} open positions reached (${openPositions} open)`,
-            openPositions,
-            maxPositions: totalMaxPositions,
-            balance: availableBalance,
-          }),
-          {
-            status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
-        );
-      }
-    }
+    // We'll calculate per-exchange limits AFTER we collect validExchanges
+    // For now, skip the global position check - it will be done per-exchange below
+    console.log(`📊 PARALLEL TRADING MODE: Will check positions per-exchange after balance collection`);
 
     
     // ============ COLLECT ALL EXCHANGES WITH SUFFICIENT BALANCE ============
@@ -2075,6 +2164,176 @@ serve(async (req) => {
     
     console.log(`📊 PARALLEL TRADING: Found ${validExchanges.length} exchanges with sufficient balance`);
     
+    // ============ PARALLEL MULTI-EXCHANGE, MULTI-PAIR, DUAL-DIRECTION TRADING ============
+    // Execute trades on ALL exchanges with available slots, ALL pairs, BOTH directions
+    
+    if (!isSandbox && validExchanges.length > 0) {
+      // Calculate positions per exchange and available slots
+      interface ExchangeSlots {
+        max: number;
+        open: number;
+        available: number;
+      }
+      const exchangeSlots: Record<string, ExchangeSlots> = {};
+      
+      for (const validEx of validExchanges) {
+        const maxForExchange = calculateMaxPositions(validEx.balance, FIXED_POSITION_SIZE);
+        
+        // Count open positions for THIS exchange specifically
+        const { count: openOnExchange } = await supabase
+          .from('trades')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('status', 'open')
+          .eq('is_sandbox', false)
+          .eq('exchange_name', validEx.connection.exchange_name);
+        
+        const openCount = openOnExchange || 0;
+        const availableSlots = Math.max(0, maxForExchange - openCount);
+        
+        exchangeSlots[validEx.exchangeName] = {
+          max: maxForExchange,
+          open: openCount,
+          available: availableSlots
+        };
+        
+        console.log(`📊 ${validEx.connection.exchange_name}: $${validEx.balance.toFixed(2)} balance, ${maxForExchange} max, ${openCount} open, ${availableSlots} available slots`);
+      }
+      
+      // Check if ANY exchange has available slots
+      const totalAvailableSlots = Object.values(exchangeSlots).reduce((sum, s) => sum + s.available, 0);
+      
+      if (totalAvailableSlots === 0) {
+        console.log(`⏸️ All exchanges at max capacity`);
+        return new Response(JSON.stringify({
+          skipped: true,
+          reason: 'All exchanges at max capacity',
+          exchangeSlots
+        }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      
+      // ============ MULTI-PAIR, MULTI-DIRECTION PARALLEL EXECUTION ============
+      // Trade on ALL pairs with available slots, enable LONG+SHORT simultaneously
+      
+      const TOP_10_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT', 
+                           'BNB/USDT', 'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'MATIC/USDT'];
+      
+      const tradesOpened: Array<{ pair: string; direction: string; exchange: string; success: boolean }> = [];
+      
+      // For each exchange with available slots
+      for (const exData of validExchanges) {
+        const slots = exchangeSlots[exData.exchangeName];
+        if (slots.available <= 0) {
+          console.log(`⏭️ Skipping ${exData.exchangeName}: no available slots`);
+          continue;
+        }
+        
+        let slotsUsed = 0;
+        
+        // Try each pair until slots are full
+        for (const tradePair of TOP_10_PAIRS) {
+          if (slotsUsed >= slots.available) break;
+          
+          const tradeSymbol = tradePair.replace('/', '');
+          const tradePrice = await fetchPrice(tradePair);
+          if (tradePrice === 0) continue;
+          
+          // Get direction from MTF analysis
+          const mtfAnalysis = await analyzeMultiTimeframeMomentum(tradePair);
+          
+          // Check if LONG position exists for this pair+exchange
+          const { data: existingLong } = await supabase
+            .from('trades')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('pair', tradePair)
+            .eq('direction', 'long')
+            .eq('exchange_name', exData.connection.exchange_name)
+            .eq('status', 'open')
+            .limit(1);
+          
+          // Open LONG if not exists and MTF suggests bullish (or neutral)
+          if (!existingLong?.length && slotsUsed < slots.available) {
+            if (mtfAnalysis.direction === 'long' || mtfAnalysis.confidence < 60) {
+              try {
+                const longResult = await executeSingleTradeOnExchange(
+                  supabase, user, exData, tradePair, 'long', tradePrice, 
+                  FIXED_POSITION_SIZE, leverage, botId, isSandbox
+                );
+                if (longResult.success) {
+                  slotsUsed++;
+                  tradesOpened.push({ pair: tradePair, direction: 'long', exchange: exData.exchangeName, success: true });
+                  console.log(`✅ Opened LONG ${tradePair} on ${exData.exchangeName}`);
+                }
+              } catch (e) {
+                console.error(`Failed LONG ${tradePair} on ${exData.exchangeName}:`, e);
+                tradesOpened.push({ pair: tradePair, direction: 'long', exchange: exData.exchangeName, success: false });
+              }
+            }
+          }
+          
+          // In LEVERAGE mode, also check for SHORT positions on different pairs
+          if (mode === 'leverage' && slotsUsed < slots.available) {
+            const { data: existingShort } = await supabase
+              .from('trades')
+              .select('id')
+              .eq('user_id', user.id)
+              .eq('pair', tradePair)
+              .eq('direction', 'short')
+              .eq('exchange_name', exData.connection.exchange_name)
+              .eq('status', 'open')
+              .limit(1);
+            
+            // Open SHORT if MTF suggests bearish
+            if (!existingShort?.length && mtfAnalysis.direction === 'short' && mtfAnalysis.confidence >= 60) {
+              try {
+                const shortResult = await executeSingleTradeOnExchange(
+                  supabase, user, exData, tradePair, 'short', tradePrice,
+                  FIXED_POSITION_SIZE, leverage, botId, isSandbox
+                );
+                if (shortResult.success) {
+                  slotsUsed++;
+                  tradesOpened.push({ pair: tradePair, direction: 'short', exchange: exData.exchangeName, success: true });
+                  console.log(`✅ Opened SHORT ${tradePair} on ${exData.exchangeName}`);
+                }
+              } catch (e) {
+                console.error(`Failed SHORT ${tradePair} on ${exData.exchangeName}:`, e);
+                tradesOpened.push({ pair: tradePair, direction: 'short', exchange: exData.exchangeName, success: false });
+              }
+            }
+          }
+        }
+        
+        console.log(`📊 ${exData.exchangeName}: Opened ${slotsUsed} new positions`);
+      }
+      
+      // If we opened trades via parallel execution, return success
+      if (tradesOpened.length > 0) {
+        const successfulTrades = tradesOpened.filter(t => t.success);
+        
+        // Update bot trades count
+        if (bot && successfulTrades.length > 0) {
+          const newTrades = (bot.trades_executed || 0) + successfulTrades.length;
+          await supabase.from("bot_runs").update({
+            trades_executed: newTrades,
+          }).eq("id", botId);
+        }
+        
+        return new Response(JSON.stringify({
+          success: true,
+          parallelExecution: true,
+          tradesOpened: successfulTrades.length,
+          tradesFailed: tradesOpened.length - successfulTrades.length,
+          details: tradesOpened,
+          exchangeSlots,
+          message: `Opened ${successfulTrades.length} positions across ${validExchanges.length} exchanges`
+        }), { 
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        });
+      }
+    }
+    
     // If no exchange with sufficient balance found in LIVE mode
     if (!isSandbox && validExchanges.length === 0) {
       const message = insufficientBalanceExchanges.length > 0
@@ -2102,27 +2361,22 @@ serve(async (req) => {
       exchangeName = selectedExchange.exchange_name.toLowerCase();
     }
 
-    // ============ FINAL POSITION SIZING - FIXED $333 PER TRADE ============
-    // CRITICAL FIX: Use FIXED $333 per trade, not dynamic balance-based sizing
-    // This ensures the bot opens multiple trades instead of using whole balance
+    // ============ FALLBACK: SINGLE TRADE EXECUTION (SANDBOX OR LEGACY) ============
     const FINAL_POSITION_SIZE = FIXED_POSITION_SIZE; // $333 fixed
     
     // Only cap if exchange balance is too low
     if (freeBalance > 0 && freeBalance < FINAL_POSITION_SIZE) {
-      // If balance is less than $333, we can't trade - skip
       console.warn(`⚠️ Exchange ${selectedExchange.exchange_name} has $${freeBalance.toFixed(2)} but needs $${FINAL_POSITION_SIZE} minimum`);
     } else if (freeBalance > 0) {
-      // Cap at 25% of balance to allow multiple concurrent trades
       positionSize = Math.min(FINAL_POSITION_SIZE, freeBalance * 0.25);
     } else {
-      // Sandbox or unknown balance - use fixed size
       positionSize = FINAL_POSITION_SIZE;
     }
     
-    // Enforce minimum
     positionSize = Math.max(positionSize, MIN_POSITION_SIZE);
     
-    console.log(`📊 FINAL POSITION SIZE: $${positionSize.toFixed(2)} (fixed: $${FINAL_POSITION_SIZE}, exchange: ${selectedExchange.exchange_name}, balance: $${freeBalance.toFixed(2)})`);
+    console.log(`📊 FALLBACK POSITION SIZE: $${positionSize.toFixed(2)} (exchange: ${selectedExchange.exchange_name}, balance: $${freeBalance.toFixed(2)})`);
+    
     
     let tradeResult = {
       success: true,
