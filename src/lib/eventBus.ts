@@ -19,6 +19,7 @@ interface EventMap {
   };
   'sync:triggered': { timestamp: Date };
   'hitrate:updated': { current: number; target: number };
+  'portfolio_updated': { payload?: unknown };
 }
 
 type EventName = keyof EventMap;

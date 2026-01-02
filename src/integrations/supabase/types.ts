@@ -859,6 +859,63 @@ export type Database = {
           },
         ]
       }
+      profit_badges: {
+        Row: {
+          badge_name: string
+          badge_type: string
+          data: Json | null
+          earned_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          badge_name: string
+          badge_type: string
+          data?: Json | null
+          earned_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          badge_name?: string
+          badge_type?: string
+          data?: Json | null
+          earned_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profit_goals: {
+        Row: {
+          created_at: string
+          daily_target: number
+          id: string
+          monthly_target: number
+          updated_at: string
+          user_id: string
+          weekly_target: number
+        }
+        Insert: {
+          created_at?: string
+          daily_target?: number
+          id?: string
+          monthly_target?: number
+          updated_at?: string
+          user_id: string
+          weekly_target?: number
+        }
+        Update: {
+          created_at?: string
+          daily_target?: number
+          id?: string
+          monthly_target?: number
+          updated_at?: string
+          user_id?: string
+          weekly_target?: number
+        }
+        Relationships: []
+      }
       regime_history: {
         Row: {
           created_at: string | null
@@ -1047,6 +1104,7 @@ export type Database = {
           lessons_learned: string | null
           leverage: number | null
           market_context: string | null
+          mtf_analysis: Json | null
           notes: string | null
           pair: string
           profit_loss: number | null
@@ -1074,6 +1132,7 @@ export type Database = {
           lessons_learned?: string | null
           leverage?: number | null
           market_context?: string | null
+          mtf_analysis?: Json | null
           notes?: string | null
           pair: string
           profit_loss?: number | null
@@ -1101,6 +1160,7 @@ export type Database = {
           lessons_learned?: string | null
           leverage?: number | null
           market_context?: string | null
+          mtf_analysis?: Json | null
           notes?: string | null
           pair?: string
           profit_loss?: number | null

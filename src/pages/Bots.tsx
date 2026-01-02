@@ -68,6 +68,7 @@ import { NotificationPopup, NotificationStack } from '@/components/bots/Notifica
 import { BotsOnboardingTips } from '@/components/bots/BotsOnboardingTips';
 import { ProfitTargetWizard } from '@/components/wizard/ProfitTargetWizard';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
+import { ProfitGoalTracker } from '@/components/bots/ProfitGoalTracker';
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AuditReport } from '@/lib/selfAuditReporter';
@@ -1230,6 +1231,9 @@ export default function Bots() {
               className="mb-3"
             />
           )}
+
+          {/* Profit Goal Tracker */}
+          <ProfitGoalTracker className="mb-3" compact />
 
           {/* Exchange Re-Connection Warning - Live Mode Only */}
           {tradingMode === 'live' && needsReconnection.length > 0 && (
