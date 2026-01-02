@@ -959,15 +959,40 @@ export function BotCard({
           console.log('✅ Live trade result:', JSON.stringify(data, null, 2));
           console.log(`   Trade cycle took: ${Date.now() - tradeStartTime}ms`);
           
-          // TELEMETRY: Log market state detection for debugging
+          // TELEMETRY: Log market state detection for debugging with styled output
           if (data?.telemetry) {
             const t = data.telemetry;
-            console.log(`📊 [TELEMETRY] Market State: ${t.marketState || 'UNKNOWN'}`);
-            console.log(`   Avg Momentum: ${t.avgMomentum ? (t.avgMomentum * 100).toFixed(3) + '%' : 'N/A'}`);
-            console.log(`   Selected Direction: ${t.selectedDirection || 'N/A'}`);
-            console.log(`   Reasoning: ${t.reasoning || 'N/A'}`);
+            
+            // Prominent styled console output for market state
             if (t.marketState === 'BEARISH') {
-              console.log(`📉 BEARISH market detected - forcing SHORT trades in leverage mode`);
+              console.log('%c📉 BEARISH MARKET DETECTED', 
+                'color: #ff6b6b; font-size: 16px; font-weight: bold; background: #2a1515; padding: 4px 8px; border-radius: 4px');
+              console.log(`   Pair: ${t.pair}`);
+              console.log(`   Momentum: ${t.avgMomentum ? (t.avgMomentum * 100).toFixed(3) + '%' : 'N/A'}`);
+              console.log(`   Direction: ${t.selectedDirection?.toUpperCase() || 'N/A'} (${t.confidence || 0}% confidence)`);
+              console.log(`   Mode: ${t.mode} | SHORT ${t.mode === 'leverage' ? '✅ ENABLED' : '❌ DISABLED (spot mode)'}`);
+              console.log(`   Reasoning: ${t.reasoning || 'N/A'}`);
+            } else if (t.marketState === 'BULLISH') {
+              console.log('%c📈 BULLISH MARKET DETECTED', 
+                'color: #51cf66; font-size: 16px; font-weight: bold; background: #152a15; padding: 4px 8px; border-radius: 4px');
+              console.log(`   Pair: ${t.pair} | Direction: ${t.selectedDirection?.toUpperCase() || 'LONG'}`);
+              console.log(`   Momentum: ${t.avgMomentum ? (t.avgMomentum * 100).toFixed(3) + '%' : 'N/A'}`);
+            } else {
+              console.log('%c↔️ NEUTRAL MARKET', 
+                'color: #ffd43b; font-size: 14px; font-weight: bold');
+              console.log(`   Pair: ${t.pair} | Momentum: ${t.avgMomentum ? (t.avgMomentum * 100).toFixed(3) + '%' : 'N/A'}`);
+            }
+            
+            // Log multi-exchange parallel execution details
+            if (data?.parallelExecution) {
+              console.log(`%c🌐 MULTI-EXCHANGE PARALLEL TRADING`, 
+                'color: #74c0fc; font-size: 14px; font-weight: bold');
+              console.log(`   Trades opened: ${data.tradesOpened}/${data.tradesOpened + (data.tradesFailed || 0)}`);
+              if (data.exchangeDetails) {
+                data.exchangeDetails.forEach((ex: { name: string; balance?: number; tradesOpened: number; slotsAvailable?: number; slotsMax?: number }) => {
+                  console.log(`   ├─ ${ex.name}: ${ex.tradesOpened} opened | $${ex.balance?.toFixed(2) || '?'} balance | ${ex.slotsAvailable || '?'}/${ex.slotsMax || '?'} slots`);
+                });
+              }
             }
           }
           
