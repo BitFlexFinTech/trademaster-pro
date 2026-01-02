@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -94,8 +94,10 @@ export function useTradeAnalytics(days: number = 30) {
     setError(null);
 
     try {
+      // Use UTC for consistent date calculations
       const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
+      startDate.setUTCDate(startDate.getUTCDate() - days);
+      startDate.setUTCHours(0, 0, 0, 0);
 
       const { data: trades, error: tradesError } = await supabase
         .from('trades')
@@ -251,6 +253,28 @@ export function useTradeAnalytics(days: number = 30) {
   useEffect(() => {
     fetchAnalytics();
   }, [fetchAnalytics]);
+
+  // Subscribe to trade updates for real-time refresh
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel('trade-analytics-realtime')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'trades',
+        filter: `user_id=eq.${user.id}`,
+      }, () => {
+        // Refresh analytics when trades change
+        fetchAnalytics();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, fetchAnalytics]);
 
   return { analytics, isLoading, error, refresh: fetchAnalytics };
 }
