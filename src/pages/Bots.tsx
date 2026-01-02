@@ -44,6 +44,7 @@ import { BalanceRequirementBanner } from '@/components/bots/BalanceRequirementBa
 // ProfitEnginePanel moved to BotAnalytics
 import { StuckTradesBanner } from '@/components/bots/StuckTradesBanner';
 import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
+import { TotalUnrealizedPnLWidget } from '@/components/bots/TotalUnrealizedPnLWidget';
 import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummaryCard';
 import { ActivityTerminal } from '@/components/bots/ActivityTerminal';
@@ -1696,6 +1697,9 @@ export default function Bots() {
 
             {/* Middle Column - Live P&L Dashboard */}
             <div className="lg:col-span-4 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
+              {/* Total Unrealized P&L Widget */}
+              <TotalUnrealizedPnLWidget />
+              
               {/* Live P&L Dashboard */}
               <LivePnLDashboard className="flex-1" />
 

@@ -574,6 +574,78 @@ export function BotCard({
     };
   }, [user, existingBot?.id]);
 
+  // ===== IMMEDIATE TRADE RESTART AFTER CLOSURE =====
+  const immediateTradeSearchRef = useRef<NodeJS.Timeout | null>(null);
+  const lastClosedTradeIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.id || !isRunning || tradingMode !== 'live') return;
+    
+    console.log('📡 Setting up trade closure listener for immediate restart');
+    
+    const closureChannel = supabase
+      .channel(`bot-trade-closures-${existingBot?.id || 'new'}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'trades',
+        filter: `user_id=eq.${user.id}`
+      }, async (payload) => {
+        // Only trigger on status change from 'open' to 'closed'
+        if (payload.new.status === 'closed' && payload.old?.status === 'open') {
+          console.log(`🎯 Trade ${payload.new.id} closed with profit $${(payload.new.profit_loss || 0).toFixed(2)}`);
+          
+          // Avoid duplicate triggers
+          if (lastClosedTradeIdRef.current === payload.new.id) return;
+          lastClosedTradeIdRef.current = payload.new.id;
+          
+          console.log('🚀 Triggering IMMEDIATE trade search (bypassing interval)');
+          
+          // Clear any pending delayed search
+          if (immediateTradeSearchRef.current) {
+            clearTimeout(immediateTradeSearchRef.current);
+          }
+          
+          // Wait 2 seconds for exchange to settle, then search for new trade
+          immediateTradeSearchRef.current = setTimeout(async () => {
+            if (!isExecutingRef.current && !isCancelledRef.current && !isStoppingRef.current) {
+              console.log('🔄 Executing immediate trade search after close');
+              
+              try {
+                const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
+                  body: {
+                    userId: user.id,
+                    botRunId: existingBot?.id,
+                    mode: botType,
+                    targetProfit: profitPerTrade,
+                    amountPerTrade: localAmountPerTrade,
+                    immediateSearch: true,
+                  }
+                });
+                
+                if (error) {
+                  console.error('❌ Immediate trade search failed:', error);
+                } else {
+                  console.log('✅ Immediate trade search result:', data);
+                }
+              } catch (err) {
+                console.error('❌ Immediate trade search exception:', err);
+              }
+            }
+          }, 2000);
+        }
+      })
+      .subscribe();
+    
+    return () => {
+      console.log('📡 Cleaning up trade closure listener');
+      supabase.removeChannel(closureChannel);
+      if (immediateTradeSearchRef.current) {
+        clearTimeout(immediateTradeSearchRef.current);
+      }
+    };
+  }, [user?.id, isRunning, tradingMode, existingBot?.id, botType, profitPerTrade, localAmountPerTrade]);
+
   useEffect(() => {
     pricesRef.current = prices;
   }, [prices]);
