@@ -2006,6 +2006,25 @@ serve(async (req) => {
     const directionResult = await selectSmartDirection(supabase, user.id, pair, mode);
     const direction = directionResult.direction;
     console.log(`🎯 Direction: ${direction.toUpperCase()} | Confidence: ${directionResult.confidence.toFixed(0)}% | Reason: ${directionResult.reasoning}`);
+    
+    // TELEMETRY: Capture market state for client debugging
+    const mtfAnalysis = directionResult.mtfAnalysis;
+    const avgMomentum = mtfAnalysis?.signals?.reduce((sum: number, s: any) => sum + s.momentum, 0) / (mtfAnalysis?.signals?.length || 1) || 0;
+    const isBearishMarket = mtfAnalysis?.signals?.every((s: any) => s.momentum < 0) && avgMomentum < -0.001;
+    const isBullishMarket = mtfAnalysis?.signals?.every((s: any) => s.momentum > 0) && avgMomentum > 0.001;
+    const marketState = isBearishMarket ? 'BEARISH' : isBullishMarket ? 'BULLISH' : 'NEUTRAL';
+    
+    const telemetry = {
+      marketState,
+      avgMomentum,
+      selectedDirection: direction,
+      confidence: directionResult.confidence,
+      reasoning: directionResult.reasoning,
+      pair,
+      mode,
+      mtfAligned: mtfAnalysis?.aligned || false,
+    };
+    console.log(`📊 TELEMETRY: ${JSON.stringify(telemetry)}`);
 
     // ========== CONSECUTIVE LOSS PROTECTION - IMPROVED ==========
     // Only check losses from last 24 hours (not all-time)
@@ -3034,7 +3053,13 @@ serve(async (req) => {
 
     console.log(`Trade executed: ${pair} ${direction} on ${selectedExchange.exchange_name}, P&L: $${tradeResult.pnl.toFixed(2)}, Real: ${tradeResult.realTrade}`);
 
-    return new Response(JSON.stringify(tradeResult), { 
+    // Include telemetry in response for client debugging
+    const responseWithTelemetry = {
+      ...tradeResult,
+      telemetry: typeof telemetry !== 'undefined' ? telemetry : undefined,
+    };
+
+    return new Response(JSON.stringify(responseWithTelemetry), { 
       headers: { ...corsHeaders, "Content-Type": "application/json" } 
     });
   } catch (error: unknown) {

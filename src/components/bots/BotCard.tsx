@@ -959,6 +959,18 @@ export function BotCard({
           console.log('✅ Live trade result:', JSON.stringify(data, null, 2));
           console.log(`   Trade cycle took: ${Date.now() - tradeStartTime}ms`);
           
+          // TELEMETRY: Log market state detection for debugging
+          if (data?.telemetry) {
+            const t = data.telemetry;
+            console.log(`📊 [TELEMETRY] Market State: ${t.marketState || 'UNKNOWN'}`);
+            console.log(`   Avg Momentum: ${t.avgMomentum ? (t.avgMomentum * 100).toFixed(3) + '%' : 'N/A'}`);
+            console.log(`   Selected Direction: ${t.selectedDirection || 'N/A'}`);
+            console.log(`   Reasoning: ${t.reasoning || 'N/A'}`);
+            if (t.marketState === 'BEARISH') {
+              console.log(`📉 BEARISH market detected - forcing SHORT trades in leverage mode`);
+            }
+          }
+          
           if (data?.success === false) {
             console.warn('⚠️ Trade not executed:', data.reason || data.error);
             
