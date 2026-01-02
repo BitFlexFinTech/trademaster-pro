@@ -49,6 +49,11 @@ import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummaryCard';
 import { ActivityTerminal } from '@/components/bots/ActivityTerminal';
 import { AIStrategyDashboard } from '@/components/bots/AIStrategyDashboard';
+import { ExchangeStatisticsPanel } from '@/components/bots/ExchangeStatisticsPanel';
+import { CumulativeProfitChart } from '@/components/bots/CumulativeProfitChart';
+import { OpenPositionsDashboard } from '@/components/bots/OpenPositionsDashboard';
+import { ProfitBreakdownDashboard } from '@/components/bots/ProfitBreakdownDashboard';
+import { ExchangeSettingsPanel } from '@/components/bots/ExchangeSettingsPanel';
 import { useAutoCompound } from '@/hooks/useAutoCompound';
 
 import { useRegimeTransitionNotifier } from '@/hooks/useRegimeTransitionNotifier';
@@ -1544,8 +1549,8 @@ export default function Bots() {
             onFilterChange={setActiveFilter}
           />
 
-          {/* Activity Terminal - Real-time bot actions */}
-          <ActivityTerminal className="mb-3" maxHeight={180} />
+          {/* Open Positions Dashboard - Real-time P&L */}
+          <OpenPositionsDashboard />
 
           {/* AI Strategy Dashboard - Collapsible Panel */}
           <Collapsible open={aiRecommendationOpen} onOpenChange={setAiRecommendationOpen} className="mb-3">
@@ -1670,7 +1675,7 @@ export default function Bots() {
         <section className="flex-1 min-h-0 overflow-hidden" data-testid="bot-grid">
           <ScrollArea className="h-full">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3 pr-2">
-            {/* Left Column - Spot and Leverage Bot Cards - wrapped in ErrorBoundary */}
+            {/* Left Column - Bot Cards */}
             <ErrorBoundary
               fallback={
                 <div className="lg:col-span-5 card-terminal p-4 text-center">
@@ -1761,42 +1766,27 @@ export default function Bots() {
               </Button>
             </div>
 
-            {/* Right Column - Profit History + Regime Charts */}
+            {/* Right Column - Activity Terminal + Charts */}
             <div className="lg:col-span-3 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
-              {/* Regime Transition Chart - Collapsible */}
-              <Collapsible 
-                open={regimeChartOpen} 
-                onOpenChange={setRegimeChartOpen}
-                className="card-terminal"
-              >
-                <CollapsibleTrigger asChild>
-                  <Button 
-                    variant="ghost" 
-                    className="w-full flex items-center justify-between p-3 h-auto hover:bg-muted/50"
-                  >
-                    <div className="flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4 text-primary" />
-                      <span className="text-xs font-semibold">Regime Transitions</span>
-                      <Badge variant="outline" className="text-[8px]">JARVIS</Badge>
-                    </div>
-                    {regimeChartOpen ? (
-                      <ChevronUp className="h-4 w-4" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4" />
-                    )}
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="px-3 pb-3">
-                  <RegimeTransitionChart timeframeDays={7} />
-                </CollapsibleContent>
-              </Collapsible>
-
-              {/* Regime History Summary Card */}
-              <RegimeHistorySummaryCard />
-
-              {/* Profit Withdrawal History Chart */}
-              <ProfitWithdrawalChart className="flex-1" />
+              {/* Activity Terminal - Tall vertical strip */}
+              <ActivityTerminal className="flex-1" maxHeight={300} />
+              
+              {/* Cumulative Profit Chart */}
+              <CumulativeProfitChart />
             </div>
+            </div>
+
+            {/* Bottom Row - Statistics & Breakdowns */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mt-3">
+              <div className="lg:col-span-4">
+                <ExchangeStatisticsPanel />
+              </div>
+              <div className="lg:col-span-4">
+                <ProfitBreakdownDashboard />
+              </div>
+              <div className="lg:col-span-4">
+                <ExchangeSettingsPanel />
+              </div>
             </div>
           </ScrollArea>
         </section>

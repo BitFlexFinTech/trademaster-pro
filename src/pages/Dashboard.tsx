@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { PortfolioCard } from '@/components/dashboard/PortfolioCard';
 import { BotStrategyAICard } from '@/components/dashboard/BotStrategyAICard';
 import { BotSummaryCard } from '@/components/dashboard/BotSummaryCard';
-import { AiSummaryCard } from '@/components/dashboard/AiSummaryCard';
 import { VideoHighlights } from '@/components/dashboard/VideoHighlights';
 import { GreenBackWidget } from '@/components/dashboard/GreenBackWidget';
 import { NewsSidebar } from '@/components/dashboard/NewsSidebar';
@@ -31,19 +30,16 @@ export default function Dashboard() {
           <JarvisEngineDashboard />
         </div>
         {/* Stats Cards */}
-        <div className="lg:col-span-2 h-[100px] overflow-hidden">
+        <div className="lg:col-span-3 h-[100px] overflow-hidden">
           <PortfolioCard />
         </div>
-        <div className="lg:col-span-2 h-[100px] overflow-hidden">
+        <div className="lg:col-span-4 h-[100px] overflow-hidden">
           <BotStrategyAICard />
-        </div>
-        <div className="lg:col-span-3 h-[100px] overflow-hidden">
-          <AiSummaryCard />
         </div>
       </div>
 
-      {/* Video Highlights - Prominent Row */}
-      <div className="flex-shrink-0 mb-2 h-[220px]">
+      {/* Video Highlights - Compact Horizontal Row */}
+      <div className="flex-shrink-0 mb-2 h-[180px]">
         <VideoHighlights />
       </div>
 

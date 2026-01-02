@@ -37,7 +37,7 @@ interface ActivityTerminalProps {
   maxHeight?: number;
 }
 
-export function ActivityTerminal({ className, maxHeight = 200 }: ActivityTerminalProps) {
+export function ActivityTerminal({ className, maxHeight = 400 }: ActivityTerminalProps) {
   const { user } = useAuth();
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [filter, setFilter] = useState<LogFilter>('all');
@@ -270,7 +270,7 @@ export function ActivityTerminal({ className, maxHeight = 200 }: ActivityTermina
       </div>
 
       {/* Logs */}
-      <ScrollArea className="h-[180px]" style={{ maxHeight: maxHeight }} ref={scrollRef}>
+      <ScrollArea className="flex-1" style={{ maxHeight: maxHeight }} ref={scrollRef}>
         <div className="p-2 space-y-1 font-mono text-[11px]">
           {filteredLogs.length === 0 ? (
             <div className="text-center text-muted-foreground py-8">
