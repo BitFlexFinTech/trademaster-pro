@@ -43,14 +43,11 @@ import { SessionDashboard } from '@/components/bots/SessionDashboard';
 import { BalanceRequirementBanner } from '@/components/bots/BalanceRequirementBanner';
 // ProfitEnginePanel moved to BotAnalytics
 import { StuckTradesBanner } from '@/components/bots/StuckTradesBanner';
-import { LivePnLDashboard } from '@/components/bots/LivePnLDashboard';
-import { TotalUnrealizedPnLWidget } from '@/components/bots/TotalUnrealizedPnLWidget';
 import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummaryCard';
 import { ActivityTerminal } from '@/components/bots/ActivityTerminal';
 // AIStrategyDashboard removed per user request
 import { CumulativeProfitChart } from '@/components/bots/CumulativeProfitChart';
-import { OpenPositionsDashboard } from '@/components/bots/OpenPositionsDashboard';
 import { LiveProfitCounter } from '@/components/bots/LiveProfitCounter';
 import { MarketRegimeIndicator } from '@/components/bots/MarketRegimeIndicator';
 import { TradeQueueVisualization } from '@/components/bots/TradeQueueVisualization';
@@ -65,7 +62,6 @@ import { NotificationPopup, NotificationStack } from '@/components/bots/Notifica
 
 import { BotsOnboardingTips } from '@/components/bots/BotsOnboardingTips';
 import { ProfitTargetWizard } from '@/components/wizard/ProfitTargetWizard';
-import { RealTimeTradingFeed } from '@/components/bots/RealTimeTradingFeed';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 // ProfitGoalTracker removed per user request
 import { MLConfidenceGauge } from '@/components/bots/MLConfidenceGauge';
@@ -76,6 +72,11 @@ import { toast } from 'sonner';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS, EXCHANGE_MINIMUMS, getExchangeMinimum } from '@/lib/exchangeConfig';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
+// NEW: Unified trading components
+import { TradingDataProvider } from '@/contexts/TradingDataContext';
+import { UnifiedTradingDashboard } from '@/components/bots/UnifiedTradingDashboard';
+import { MultiExchangePositionDashboard } from '@/components/bots/MultiExchangePositionDashboard';
+import { TradeReplayHistory } from '@/components/bots/TradeReplayHistory';
 
 interface UsdtFloat {
   exchange: string;
@@ -1048,6 +1049,7 @@ export default function Bots() {
   };
 
   return (
+    <TradingDataProvider>
     <div className="h-[calc(100vh-64px)] flex flex-col overflow-hidden">
       {/* Notification Popups - Bottom Right */}
       <NotificationStack>
@@ -1348,10 +1350,9 @@ export default function Bots() {
             onFilterChange={setActiveFilter}
           />
 
-          {/* Market Regime Indicator + Open Positions Dashboard */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+          {/* Market Regime Indicator */}
+          <div className="mb-3">
             <MarketRegimeIndicator />
-            <OpenPositionsDashboard className="md:col-span-2" />
           </div>
           
           {/* Live Profit Counter */}
@@ -1540,16 +1541,13 @@ export default function Bots() {
               </div>
             </ErrorBoundary>
 
-            {/* Middle Column - Open Positions + Live P&L */}
+            {/* Middle Column - Unified Trading Dashboard */}
             <div className="lg:col-span-4 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
-              {/* Open Positions Dashboard - Horizontal list layout */}
-              <OpenPositionsDashboard className="flex-shrink-0" />
+              {/* Unified Trading Dashboard - Merged positions + trades */}
+              <UnifiedTradingDashboard className="flex-1 min-h-0" />
               
-              {/* Total Unrealized P&L Widget */}
-              <TotalUnrealizedPnLWidget />
-              
-              {/* Live P&L Dashboard */}
-              <LivePnLDashboard className="flex-1 min-h-0" />
+              {/* Multi-Exchange Position View */}
+              <MultiExchangePositionDashboard />
 
               {/* Link to full analytics page */}
               <Button asChild variant="outline" className="h-8 gap-2">
@@ -1560,10 +1558,10 @@ export default function Bots() {
               </Button>
             </div>
 
-            {/* Right Column - Real-Time Trading Feed + Charts */}
+            {/* Right Column - Trade Replay History + Charts */}
             <div className="lg:col-span-3 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
-              {/* Real-Time Trading Feed */}
-              <RealTimeTradingFeed className="flex-1" />
+              {/* Trade Replay History */}
+              <TradeReplayHistory className="flex-1 min-h-0" />
               
               {/* Cumulative Profit Chart */}
               <CumulativeProfitChart />
@@ -1628,5 +1626,6 @@ export default function Bots() {
         ))}
       </NotificationStack>
     </div>
+    </TradingDataProvider>
   );
 }
