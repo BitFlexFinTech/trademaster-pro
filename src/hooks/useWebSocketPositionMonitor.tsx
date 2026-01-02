@@ -10,6 +10,7 @@ export interface OpenPosition {
   direction: 'long' | 'short';
   exchange: string;
   leverage?: number;
+  openedAt?: number;
 }
 
 interface UseWebSocketPositionMonitorProps {
@@ -131,6 +132,7 @@ export function useWebSocketPositionMonitor({
           profitPercent: 0,
           isFresh: false,
           progressToTarget: 0,
+          openedAt: position.openedAt,
         };
       }
 
@@ -145,6 +147,7 @@ export function useWebSocketPositionMonitor({
         profitPercent,
         isFresh: tradingData.isFresh,
         progressToTarget,
+        openedAt: position.openedAt,
       };
     });
   }, [openPositions, getTradingData, feeRate, profitTarget]);

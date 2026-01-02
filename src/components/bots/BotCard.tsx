@@ -16,6 +16,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useOrderBookScanning } from '@/hooks/useOrderBookScanning';
 import { useJarvisRegime } from '@/hooks/useJarvisRegime';
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
+import { useExecutionBenchmark } from '@/hooks/useExecutionBenchmark';
 import { supabase } from '@/integrations/supabase/client';
 import { EXCHANGE_CONFIGS, EXCHANGE_ALLOCATION_PERCENTAGES, TOP_PAIRS } from '@/lib/exchangeConfig';
 import { calculateNetProfit, MIN_NET_PROFIT, getFeeRate, hasMinimumEdge, calculateRequiredTPPercent } from '@/lib/exchangeFees';
@@ -33,6 +34,9 @@ import { usePositionAutoScaling } from '@/hooks/usePositionAutoScaling';
 import { useAutoCompound } from '@/hooks/useAutoCompound';
 import { useBotStrategyAI } from '@/hooks/useBotStrategyAI';
 import { toast } from 'sonner';
+import { LivePositionProfitTracker } from './LivePositionProfitTracker';
+import { ExecutionBenchmarkDashboard } from './ExecutionBenchmarkDashboard';
+import { OpenPosition } from '@/hooks/useWebSocketPositionMonitor';
 import {
   Tooltip,
   TooltipContent,
@@ -213,6 +217,19 @@ export function BotCard({
     holdTimeMs: number;
     maxProfit: number;
   } | null>(null);
+
+  // Open positions for WebSocket monitoring
+  const [openPositions, setOpenPositions] = useState<OpenPosition[]>([]);
+  
+  // Execution benchmark tracking
+  const { 
+    currentMetrics: benchmarkMetrics,
+    aggregates: benchmarkAggregates,
+    startTiming: startBenchmark,
+    recordStage: recordBenchmarkStage,
+    finishTiming: finishBenchmark,
+    resetBenchmarks,
+  } = useExecutionBenchmark();
 
   // Adaptive trading engine for position sizing based on hit rate
   const { 
@@ -897,6 +914,9 @@ export function BotCard({
           }
           
           // STEP 2: Open new trades
+          // Start benchmark timing
+          startBenchmark();
+          
           console.log('📤 Step 2: Calling execute-bot-trade edge function...');
           console.log('   Request payload:', JSON.stringify({
             botId: existingBot.id,
@@ -907,10 +927,16 @@ export function BotCard({
             maxPositionSize: localAmountPerTrade,
           }, null, 2));
           
+          // Record signal detection complete
+          recordBenchmarkStage('signal');
+          
           let data, error;
           try {
             // Get real-time WebSocket prices for faster execution
             const realtimePrices = wsConnected ? getSerializablePrices() : undefined;
+            
+            // Record analysis complete
+            recordBenchmarkStage('analysis');
             
             // FIXED: Use FIXED_POSITION_SIZE ($333) for consistent $1 profit trades
             const result = await supabase.functions.invoke('execute-bot-trade', {
@@ -1045,6 +1071,35 @@ export function BotCard({
           
           if (data?.exchange) {
             setActiveExchange(data.exchange);
+          }
+          
+          // Record benchmark timing
+          recordBenchmarkStage('order');
+          
+          // Add opened trades to open positions for WebSocket monitoring
+          if (data?.tradesOpened > 0 && data?.tradeDetails) {
+            const newPositions: OpenPosition[] = data.tradeDetails.map((trade: any) => ({
+              id: trade.tradeId || `${trade.exchange}-${trade.pair}-${Date.now()}`,
+              symbol: trade.pair?.replace('/', '') || trade.symbol,
+              pair: trade.pair,
+              entryPrice: trade.entryPrice,
+              amount: trade.positionSize,
+              direction: trade.direction || 'long',
+              exchange: trade.exchange,
+              leverage: trade.leverage || 1,
+              openedAt: Date.now(),
+            }));
+            
+            if (newPositions.length > 0) {
+              console.log(`%c📊 Added ${newPositions.length} positions to WebSocket monitor`, 'color: #74c0fc; font-weight: bold');
+              setOpenPositions(prev => [...prev, ...newPositions]);
+            }
+          }
+          
+          // Finish benchmark timing
+          const benchResult = finishBenchmark();
+          if (benchResult) {
+            console.log(`%c⚡ Trade cycle complete in ${benchResult.totalCycleMs}ms`, 'color: #22c55e; font-weight: bold');
           }
           
           // Handle PENDING status - start polling for completion
@@ -2730,6 +2785,46 @@ export function BotCard({
             <span>Max seen: +${activeTrade.maxProfit.toFixed(3)}</span>
           </div>
         </div>
+      )}
+
+      {/* Live Position Profit Tracker - WebSocket-based real-time P&L */}
+      {isRunning && openPositions.length > 0 && (
+        <LivePositionProfitTracker
+          positions={openPositions}
+          profitTarget={profitPerTrade}
+          onProfitTargetHit={async (position, currentPrice, profit) => {
+            console.log(`%c🎯 INSTANT CLOSE TRIGGERED`, 'color: #00ff00; font-size: 16px; font-weight: bold');
+            console.log(`   Position: ${position.pair} on ${position.exchange}`);
+            console.log(`   Profit: $${profit.toFixed(2)}`);
+            
+            // Call check-trade-status with wsInstantClose flag
+            const { data, error } = await supabase.functions.invoke('check-trade-status', {
+              body: {
+                wsInstantClose: true,
+                positionId: position.id,
+                wsCurrentPrice: currentPrice,
+                botId: existingBot?.id,
+              }
+            });
+            
+            if (!error && data?.closed) {
+              // Remove from open positions
+              setOpenPositions(prev => prev.filter(p => p.id !== position.id));
+              toast.success(`🎯 Position closed +$${profit.toFixed(2)}`);
+            }
+          }}
+          className="mb-3"
+        />
+      )}
+
+      {/* Execution Benchmark Dashboard */}
+      {isRunning && (benchmarkMetrics || benchmarkAggregates.cyclesRecorded > 0) && (
+        <ExecutionBenchmarkDashboard
+          currentMetrics={benchmarkMetrics}
+          aggregates={benchmarkAggregates}
+          latencyMetrics={latencyMetrics}
+          className="mb-3"
+        />
       )}
 
       {/* Recent Trades - Last 5 Completed */}
