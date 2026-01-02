@@ -47,7 +47,7 @@ export function OpenPositionsDashboard({ className }: OpenPositionsDashboardProp
   );
   const { signals: mtfSignals } = useMultiTimeframeSignals(symbols);
 
-  // Update P&L every 500ms using WebSocket prices
+  // Update P&L every 100ms using WebSocket prices for millisecond precision
   useEffect(() => {
     const updatePnL = () => {
       const updated = openTrades.map(pos => {
@@ -77,7 +77,7 @@ export function OpenPositionsDashboard({ className }: OpenPositionsDashboardProp
     };
 
     updatePnL();
-    intervalRef.current = setInterval(updatePnL, 500);
+    intervalRef.current = setInterval(updatePnL, 100); // 100ms for millisecond precision
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
@@ -150,38 +150,91 @@ export function OpenPositionsDashboard({ className }: OpenPositionsDashboardProp
             <p className="text-xs">No open positions</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-            {positionsWithPnL.map(pos => (
-              <div 
-                key={pos.id}
-                className={cn(
-                  "p-2.5 rounded-lg border transition-all hover:shadow-md",
-                  pos.pnl >= 0 
-                    ? "border-emerald-500/30 bg-emerald-500/5" 
-                    : "border-amber-500/30 bg-amber-500/5"
-                )}
-              >
-                {/* Header Row with Pair, Direction, and Close Button */}
-                <div className="flex items-center justify-between gap-1 mb-1.5">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="font-semibold text-xs truncate">{pos.pair}</span>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {positionsWithPnL.map(pos => {
+              // Calculate velocity ($ per minute toward target)
+              const elapsedMinutes = (Date.now() - new Date(pos.openedAt).getTime()) / 60000;
+              const velocity = elapsedMinutes > 0 ? pos.pnl / elapsedMinutes : 0;
+              const remainingProfit = pos.targetProfit - pos.pnl;
+              const etaMinutes = velocity > 0 ? remainingProfit / velocity : 999;
+
+              return (
+                <div 
+                  key={pos.id}
+                  className={cn(
+                    "flex items-center gap-4 p-3 rounded-lg border transition-all",
+                    pos.pnl >= 0 
+                      ? "border-emerald-500/30 bg-emerald-500/5" 
+                      : "border-amber-500/30 bg-amber-500/5"
+                  )}
+                >
+                  {/* Pair + Direction */}
+                  <div className="flex items-center gap-2 min-w-[100px]">
                     <Badge 
                       variant="outline" 
                       className={cn(
-                        "text-[8px] h-4 px-1 shrink-0",
-                        pos.direction === 'long' 
-                          ? "text-emerald-400 border-emerald-500/50" 
-                          : "text-red-400 border-red-500/50"
+                        "text-[10px] h-5 px-1.5",
+                        pos.direction === 'long' ? "text-emerald-400 border-emerald-500/50" : "text-red-400 border-red-500/50"
                       )}
                     >
-                      {pos.direction === 'long' ? '↑L' : '↓S'}
+                      {pos.direction === 'long' ? '↑ LONG' : '↓ SHORT'}
                     </Badge>
+                    <span className="font-semibold text-sm">{pos.pair}</span>
                   </div>
-                  {/* Manual Close Button - Always Visible */}
+                  
+                  {/* Exchange Badge */}
+                  <Badge variant="secondary" className="text-[9px] h-4 hidden sm:flex">
+                    {pos.exchange}
+                  </Badge>
+                  
+                  {/* Entry → Current Price */}
+                  <div className="text-xs text-muted-foreground min-w-[140px] hidden md:block">
+                    ${pos.entryPrice.toFixed(pos.entryPrice > 100 ? 2 : 4)} → 
+                    <span className={pos.pnl >= 0 ? "text-profit" : "text-loss"}>
+                      ${pos.currentPrice.toFixed(pos.currentPrice > 100 ? 2 : 4)}
+                    </span>
+                  </div>
+                  
+                  {/* Progress Bar */}
+                  <div className="flex-1 min-w-[80px] max-w-[120px]">
+                    <Progress 
+                      value={Math.min(100, Math.max(0, pos.progressPercent))} 
+                      className="h-2"
+                    />
+                    <span className="text-[10px] text-muted-foreground">
+                      {pos.progressPercent.toFixed(0)}% to $1
+                    </span>
+                  </div>
+                  
+                  {/* Profit Velocity Indicator */}
+                  <div className="flex items-center gap-1 min-w-[70px]">
+                    <Clock className="h-3 w-3 text-muted-foreground" />
+                    <span className={cn(
+                      "text-[10px] font-mono",
+                      velocity > 0.05 ? "text-profit" : velocity < 0 ? "text-loss" : "text-muted-foreground"
+                    )}>
+                      {etaMinutes < 999 
+                        ? `~${Math.ceil(etaMinutes)}m` 
+                        : velocity < 0 ? "⚠️" : "—"
+                      }
+                    </span>
+                  </div>
+                  
+                  {/* P&L Display with Precision */}
+                  <div className="min-w-[60px] text-right">
+                    <span className={cn(
+                      "font-mono font-bold text-sm",
+                      pos.pnl >= 0 ? "text-profit" : "text-loss"
+                    )}>
+                      {pos.pnl >= 0 ? '+' : ''}${pos.pnl.toFixed(3)}
+                    </span>
+                  </div>
+                  
+                  {/* Close Button */}
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-6 px-2 gap-1 shrink-0 border-destructive/50 text-destructive hover:bg-destructive hover:text-white"
+                    className="h-7 px-2 gap-1 border-destructive/50 text-destructive hover:bg-destructive hover:text-white"
                     onClick={() => handleManualClose(pos.id, pos.pair)}
                     disabled={closingTradeId === pos.id}
                   >
@@ -190,60 +243,13 @@ export function OpenPositionsDashboard({ className }: OpenPositionsDashboardProp
                     ) : (
                       <>
                         <X className="h-3 w-3" />
-                        <span className="text-[10px]">Close</span>
+                        Close
                       </>
                     )}
                   </Button>
                 </div>
-
-                {/* P&L Display */}
-                <div className="flex items-center justify-between mb-1">
-                  <span className={cn(
-                    "font-mono font-bold text-sm",
-                    pos.pnl >= 0 ? "text-profit" : "text-loss"
-                  )}>
-                    {pos.pnl >= 0 ? '+' : ''}${pos.pnl.toFixed(2)}
-                  </span>
-                  <ProfitETABadge
-                    pair={pos.pair}
-                    direction={pos.direction}
-                    entryPrice={pos.entryPrice}
-                    currentPnL={pos.pnl}
-                    targetProfit={pos.targetProfit}
-                    positionSize={pos.positionSize}
-                  />
-                </div>
-
-                {/* Price Info */}
-                <div className="flex items-center justify-between text-[9px] text-muted-foreground mb-1">
-                  <span>${pos.entryPrice.toFixed(pos.entryPrice < 1 ? 4 : 2)} → ${pos.currentPrice.toFixed(pos.currentPrice < 1 ? 4 : 2)}</span>
-                  <span className="flex items-center gap-0.5">
-                    <Clock className="h-2 w-2" />
-                    {formatDistanceToNow(pos.openedAt, { addSuffix: false })}
-                  </span>
-                </div>
-
-                {/* Progress Bar */}
-                <Progress 
-                  value={pos.progressPercent} 
-                  className={cn(
-                    "h-1.5",
-                    pos.progressPercent >= 100 ? "bg-emerald-900" : ""
-                  )}
-                />
-                <div className="flex items-center justify-between text-[8px] mt-0.5">
-                  <span className="text-muted-foreground">
-                    {pos.progressPercent.toFixed(0)}% to target
-                  </span>
-                  {pos.progressPercent >= 100 && (
-                    <span className="text-emerald-400 flex items-center gap-0.5">
-                      <Target className="h-2 w-2" />
-                      Target!
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>

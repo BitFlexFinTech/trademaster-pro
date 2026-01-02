@@ -252,6 +252,96 @@ export default function Settings() {
         </div>
       )}
 
+      {/* Connected Exchanges Section - MOVED TO TOP */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Link className="w-5 h-5 text-primary" />
+              <CardTitle>Connected Exchanges</CardTitle>
+            </div>
+            <Button 
+              onClick={() => setShowFuturesWizard(true)}
+              className="gap-2"
+              variant="outline"
+            >
+              <Rocket className="w-4 h-4" />
+              Setup Futures Trading
+            </Button>
+          </div>
+          <CardDescription>
+            Connect your exchange accounts to enable live trading. API keys are encrypted with AES-256-GCM.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {EXCHANGES.map((exchange) => {
+          const connection = connections[exchange.name];
+          const isConnected = connection?.is_connected || false;
+
+          return (
+            <div key={exchange.id} className="card-terminal p-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: exchange.color + '20' }}
+                >
+                  <span
+                    className="w-6 h-6 rounded-full"
+                    style={{ backgroundColor: exchange.color }}
+                  />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-foreground">{exchange.name}</h3>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    {isConnected ? (
+                      <>
+                        <CheckCircle2 className="w-3 h-3 text-primary" />
+                        <span className="text-primary">Connected</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground" />
+                        Not connected
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {isConnected && connection?.permissions && (
+                <div className="mb-4 flex flex-wrap gap-1">
+                  {connection.permissions.map(perm => (
+                    <span key={perm} className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded">
+                      {perm}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <Button
+                className={`w-full gap-2 ${isConnected ? 'bg-muted hover:bg-destructive/20 text-foreground' : 'btn-primary'}`}
+                onClick={() => handleConnectClick(exchange)}
+              >
+                {isConnected ? (
+                  <>
+                    <Unlink className="w-4 h-4" />
+                    Disconnect
+                  </>
+                ) : (
+                  <>
+                    <Link className="w-4 h-4" />
+                    Connect
+                  </>
+                )}
+              </Button>
+            </div>
+          );
+        })}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Alert Thresholds Configuration */}
       <Card>
         <CardHeader>
@@ -417,95 +507,6 @@ export default function Settings() {
       {/* JARVIS Engine Settings */}
       <JarvisSettingsPanel />
 
-      {/* Connected Exchanges Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Link className="w-5 h-5 text-primary" />
-              <CardTitle>Connected Exchanges</CardTitle>
-            </div>
-            <Button 
-              onClick={() => setShowFuturesWizard(true)}
-              className="gap-2"
-              variant="outline"
-            >
-              <Rocket className="w-4 h-4" />
-              Setup Futures Trading
-            </Button>
-          </div>
-          <CardDescription>
-            Connect your exchange accounts to enable live trading. API keys are encrypted with AES-256-GCM.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {EXCHANGES.map((exchange) => {
-          const connection = connections[exchange.name];
-          const isConnected = connection?.is_connected || false;
-
-          return (
-            <div key={exchange.id} className="card-terminal p-4">
-              <div className="flex items-center gap-3 mb-4">
-                <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center"
-                  style={{ backgroundColor: exchange.color + '20' }}
-                >
-                  <span
-                    className="w-6 h-6 rounded-full"
-                    style={{ backgroundColor: exchange.color }}
-                  />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-foreground">{exchange.name}</h3>
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    {isConnected ? (
-                      <>
-                        <CheckCircle2 className="w-3 h-3 text-primary" />
-                        <span className="text-primary">Connected</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                        Not connected
-                      </>
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              {isConnected && connection?.permissions && (
-                <div className="mb-4 flex flex-wrap gap-1">
-                  {connection.permissions.map(perm => (
-                    <span key={perm} className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded">
-                      {perm}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <Button
-                className={`w-full gap-2 ${isConnected ? 'bg-muted hover:bg-destructive/20 text-foreground' : 'btn-primary'}`}
-                onClick={() => handleConnectClick(exchange)}
-              >
-                {isConnected ? (
-                  <>
-                    <Unlink className="w-4 h-4" />
-                    Disconnect
-                  </>
-                ) : (
-                  <>
-                    <Link className="w-4 h-4" />
-                    Connect
-                  </>
-                )}
-              </Button>
-            </div>
-          );
-        })}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Exchange Setup Wizard */}
       <ExchangeSetupWizard 
