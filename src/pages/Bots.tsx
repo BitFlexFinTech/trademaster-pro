@@ -21,8 +21,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn, exportToCSV } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { BotHistory } from '@/components/bots/BotHistory';
-import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
+import { StickyPnLBar, BotFilter } from '@/components/bots/StickyPnLBar';
 import { BotCard } from '@/components/bots/BotCard';
 import { BotCardSkeleton } from '@/components/bots/BotCardSkeleton';
 import { BotMicroCard } from '@/components/bots/BotMicroCard';
@@ -52,7 +51,7 @@ import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummary
 import { useRegimeTransitionNotifier } from '@/hooks/useRegimeTransitionNotifier';
 import { BalanceReconciliationBanner } from '@/components/bots/BalanceReconciliationBanner';
 import { AIRecommendationsPanel } from '@/components/bots/AIRecommendationsPanel';
-import { TradeExecutionStatus } from '@/components/bots/TradeExecutionStatus';
+
 import { BotsOnboardingTips } from '@/components/bots/BotsOnboardingTips';
 import { ProfitTargetWizard } from '@/components/wizard/ProfitTargetWizard';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
@@ -131,6 +130,9 @@ export default function Bots() {
   const [usdtFloatOpen, setUsdtFloatOpen] = useState(false);
   const [aiRecommendationOpen, setAiRecommendationOpen] = useState(false);
   const [regimeChartOpen, setRegimeChartOpen] = useState(false);
+  
+  // Filter state for micro-cards grid
+  const [activeFilter, setActiveFilter] = useState<BotFilter>('all');
   
   // Profit Target Wizard state
   const [showProfitWizard, setShowProfitWizard] = useState(false);
@@ -374,6 +376,38 @@ export default function Bots() {
   const combinedHitRate = tradesExecuted > 0
     ? ((spotBot?.tradesExecuted || 0) * (spotBot?.hitRate || 0) + (leverageBot?.tradesExecuted || 0) * (leverageBot?.hitRate || 0)) / tradesExecuted
     : 70;
+  
+  // Running bot count for sticky P&L bar
+  const runningBotCount = [spotBot, leverageBot].filter(Boolean).length;
+  
+  // Filter historical bots based on active filter
+  const filteredHistoricalBots = useMemo(() => {
+    const historicalBots = bots.filter(b => b.status === 'stopped' && b.id !== spotBot?.id && b.id !== leverageBot?.id);
+    switch (activeFilter) {
+      case 'running': return []; // Historical bots are never running
+      case 'stopped': return historicalBots;
+      case 'profitable': return historicalBots.filter(b => b.currentPnl > 0);
+      case 'losing': return historicalBots.filter(b => b.currentPnl < 0);
+      default: return historicalBots;
+    }
+  }, [activeFilter, bots, spotBot?.id, leverageBot?.id]);
+  
+  // Filter active bots (spot/leverage) based on filter
+  const showSpotBot = useMemo(() => {
+    if (!spotBot && activeFilter === 'running') return false;
+    if (spotBot && activeFilter === 'stopped') return false;
+    if (activeFilter === 'profitable' && (spotBot?.currentPnl || 0) <= 0) return !spotBot || spotBot.currentPnl > 0;
+    if (activeFilter === 'losing' && (spotBot?.currentPnl || 0) >= 0) return !spotBot || spotBot.currentPnl < 0;
+    return true;
+  }, [activeFilter, spotBot]);
+  
+  const showLeverageBot = useMemo(() => {
+    if (!leverageBot && activeFilter === 'running') return false;
+    if (leverageBot && activeFilter === 'stopped') return false;
+    if (activeFilter === 'profitable' && (leverageBot?.currentPnl || 0) <= 0) return !leverageBot || leverageBot.currentPnl > 0;
+    if (activeFilter === 'losing' && (leverageBot?.currentPnl || 0) >= 0) return !leverageBot || leverageBot.currentPnl < 0;
+    return true;
+  }, [activeFilter, leverageBot]);
 
   // Adaptive Trading Engine for risk management
   const {
@@ -1492,10 +1526,12 @@ export default function Bots() {
           </div>
           </TooltipProvider>
 
-          {/* Trade Execution Status Panel - Shows blocked/cooldown/active pairs */}
-          <TradeExecutionStatus 
-            isRunning={!!spotBot || !!leverageBot}
-            className="mb-2"
+          {/* Sticky P&L Bar with Filter Chips */}
+          <StickyPnLBar
+            totalPnL={currentPnL}
+            runningBotCount={runningBotCount}
+            activeFilter={activeFilter}
+            onFilterChange={setActiveFilter}
           />
 
           {/* Profit Engine Status Panel - collapsed by default */}
@@ -1509,59 +1545,62 @@ export default function Bots() {
             className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 mb-3"
             data-testid="bot-micro-grid"
           >
-            {/* Spot Bot Micro Card */}
-            <BotMicroCard
-              botType="spot"
-              botName="GreenBack Spot"
-              isRunning={!!spotBot}
-              currentPnL={spotBot?.currentPnl || 0}
-              tradesExecuted={spotBot?.tradesExecuted || 0}
-              hitRate={spotBot?.hitRate || 0}
-              dailyTarget={botConfig.dailyTarget}
-              lastTradeTime={spotBot?.startedAt ? new Date(spotBot.startedAt) : undefined}
-              isLoading={loading}
-              onStart={() => {
-                startBot(
-                  'GreenBack Spot',
-                  'spot',
-                  botConfig.dailyTarget,
-                  botConfig.profitPerTrade,
-                  tradingMode === 'demo',
-                  botConfig.amountPerTrade,
-                  botConfig.tradeIntervalMs
-                );
-              }}
-              onStop={() => spotBot && handleStopBot(spotBot.id, 'GreenBack Spot')}
-            />
+            {/* Spot Bot Micro Card - respects filter */}
+            {showSpotBot && (
+              <BotMicroCard
+                botType="spot"
+                botName="GreenBack Spot"
+                isRunning={!!spotBot}
+                currentPnL={spotBot?.currentPnl || 0}
+                tradesExecuted={spotBot?.tradesExecuted || 0}
+                hitRate={spotBot?.hitRate || 0}
+                dailyTarget={botConfig.dailyTarget}
+                lastTradeTime={spotBot?.startedAt ? new Date(spotBot.startedAt) : undefined}
+                isLoading={loading}
+                onStart={() => {
+                  startBot(
+                    'GreenBack Spot',
+                    'spot',
+                    botConfig.dailyTarget,
+                    botConfig.profitPerTrade,
+                    tradingMode === 'demo',
+                    botConfig.amountPerTrade,
+                    botConfig.tradeIntervalMs
+                  );
+                }}
+                onStop={() => spotBot && handleStopBot(spotBot.id, 'GreenBack Spot')}
+              />
+            )}
 
-            {/* Leverage Bot Micro Card */}
-            <BotMicroCard
-              botType="leverage"
-              botName="GreenBack Leverage"
-              isRunning={!!leverageBot}
-              currentPnL={leverageBot?.currentPnl || 0}
-              tradesExecuted={leverageBot?.tradesExecuted || 0}
-              hitRate={leverageBot?.hitRate || 0}
-              dailyTarget={botConfig.dailyTarget}
-              lastTradeTime={leverageBot?.startedAt ? new Date(leverageBot.startedAt) : undefined}
-              isLoading={loading}
-              onStart={() => {
-                startBot(
-                  'GreenBack Leverage',
-                  'leverage',
-                  botConfig.dailyTarget,
-                  botConfig.profitPerTrade,
-                  tradingMode === 'demo',
-                  botConfig.amountPerTrade,
-                  botConfig.tradeIntervalMs
-                );
-              }}
-              onStop={() => leverageBot && handleStopBot(leverageBot.id, 'GreenBack Leverage')}
-            />
+            {/* Leverage Bot Micro Card - respects filter */}
+            {showLeverageBot && (
+              <BotMicroCard
+                botType="leverage"
+                botName="GreenBack Leverage"
+                isRunning={!!leverageBot}
+                currentPnL={leverageBot?.currentPnl || 0}
+                tradesExecuted={leverageBot?.tradesExecuted || 0}
+                hitRate={leverageBot?.hitRate || 0}
+                dailyTarget={botConfig.dailyTarget}
+                lastTradeTime={leverageBot?.startedAt ? new Date(leverageBot.startedAt) : undefined}
+                isLoading={loading}
+                onStart={() => {
+                  startBot(
+                    'GreenBack Leverage',
+                    'leverage',
+                    botConfig.dailyTarget,
+                    botConfig.profitPerTrade,
+                    tradingMode === 'demo',
+                    botConfig.amountPerTrade,
+                    botConfig.tradeIntervalMs
+                  );
+                }}
+                onStop={() => leverageBot && handleStopBot(leverageBot.id, 'GreenBack Leverage')}
+              />
+            )}
 
-            {/* Historical Bot Runs - Display as micro cards */}
-            {bots
-              .filter(b => b.status === 'stopped' && b.id !== spotBot?.id && b.id !== leverageBot?.id)
+            {/* Historical Bot Runs - filtered by active filter */}
+            {filteredHistoricalBots
               .slice(0, 10) // Show up to 10 historical bots
               .map((bot) => (
                 <BotMicroCard
@@ -1594,7 +1633,7 @@ export default function Bots() {
           </div>
         </div>
 
-        {/* Bot Cards: Fixed height with internal scroll - page should NOT scroll */}
+        {/* Bot Cards at TOP: Fixed height with internal scroll - page should NOT scroll */}
         <section className="flex-1 min-h-0 overflow-hidden" data-testid="bot-grid">
           <ScrollArea className="h-full">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3 pr-2">
@@ -1675,32 +1714,21 @@ export default function Bots() {
               </div>
             </ErrorBoundary>
 
-            {/* Middle Column - Live P&L Dashboard + Recent Trades */}
+            {/* Middle Column - Live P&L Dashboard */}
             <div className="lg:col-span-4 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
               {/* Live P&L Dashboard */}
-              <LivePnLDashboard className="max-h-[350px] overflow-y-auto" />
+              <LivePnLDashboard className="flex-1" />
 
               {/* Link to full analytics page */}
               <Button asChild variant="outline" className="h-8 gap-2">
                 <Link to="/bot-analytics">
                   <Brain className="w-4 h-4" />
-                  View Full Analytics Dashboard
+                  View Full Analytics (Trades, History, Execution)
                 </Link>
               </Button>
-
-              {/* Recent Trades */}
-              <div className="card-terminal p-3 flex flex-col flex-1 min-h-[200px]">
-                <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
-                  Recent Trades
-                  <Badge variant="outline" className="text-[8px] ml-auto">Live</Badge>
-                </h3>
-                <div className="flex-1 overflow-auto">
-                  <RecentBotTrades />
-                </div>
-              </div>
             </div>
 
-            {/* Right Column - Profit History + Bot History */}
+            {/* Right Column - Profit History + Regime Charts */}
             <div className="lg:col-span-3 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
               {/* Regime Transition Chart - Collapsible */}
               <Collapsible 
@@ -1711,10 +1739,10 @@ export default function Bots() {
                 <CollapsibleTrigger asChild>
                   <Button 
                     variant="ghost" 
-                    className="w-full flex items-center justify-between p-3 h-auto hover:bg-slate-800/50"
+                    className="w-full flex items-center justify-between p-3 h-auto hover:bg-muted/50"
                   >
                     <div className="flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4 text-purple-500" />
+                      <TrendingUp className="h-4 w-4 text-primary" />
                       <span className="text-xs font-semibold">Regime Transitions</span>
                       <Badge variant="outline" className="text-[8px]">JARVIS</Badge>
                     </div>
@@ -1734,17 +1762,7 @@ export default function Bots() {
               <RegimeHistorySummaryCard />
 
               {/* Profit Withdrawal History Chart */}
-              <ProfitWithdrawalChart className="max-h-[400px] overflow-y-auto" />
-
-              {/* Bot History */}
-              <div className="card-terminal p-3 flex flex-col flex-1 min-h-[200px]">
-                <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-2">
-                  Bot History
-                </h3>
-                <div className="flex-1 overflow-auto">
-                  <BotHistory bots={bots} onViewAnalysis={analyzeBot} />
-                </div>
-              </div>
+              <ProfitWithdrawalChart className="flex-1" />
             </div>
             </div>
           </ScrollArea>

@@ -19,14 +19,16 @@ import { JarvisPerformanceAnalytics } from '@/components/bots/JarvisPerformanceA
 import { RegimePerformanceChart } from '@/components/bots/RegimePerformanceChart';
 import { RegimeTransitionHistoryTable } from '@/components/bots/RegimeTransitionHistoryTable';
 import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
+import { BotHistory } from '@/components/bots/BotHistory';
+import { TradeExecutionStatus } from '@/components/bots/TradeExecutionStatus';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity } from 'lucide-react';
+import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity, Clock, List, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
 export default function BotAnalytics() {
-  const { bots } = useBotRuns();
+  const { bots, analyzeBot } = useBotRuns();
   const { mode: tradingMode, virtualBalance, baseBalancePerExchange } = useTradingMode();
   
   // Find active bots
@@ -135,7 +137,7 @@ export default function BotAnalytics() {
 
       {/* Tabs */}
       <Tabs defaultValue="strategy" className="flex-1 min-h-0 flex flex-col">
-        <TabsList className="grid w-full grid-cols-6 flex-shrink-0">
+        <TabsList className="grid w-full grid-cols-9 flex-shrink-0">
           <TabsTrigger value="strategy" className="text-xs gap-1">
             <Brain className="w-3 h-3" />
             Strategy
@@ -151,6 +153,18 @@ export default function BotAnalytics() {
           <TabsTrigger value="profits" className="text-xs gap-1">
             <Wallet className="w-3 h-3" />
             Profits
+          </TabsTrigger>
+          <TabsTrigger value="execution" className="text-xs gap-1">
+            <Zap className="w-3 h-3" />
+            Execution
+          </TabsTrigger>
+          <TabsTrigger value="trades" className="text-xs gap-1">
+            <List className="w-3 h-3" />
+            Trades
+          </TabsTrigger>
+          <TabsTrigger value="history" className="text-xs gap-1">
+            <Clock className="w-3 h-3" />
+            History
           </TabsTrigger>
           <TabsTrigger value="regime" className="text-xs gap-1">
             <Activity className="w-3 h-3" />
@@ -207,6 +221,28 @@ export default function BotAnalytics() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <LivePnLDashboard />
               <ProfitWithdrawalChart />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="execution" className="m-0 h-full">
+            <TradeExecutionStatus isRunning={!!activeBot} className="h-full" />
+          </TabsContent>
+
+          <TabsContent value="trades" className="m-0 h-full">
+            <div className="card-terminal p-4 h-full">
+              <h3 className="text-sm font-semibold mb-3">Recent Trades</h3>
+              <div className="h-[calc(100%-2rem)] overflow-auto">
+                <RecentBotTrades />
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="history" className="m-0 h-full">
+            <div className="card-terminal p-4 h-full">
+              <h3 className="text-sm font-semibold mb-3">Bot Run History</h3>
+              <div className="h-[calc(100%-2rem)] overflow-auto">
+                <BotHistory bots={bots} onViewAnalysis={analyzeBot} />
+              </div>
             </div>
           </TabsContent>
 
