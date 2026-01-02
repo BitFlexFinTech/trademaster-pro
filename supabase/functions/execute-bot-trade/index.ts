@@ -518,9 +518,11 @@ async function executeSingleTradeOnExchange(
     
     const entryPrice = entryOrder.avgPrice || currentPrice;
     
-    // Calculate take profit price for $1 NET profit
+    // Calculate take profit price - $1 for SPOT, $3 for LEVERAGE
+    const isLeverage = leverage > 1;
+    const targetNetProfit = isLeverage ? 3.00 : 1.00;
+    
     const roundTripFees = positionSize * feeRate * 2;
-    const targetNetProfit = 1.00;
     const requiredGrossProfit = targetNetProfit + roundTripFees;
     const requiredMovePercent = requiredGrossProfit / positionSize;
     
@@ -528,7 +530,7 @@ async function executeSingleTradeOnExchange(
       ? entryPrice * (1 + requiredMovePercent)
       : entryPrice * (1 - requiredMovePercent);
     
-    // Record trade as OPEN
+    // Record trade as OPEN with correct target based on mode
     const { data: insertedTrade, error: insertError } = await supabaseClient.from('trades').insert({
       user_id: user.id,
       pair,
@@ -543,7 +545,7 @@ async function executeSingleTradeOnExchange(
       is_sandbox: isSandbox,
       status: 'open',
       bot_run_id: botId,
-      target_profit_usd: 1.00,
+      target_profit_usd: targetNetProfit,
       holding_for_profit: true,
     }).select().single();
     
@@ -1092,9 +1094,12 @@ async function selectSmartDirection(
   // First, run Multi-Timeframe chart analysis
   const mtfAnalysis = await analyzeMultiTimeframeMomentum(pair);
   
-  // If MTF signals are aligned with >= 70% confidence, use that direction
-  if (mtfAnalysis.aligned && mtfAnalysis.confidence >= 70) {
-    console.log(`✅ Using MTF direction: ${mtfAnalysis.direction} (${mtfAnalysis.confidence}% confidence)`);
+  // If MTF signals are aligned with good confidence, use that direction
+  // FIXED: Lower threshold for SHORT signals from 70 to 55
+  const mtfThreshold = mtfAnalysis.direction === 'short' ? 55 : 70;
+  
+  if (mtfAnalysis.aligned && mtfAnalysis.confidence >= mtfThreshold) {
+    console.log(`✅ Using MTF direction: ${mtfAnalysis.direction} (${mtfAnalysis.confidence}% confidence, threshold: ${mtfThreshold})`);
     return {
       direction: mtfAnalysis.direction,
       confidence: mtfAnalysis.confidence,
@@ -2284,7 +2289,7 @@ serve(async (req) => {
             }
           }
           
-          // In LEVERAGE mode, also check for SHORT positions on different pairs
+          // In LEVERAGE mode, also check for SHORT positions - LOWERED THRESHOLD FOR MORE SHORTS
           if (mode === 'leverage' && slotsUsed < slots.available) {
             const { data: existingShort } = await supabase
               .from('trades')
@@ -2296,8 +2301,13 @@ serve(async (req) => {
               .eq('status', 'open')
               .limit(1);
             
-            // Open SHORT if MTF suggests bearish
-            if (!existingShort?.length && mtfAnalysis.direction === 'short' && mtfAnalysis.confidence >= 60) {
+            // FIXED: Lower confidence threshold from 60 to 50 for SHORT, also allow if momentum is negative
+            const shouldShort = !existingShort?.length && (
+              (mtfAnalysis.direction === 'short' && mtfAnalysis.confidence >= 50) ||
+              (mtfAnalysis.signals && mtfAnalysis.signals[0]?.momentum < -0.1)
+            );
+            
+            if (shouldShort) {
               try {
                 const shortResult = await executeSingleTradeOnExchange(
                   supabase, user, exData, tradePair, 'short', tradePrice,
