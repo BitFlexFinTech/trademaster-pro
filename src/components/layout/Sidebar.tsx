@@ -4,8 +4,6 @@ import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
   TrendingUp,
-  Zap,
-  Gift,
   BarChart3,
   Shield,
   FlaskConical,
@@ -33,14 +31,11 @@ import { Badge } from '@/components/ui/badge';
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/portfolio', icon: Wallet, label: 'Portfolio' },
-  { to: '/signals', icon: TrendingUp, label: 'Signals' },
-  { to: '/auto-earn', icon: Zap, label: 'Auto Earn' },
   { to: '/bots', icon: Bot, label: 'Bots' },
   { to: '/bot-analytics', icon: Brain, label: 'Bot Analytics' },
   { to: '/trades-history', icon: BarChart3, label: 'Trades History' },
   { to: '/pair-performance', icon: BarChart3, label: 'Pair Analytics' },
   { to: '/arbitrage', icon: ArrowRightLeft, label: 'Arbitrage' },
-  { to: '/airdrops', icon: Gift, label: 'Airdrops' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/risk', icon: Shield, label: 'Risk' },
   { to: '/sandbox', icon: FlaskConical, label: 'Sandbox' },

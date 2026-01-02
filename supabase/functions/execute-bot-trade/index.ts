@@ -2472,6 +2472,40 @@ serve(async (req) => {
           }).eq("id", botId);
         }
         
+        // Build exchange details for telemetry
+        const exchangeDetails = validExchanges.map(ex => {
+          const exSlots = exchangeSlots[ex.exchangeName] || { available: 0, max: 0 };
+          return {
+            name: ex.exchangeName,
+            balance: ex.balance,
+            slotsAvailable: exSlots.available,
+            slotsMax: exSlots.max,
+            tradesOpened: tradesOpened.filter(t => t.exchange === ex.exchangeName && t.success).length,
+            tradesAttempted: tradesOpened.filter(t => t.exchange === ex.exchangeName).length,
+          };
+        });
+        
+        // Build telemetry object for client-side debugging
+        const telemetry = {
+          marketState: isBearishMarket ? 'BEARISH' : isBullishMarket ? 'BULLISH' : 'NEUTRAL',
+          avgMomentum: avgMomentum,
+          selectedDirection: direction,
+          confidence: 0,
+          reasoning: isBearishMarket ? 'Bearish momentum detected' : isBullishMarket ? 'Bullish momentum detected' : 'Neutral market',
+          pair: selectedPair,
+          mode: mode,
+          shortEnabled: mode === 'leverage',
+          mtfAligned: false,
+        };
+        
+        console.log(`🌐 MULTI-EXCHANGE PARALLEL TRADING COMPLETE:`);
+        console.log(`   Mode: ${mode.toUpperCase()}`);
+        console.log(`   Market State: ${telemetry.marketState}`);
+        console.log(`   Trades opened: ${successfulTrades.length}/${tradesOpened.length}`);
+        exchangeDetails.forEach(ex => {
+          console.log(`   ├─ ${ex.name}: ${ex.tradesOpened}/${ex.tradesAttempted} trades | $${ex.balance.toFixed(2)} | ${ex.slotsAvailable}/${ex.slotsMax} slots`);
+        });
+        
         return new Response(JSON.stringify({
           success: true,
           parallelExecution: true,
@@ -2479,6 +2513,8 @@ serve(async (req) => {
           tradesFailed: tradesOpened.length - successfulTrades.length,
           details: tradesOpened,
           exchangeSlots,
+          exchangeDetails,
+          telemetry,
           message: `Opened ${successfulTrades.length} positions across ${validExchanges.length} exchanges`
         }), { 
           status: 200,
