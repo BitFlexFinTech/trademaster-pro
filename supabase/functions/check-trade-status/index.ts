@@ -524,13 +524,165 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold, forceCloseTradeId, diagnoseTradeId, cleanupStaleTrades, forceCloseAll } = body;
+    const { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold, forceCloseTradeId, diagnoseTradeId, cleanupStaleTrades, forceCloseAll, wsInstantClose, wsCurrentPrice, wsDetectedProfit } = body;
 
-    console.log(`Check trade status request:`, { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold, forceCloseTradeId, diagnoseTradeId, cleanupStaleTrades, forceCloseAll });
+    console.log(`Check trade status request:`, { exchange, orderId, symbol, tradeId, ocoOrderListId, checkOpenPositions, profitThreshold, forceCloseTradeId, diagnoseTradeId, cleanupStaleTrades, forceCloseAll, wsInstantClose });
 
     // Get user's profit threshold from bot_config or use default
     const minProfitThreshold = profitThreshold || DEFAULT_PROFIT_THRESHOLD;
     const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
+
+    // ============ FAST-PATH: WebSocket Instant Close ============
+    // When frontend detects profit target via WebSocket, skip price lookup and close immediately
+    if (wsInstantClose && forceCloseTradeId && wsCurrentPrice) {
+      console.log(`⚡ WEBSOCKET INSTANT CLOSE: Trade ${forceCloseTradeId} at price ${wsCurrentPrice}`);
+      const instantCloseStart = Date.now();
+      
+      // Get trade info
+      const { data: trade, error: tradeError } = await supabase
+        .from('trades')
+        .select('*')
+        .eq('id', forceCloseTradeId)
+        .eq('user_id', user.id)
+        .eq('status', 'open')
+        .maybeSingle();
+      
+      if (tradeError || !trade) {
+        console.log(`Trade ${forceCloseTradeId} not found or already closed`);
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: 'Trade not found or already closed',
+          wsInstantClose: true
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      const exchangeName = (trade.exchange_name || 'binance').toLowerCase();
+      const tradingSymbol = trade.pair?.replace('/', '') || 'BTCUSDT';
+      const baseAsset = tradingSymbol.replace('USDT', '');
+      
+      // Get credentials
+      const { data: connection } = await supabase
+        .from("exchange_connections")
+        .select("*")
+        .eq("user_id", user.id)
+        .ilike("exchange_name", exchangeName)
+        .eq("is_connected", true)
+        .maybeSingle();
+      
+      if (!connection?.encrypted_api_key) {
+        // No credentials - mark as closed with WS-detected profit
+        await supabase.from('trades').update({
+          status: 'closed',
+          closed_at: new Date().toISOString(),
+          exit_price: wsCurrentPrice,
+          profit_loss: wsDetectedProfit || 0
+        }).eq('id', trade.id);
+        
+        console.log(`⚡ WS Instant close (no creds): ${Date.now() - instantCloseStart}ms`);
+        return new Response(JSON.stringify({ 
+          success: true, 
+          method: 'ws_instant_no_creds',
+          pnl: wsDetectedProfit,
+          latencyMs: Date.now() - instantCloseStart,
+          wsInstantClose: true
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      const apiKey = await decryptSecret(connection.encrypted_api_key!, connection.encryption_iv!, encryptionKey);
+      const apiSecret = await decryptSecret(connection.encrypted_api_secret!, connection.encryption_iv!, encryptionKey);
+      
+      // Get balance and sell immediately - NO price lookup needed
+      await enforceRateLimit(exchangeName);
+      const balance = await getBinanceBalance(apiKey, apiSecret, baseAsset);
+      
+      if (balance.free <= 0) {
+        await supabase.from('trades').update({
+          status: 'closed',
+          closed_at: new Date().toISOString(),
+          exit_price: wsCurrentPrice,
+          profit_loss: wsDetectedProfit || 0
+        }).eq('id', trade.id);
+        
+        console.log(`⚡ WS Instant close (zero balance): ${Date.now() - instantCloseStart}ms`);
+        return new Response(JSON.stringify({ 
+          success: true, 
+          method: 'ws_instant_zero_balance',
+          pnl: wsDetectedProfit,
+          latencyMs: Date.now() - instantCloseStart,
+          wsInstantClose: true
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      // Execute market sell immediately
+      const lotInfo = await getBinanceLotSize(tradingSymbol);
+      const sellQty = roundToStepSize(balance.free, lotInfo.stepSize);
+      
+      await enforceRateLimit(exchangeName);
+      const sellResult = await placeBinanceMarketSell(apiKey, apiSecret, tradingSymbol, sellQty);
+      
+      if (sellResult.success) {
+        const feeRate = EXCHANGE_FEES[exchangeName] || 0.001;
+        const priceDiff = trade.direction === 'long' 
+          ? sellResult.avgPrice - trade.entry_price 
+          : trade.entry_price - sellResult.avgPrice;
+        const grossPnL = (priceDiff / trade.entry_price) * trade.amount;
+        const netPnL = grossPnL - (trade.amount * feeRate * 2);
+        
+        await supabase.from('trades').update({
+          exit_price: sellResult.avgPrice,
+          profit_loss: netPnL,
+          status: 'closed',
+          closed_at: new Date().toISOString(),
+        }).eq('id', trade.id);
+        
+        await logProfitAudit(supabase, {
+          user_id: user.id,
+          trade_id: trade.id,
+          action: 'ws_instant_close',
+          symbol: tradingSymbol,
+          exchange: exchangeName,
+          entry_price: trade.entry_price,
+          current_price: sellResult.avgPrice,
+          quantity: balance.free,
+          net_pnl: netPnL,
+          lot_size_used: lotInfo.stepSize,
+          quantity_sent: sellQty,
+          success: true,
+          credential_found: true,
+          balance_available: balance.free
+        });
+        
+        const totalLatency = Date.now() - instantCloseStart;
+        console.log(`⚡ WS INSTANT CLOSE SUCCESS: $${netPnL.toFixed(2)} in ${totalLatency}ms`);
+        
+        return new Response(JSON.stringify({ 
+          success: true, 
+          method: 'ws_instant_market_sell',
+          pnl: netPnL,
+          exitPrice: sellResult.avgPrice,
+          latencyMs: totalLatency,
+          wsInstantClose: true
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } else {
+        console.error(`WS instant close market sell failed`);
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: 'Market sell failed',
+          wsInstantClose: true
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     // MODE: Cleanup stale trades (called by cron job - marks zero-balance trades older than 4 hours as closed)
     if (cleanupStaleTrades) {

@@ -29,6 +29,17 @@ export interface SerializableTicker {
 // Connection status state machine
 export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
 
+// Latency metrics for debugging/display
+export interface LatencyMetrics {
+  wsLatencyMs: number;
+  wsAvgLatencyMs: number;
+  restLatencyMs: number;
+  restAvgLatencyMs: number;
+  lastWsUpdate: number;
+  wsUpdatesPerSec: number;
+  restCallsCount: number;
+}
+
 export interface WebSocketState {
   status: WebSocketStatus;
   reconnectAttempt: number;
@@ -62,10 +73,26 @@ export function useBinanceWebSocket() {
   });
   const [error, setError] = useState<string | null>(null);
   
+  // Latency metrics tracking
+  const [latencyMetrics, setLatencyMetrics] = useState<LatencyMetrics>({
+    wsLatencyMs: 0,
+    wsAvgLatencyMs: 0,
+    restLatencyMs: 0,
+    restAvgLatencyMs: 0,
+    lastWsUpdate: 0,
+    wsUpdatesPerSec: 0,
+    restCallsCount: 0,
+  });
+  
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastPongRef = useRef<number>(Date.now());
+  
+  // Latency tracking refs
+  const wsLatencySamplesRef = useRef<number[]>([]);
+  const updateCountRef = useRef<number>(0);
+  const lastSecondRef = useRef<number>(Date.now());
 
   // Get reconnection delay using 3-tier exponential backoff
   const getReconnectDelay = useCallback((attempt: number): number => {
@@ -111,18 +138,50 @@ export function useBinanceWebSocket() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          const messageReceiveTime = Date.now();
           
           // Update last pong time on any message (acts as implicit pong)
-          lastPongRef.current = Date.now();
+          lastPongRef.current = messageReceiveTime;
           
           if (data.e === '24hrTicker') {
+            // Track WebSocket latency (time from exchange event to our receive)
+            const exchangeEventTime = data.E || messageReceiveTime; // E = event time from Binance
+            const wsLatency = messageReceiveTime - exchangeEventTime;
+            
+            // Add to rolling samples (keep last 100)
+            wsLatencySamplesRef.current.push(wsLatency);
+            if (wsLatencySamplesRef.current.length > 100) {
+              wsLatencySamplesRef.current.shift();
+            }
+            
+            // Track updates per second
+            updateCountRef.current++;
+            const currentSecond = Math.floor(messageReceiveTime / 1000) * 1000;
+            if (currentSecond > lastSecondRef.current) {
+              // Calculate average latency
+              const avgLatency = wsLatencySamplesRef.current.length > 0
+                ? wsLatencySamplesRef.current.reduce((a, b) => a + b, 0) / wsLatencySamplesRef.current.length
+                : 0;
+              
+              setLatencyMetrics(prev => ({
+                ...prev,
+                wsLatencyMs: wsLatency,
+                wsAvgLatencyMs: avgLatency,
+                lastWsUpdate: messageReceiveTime,
+                wsUpdatesPerSec: updateCountRef.current,
+              }));
+              
+              updateCountRef.current = 0;
+              lastSecondRef.current = currentSecond;
+            }
+            
             const ticker: BinanceTickerData = {
               symbol: data.s,
               price: parseFloat(data.c),
               priceChange: parseFloat(data.p),
               priceChangePercent: parseFloat(data.P),
               volume: parseFloat(data.v) * parseFloat(data.c),
-              lastUpdated: Date.now(),
+              lastUpdated: messageReceiveTime,
               // Enhanced trading data
               highPrice: parseFloat(data.h),
               lowPrice: parseFloat(data.l),
@@ -294,17 +353,31 @@ export function useBinanceWebSocket() {
     };
   }, [wsState.status]);
 
+  // Function to record REST latency (called externally)
+  const recordRestLatency = useCallback((latencyMs: number) => {
+    setLatencyMetrics(prev => ({
+      ...prev,
+      restLatencyMs: latencyMs,
+      restAvgLatencyMs: prev.restAvgLatencyMs > 0 
+        ? (prev.restAvgLatencyMs * 0.9 + latencyMs * 0.1) // Exponential moving average
+        : latencyMs,
+      restCallsCount: prev.restCallsCount + 1,
+    }));
+  }, []);
+
   return {
     tickers: tickersArray,
     tickersMap: tickers,
     isConnected: wsState.status === 'connected',
     status: wsState.status,
     wsState,
+    latencyMetrics,
     error,
     getPrice,
     getTicker,
     getTradingData,
     getSerializablePrices,
+    recordRestLatency,
     connect,
     disconnect,
   };
