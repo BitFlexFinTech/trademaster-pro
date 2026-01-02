@@ -202,6 +202,16 @@ export default function Bots() {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedPrices(prices);
+    }, 5000);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [prices]);
 
   // ============ NOTIFICATION TRIGGERS FOR WARNING BANNERS ============
   
@@ -246,16 +256,6 @@ export default function Bots() {
       });
     }
   }, [tradingMode, exchangeBalances, notify]);
-    debounceTimerRef.current = setTimeout(() => {
-      setDebouncedPrices(prices);
-    }, 5000);
-
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-    };
-  }, [prices]);
 
   // Bot configuration state - LOAD FROM LOCALSTORAGE ON MOUNT
   // FIXED: Enforce $333 minimum position size for $1 profit strategy
