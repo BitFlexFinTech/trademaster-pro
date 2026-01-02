@@ -146,7 +146,12 @@ export type Database = {
       bot_config: {
         Row: {
           amount_per_trade: number
+          auto_apply_ai: boolean | null
+          auto_compound_enabled: boolean | null
           auto_withdraw_on_target: boolean | null
+          compound_max_multiplier: number | null
+          compound_percentage: number | null
+          compound_threshold: number | null
           created_at: string | null
           daily_stop_loss: number
           daily_target: number
@@ -157,13 +162,19 @@ export type Database = {
           per_trade_stop_loss: number
           profit_per_trade: number
           regime_direction_sync: boolean | null
+          target_profit_usd: number | null
           trade_interval_ms: number
           updated_at: string | null
           user_id: string
         }
         Insert: {
           amount_per_trade?: number
+          auto_apply_ai?: boolean | null
+          auto_compound_enabled?: boolean | null
           auto_withdraw_on_target?: boolean | null
+          compound_max_multiplier?: number | null
+          compound_percentage?: number | null
+          compound_threshold?: number | null
           created_at?: string | null
           daily_stop_loss?: number
           daily_target?: number
@@ -174,13 +185,19 @@ export type Database = {
           per_trade_stop_loss?: number
           profit_per_trade?: number
           regime_direction_sync?: boolean | null
+          target_profit_usd?: number | null
           trade_interval_ms?: number
           updated_at?: string | null
           user_id: string
         }
         Update: {
           amount_per_trade?: number
+          auto_apply_ai?: boolean | null
+          auto_compound_enabled?: boolean | null
           auto_withdraw_on_target?: boolean | null
+          compound_max_multiplier?: number | null
+          compound_percentage?: number | null
+          compound_threshold?: number | null
           created_at?: string | null
           daily_stop_loss?: number
           daily_target?: number
@@ -191,6 +208,7 @@ export type Database = {
           per_trade_stop_loss?: number
           profit_per_trade?: number
           regime_direction_sync?: boolean | null
+          target_profit_usd?: number | null
           trade_interval_ms?: number
           updated_at?: string | null
           user_id?: string
@@ -1017,6 +1035,7 @@ export type Database = {
           entry_price: number
           exchange_name: string | null
           exit_price: number | null
+          holding_for_profit: boolean | null
           id: string
           is_sandbox: boolean | null
           lessons_learned: string | null
@@ -1030,6 +1049,7 @@ export type Database = {
           setup_quality: number | null
           status: string | null
           tags: string[] | null
+          target_profit_usd: number | null
           user_id: string
         }
         Insert: {
@@ -1042,6 +1062,7 @@ export type Database = {
           entry_price: number
           exchange_name?: string | null
           exit_price?: number | null
+          holding_for_profit?: boolean | null
           id?: string
           is_sandbox?: boolean | null
           lessons_learned?: string | null
@@ -1055,6 +1076,7 @@ export type Database = {
           setup_quality?: number | null
           status?: string | null
           tags?: string[] | null
+          target_profit_usd?: number | null
           user_id: string
         }
         Update: {
@@ -1067,6 +1089,7 @@ export type Database = {
           entry_price?: number
           exchange_name?: string | null
           exit_price?: number | null
+          holding_for_profit?: boolean | null
           id?: string
           is_sandbox?: boolean | null
           lessons_learned?: string | null
@@ -1080,6 +1103,7 @@ export type Database = {
           setup_quality?: number | null
           status?: string | null
           tags?: string[] | null
+          target_profit_usd?: number | null
           user_id?: string
         }
         Relationships: [

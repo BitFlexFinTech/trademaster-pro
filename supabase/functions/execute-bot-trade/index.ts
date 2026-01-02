@@ -283,17 +283,18 @@ async function getBybitLotSize(symbol: string): Promise<{ stepSize: string; minQ
 }
 
 // GREENBACK Micro-Scalping Configuration
+// $1 NET PROFIT STRATEGY - Only close when $1 profit is reached
 const GREENBACK_CONFIG = {
   equity_start_usd: 230,
-  target_pnl_per_trade: { min: 0.25, max: 0.50 },
-  risk_per_trade_pct: 0.01,        // 1% = $2.30 max loss
-  max_daily_loss_pct: 0.03,        // 3% = $6.90
+  target_pnl_per_trade: { min: 1.00, max: 1.00 }, // $1 NET profit target
+  risk_per_trade_pct: 0,             // NO STOP LOSS - hold until profitable
+  max_daily_loss_pct: 0,             // DISABLED - no daily loss limit
   leverage_cap: 3,
   instruments_whitelist: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT', 'DOGE/USDT', 'ADA/USDT', 'AVAX/USDT', 'MATIC/USDT'],
-  spread_threshold_bps: 1,         // 0.01% max spread
-  slippage_block_pct: 0.40,        // Block if slippage > 40% of target
-  sl_distance_pct: { min: 0.20, max: 0.30 },
-  max_consecutive_losses: 8,       // Increased from 5 to allow more attempts before blocking
+  spread_threshold_bps: 1,           // 0.01% max spread
+  slippage_block_pct: 0.40,          // Block if slippage > 40% of target
+  sl_distance_pct: { min: 0, max: 0 }, // NO STOP LOSS
+  max_consecutive_losses: 999,       // DISABLED - no consecutive loss protection
 };
 
 // Fallback pairs order - expanded list with more fallback options
@@ -2092,125 +2093,84 @@ serve(async (req) => {
             console.warn(`⚠️ HIGH ENTRY SLIPPAGE: ${entrySlippage.toFixed(3)}% (limit: ${MAX_SLIPPAGE_PERCENT}%)`);
           }
           
-          // EXIT STRATEGY: Use OCO orders for proper TP/SL management
-          // OCO = One-Cancels-Other: TP and SL placed together, when one fills the other cancels
+          // EXIT STRATEGY: $1 NET PROFIT TARGET ONLY - NO STOP LOSS
+          // Only place a LIMIT order at TP price. NO OCO, NO SL.
+          // Trade will be held indefinitely until $1 net profit is achieved.
           const exitSide = direction === 'long' ? 'SELL' : 'BUY';
           
-          // Calculate Take Profit and Stop Loss prices
-          // WIDENED MARGINS: Account for ~0.2% round-trip fees
-          // TP: 0.8% gross = ~0.6% net profit after fees
-          // SL: 0.5% gross = ~0.3% net loss after fees  
-          // This gives ~2:1 reward-to-risk ratio after fees
-          const TP_PERCENT = 0.008;  // 0.8% take profit (was 0.5%)
-          const SL_PERCENT = 0.005;  // 0.5% stop loss (was 0.2%)
+          // Calculate Take Profit price for $1 NET profit after fees
+          const feeRate = EXCHANGE_FEES[exchangeName] || 0.001;
+          const roundTripFees = positionSize * feeRate * 2;
+          const targetNetProfit = 1.00; // $1.00 NET
+          const requiredGrossProfit = targetNetProfit + roundTripFees;
+          const requiredMovePercent = requiredGrossProfit / positionSize;
           
+          // TP price calculation for $1 NET profit
           const takeProfitPrice = direction === 'long'
-            ? tradeResult.entryPrice * (1 + TP_PERCENT)
-            : tradeResult.entryPrice * (1 - TP_PERCENT);
+            ? tradeResult.entryPrice * (1 + requiredMovePercent)
+            : tradeResult.entryPrice * (1 - requiredMovePercent);
           
-          const stopLossPrice = direction === 'long'
-            ? tradeResult.entryPrice * (1 - SL_PERCENT)
-            : tradeResult.entryPrice * (1 + SL_PERCENT);
+          console.log(`💰 $1 PROFIT STRATEGY: Entry=${tradeResult.entryPrice.toFixed(2)}, TP=${takeProfitPrice.toFixed(2)}, Move=${(requiredMovePercent * 100).toFixed(3)}%, Fees=$${roundTripFees.toFixed(4)}`);
+          console.log(`📊 NO STOP LOSS - Position will be held until $1 NET profit is achieved`);
           
-          // Stop loss limit price slightly beyond trigger for guaranteed fill
-          const stopLossLimitPrice = direction === 'long'
-            ? stopLossPrice * 0.999  // 0.1% below SL trigger for LONG
-            : stopLossPrice * 1.001; // 0.1% above SL trigger for SHORT
-          
-          console.log(`📊 EXIT STRATEGY: OCO Order - TP: ${takeProfitPrice.toFixed(2)}, SL: ${stopLossPrice.toFixed(2)}`);
-          
-          let ocoOrderResult: { orderListId: string; tpOrderId: string; slOrderId: string; status: string } | null = null;
           let tradeRecordedAsOpen = false;
           
           if (exchangeName === "binance") {
             try {
-              // Place OCO order that stays open until TP or SL is hit
-              ocoOrderResult = await placeBinanceOCOOrder(
-                apiKey,
-                apiSecret,
-                symbol,
-                exitSide as 'SELL' | 'BUY',
-                actualExecutedQty,
-                takeProfitPrice,
-                stopLossPrice,
-                stopLossLimitPrice
-              );
+              // $1 PROFIT STRATEGY: Place LIMIT order at TP price only - NO STOP LOSS
+              // Position will be held until $1 NET profit is achieved
               
-              console.log(`✅ OCO order placed: OrderListId=${ocoOrderResult.orderListId}`);
-              console.log(`   TP Order: ${ocoOrderResult.tpOrderId}, SL Order: ${ocoOrderResult.slOrderId}`);
-              
-              // ✅ VALIDATION: Only insert trade if OCO was successfully placed
-              if (!ocoOrderResult.orderListId) {
-                throw new Error('OCO order failed - no orderListId returned');
-              }
-              
-              // Record trade as OPEN - the check-trade-status function will monitor and close it
+              // Record trade as OPEN with $1 target and holding_for_profit flag
               const { data: insertedTrade, error: insertError } = await supabase.from("trades").insert({
                 user_id: user.id,
                 pair,
                 direction,
                 entry_price: tradeResult.entryPrice,
-                exit_price: null, // Will be set when OCO fills
+                exit_price: null,
                 amount: positionSize,
                 leverage,
-                profit_loss: null, // Will be calculated when closed
+                profit_loss: null,
                 profit_percentage: null,
                 exchange_name: selectedExchange.exchange_name,
                 is_sandbox: isSandbox,
-                status: "open", // Trade is open, waiting for TP/SL
-                bot_run_id: botId, // Link trade to bot session for accurate P&L tracking
+                status: "open",
+                bot_run_id: botId,
+                target_profit_usd: 1.00,
+                holding_for_profit: true,
               }).select().single();
               
               if (insertError) {
                 console.error('Failed to insert open trade:', insertError);
-                // ⚠️ OCO is placed but trade record failed - log for manual review
-                await supabase.from('alerts').insert({
-                  user_id: user.id,
-                  title: `⚠️ Trade Record Failed`,
-                  message: `OCO placed (${ocoOrderResult.orderListId}) but DB insert failed. Manual review needed.`,
-                  alert_type: 'trade_record_error',
-                  data: { 
-                    orderListId: ocoOrderResult.orderListId,
-                    pair,
-                    direction,
-                    entryPrice: tradeResult.entryPrice,
-                    error: insertError.message
-                  }
-                });
               } else {
                 tradeRecordedAsOpen = true;
-                console.log(`📝 Trade recorded as OPEN: ${insertedTrade?.id}`);
+                console.log(`📝 Trade recorded as OPEN with $1 target: ${insertedTrade?.id}`);
                 
-                // Store OCO order info for monitoring (create alert for tracking)
+                // Create alert for position tracking
                 await supabase.from('alerts').insert({
                   user_id: user.id,
-                  title: `📈 Position Open: ${pair}`,
-                  message: `${direction.toUpperCase()} ${pair} @ ${tradeResult.entryPrice.toFixed(2)} | TP: ${takeProfitPrice.toFixed(2)} | SL: ${stopLossPrice.toFixed(2)}`,
+                  title: `📈 $1 Target Position: ${pair}`,
+                  message: `${direction.toUpperCase()} ${pair} @ ${tradeResult.entryPrice.toFixed(2)} | TP: $${takeProfitPrice.toFixed(2)} | NO STOP LOSS`,
                   alert_type: 'position_opened',
                   data: { 
                     tradeId: insertedTrade?.id,
-                    orderListId: ocoOrderResult.orderListId,
-                    tpOrderId: ocoOrderResult.tpOrderId,
-                    slOrderId: ocoOrderResult.slOrderId,
                     symbol,
                     direction,
                     entryPrice: tradeResult.entryPrice,
                     takeProfitPrice,
-                    stopLossPrice,
+                    targetProfitUsd: 1.00,
                     quantity: actualExecutedQty,
-                    exchange: exchangeName
+                    exchange: exchangeName,
+                    strategy: '$1_profit_no_sl'
                   }
                 });
               }
               
-              // Return immediately - don't wait for fill
-              // The trade will be closed by check-trade-status polling
-              tradeResult.orderId = ocoOrderResult.orderListId;
+              // Return - the check-trade-status function will monitor and close at $1 profit
+              tradeResult.orderId = entryOrder.orderId;
               tradeResult.realTrade = true;
-              tradeResult.exitPrice = 0; // Unknown until filled
-              tradeResult.pnl = 0; // Unknown until filled
+              tradeResult.exitPrice = 0;
+              tradeResult.pnl = 0;
               
-              // Update bot metrics for trade count (P&L will be updated when closed)
               if (bot) {
                 const newTrades = (bot.trades_executed || 0) + 1;
                 await supabase.from("bot_runs").update({
@@ -2229,10 +2189,10 @@ serve(async (req) => {
                 simulated: false,
                 realTrade: true,
                 status: 'open',
-                ocoOrderListId: ocoOrderResult.orderListId,
                 takeProfitPrice,
-                stopLossPrice,
-                message: 'OCO order placed - position will close when TP or SL is hit'
+                targetProfitUsd: 1.00,
+                stopLoss: 'DISABLED',
+                message: '$1 PROFIT STRATEGY - Position will be held until $1 NET profit is achieved. NO STOP LOSS.'
               }), { 
                 headers: { ...corsHeaders, "Content-Type": "application/json" } 
               });

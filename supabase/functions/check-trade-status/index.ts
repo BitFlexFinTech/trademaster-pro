@@ -42,12 +42,14 @@ const EXCHANGE_FEES: Record<string, number> = {
   hyperliquid: 0.0002,
 };
 
-// Default profit threshold - take profit as soon as fees are covered with ANY profit
-// Lowered from 0.05% to 0.01% for continuous profit-taking
-const DEFAULT_PROFIT_THRESHOLD = 0.0001; // 0.01%
+// $1 PROFIT TARGET STRATEGY
+// ONLY close trades when net profit >= $1.00
+// NO STOP LOSS - hold indefinitely until profitable
+const DEFAULT_PROFIT_THRESHOLD = 1.00; // $1.00 NET PROFIT MINIMUM
 
-// Stale position threshold - force close after 4 hours
-const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
+// Stale position threshold - DISABLED for $1 strategy (hold indefinitely)
+// Only used for zero-balance cleanup
+const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (essentially disabled)
 
 // ============ EXCHANGE RATE LIMITS - Prevents API Bans ============
 const EXCHANGE_RATE_LIMITS: Record<string, { minDelayMs: number }> = {

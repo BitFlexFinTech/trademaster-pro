@@ -9,9 +9,10 @@ export const GREENBACK_CONFIG = {
   bot_name: "GREENBACK",
   equity_start_usd: 230,
   
-  // Per-trade targets
-  target_pnl_per_trade_usd: { min: 0.25, max: 0.50 },
-  risk_per_trade_pct: 0.01,        // 1% = $2.30 max loss per trade
+  // Per-trade targets - $1 NET PROFIT STRATEGY
+  // Only close trades when $1 net profit is reached
+  target_pnl_per_trade_usd: { min: 1.00, max: 1.00 },
+  risk_per_trade_pct: 0,           // NO STOP LOSS - hold until profitable
   
   // Daily limits
   max_daily_loss_pct: 0.03,        // 3% = $6.90 max daily loss
@@ -37,9 +38,9 @@ export const GREENBACK_CONFIG = {
   // Stop loss settings
   sl_distance_pct: { min: 0.20, max: 0.30 }, // 0.2-0.3% adverse move
   
-  // Take profit settings
+  // Take profit settings - $1 NET TARGET ONLY
   tp_mode: "net_dollar" as const,
-  tp_net_usd: { min: 0.25, max: 0.50 },
+  tp_net_usd: { min: 1.00, max: 1.00 },
   
   // Trailing stop (activated on TP touch)
   trail_on_tp_touch: true,
