@@ -760,7 +760,48 @@ export function BotCard({
             return;
           }
           
-          console.log('📤 Calling execute-bot-trade edge function...');
+          // STEP 1: Call manage-open-trades to close profitable positions first
+          try {
+            console.log('📋 Step 1: Checking open trades for $1 profit target...');
+            const { data: manageData, error: manageError } = await supabase.functions.invoke('manage-open-trades', {
+              body: {
+                profitTarget: 1.00,
+                exchanges: availableExchanges,
+              }
+            });
+            
+            if (manageError) {
+              console.warn('⚠️ manage-open-trades error:', manageError);
+            } else if (manageData?.closedTrades?.length > 0) {
+              console.log(`✅ Closed ${manageData.closedTrades.length} profitable trades:`, manageData.closedTrades);
+              // Update metrics for closed trades
+              for (const closedTrade of manageData.closedTrades) {
+                setMetrics(prev => {
+                  const newPnl = prev.currentPnL + (closedTrade.netPnl || 0);
+                  const newTrades = prev.tradesExecuted + 1;
+                  const isWin = closedTrade.netPnl > 0;
+                  const wins = Math.round(prev.hitRate * prev.tradesExecuted / 100) + (isWin ? 1 : 0);
+                  const newHitRate = newTrades > 0 ? (wins / newTrades) * 100 : 0;
+                  metricsRef.current = { currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate, winsCount: wins };
+                  return { ...prev, currentPnL: newPnl, tradesExecuted: newTrades, hitRate: newHitRate };
+                });
+                
+                // Update last trade info
+                setLastTradeInfo({
+                  pair: closedTrade.pair || closedTrade.symbol || 'UNKNOWN',
+                  pnl: closedTrade.netPnl || 0,
+                  timestamp: new Date(),
+                  syncStatus: 'synced',
+                  direction: closedTrade.direction,
+                });
+              }
+            }
+          } catch (manageErr) {
+            console.warn('⚠️ manage-open-trades catch error:', manageErr);
+          }
+          
+          // STEP 2: Open new trades
+          console.log('📤 Step 2: Calling execute-bot-trade edge function...');
           console.log('   Request payload:', JSON.stringify({
             botId: existingBot.id,
             mode: botType,

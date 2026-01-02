@@ -2,24 +2,37 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { eventBus } from '@/lib/eventBus';
 
 export interface PortfolioSyncResult {
   totalBalance: number;
   exchangeBalances: Record<string, number>;
+  walletBreakdown: Record<string, { spot: number; futures: number }>;
   lastSyncTime: Date | null;
   optimalPositionSize: number;
+  maxPositions: number;
 }
 
 const MINIMUM_POSITION_SIZE = 333; // Minimum for $1 profit target
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Calculate max concurrent positions based on balance
+export function calculateMaxPositions(balance: number, positionSize: number = MINIMUM_POSITION_SIZE): number {
+  const safetyMargin = 0.8; // Use 80% of balance
+  const maxByBalance = Math.floor((balance * safetyMargin) / positionSize);
+  const absoluteMax = 10; // Never more than 10 per exchange
+  return Math.max(1, Math.min(maxByBalance, absoluteMax));
+}
 
 export function usePortfolioSync() {
   const { user } = useAuth();
   const [syncResult, setSyncResult] = useState<PortfolioSyncResult>({
     totalBalance: 0,
     exchangeBalances: {},
+    walletBreakdown: {},
     lastSyncTime: null,
     optimalPositionSize: MINIMUM_POSITION_SIZE,
+    maxPositions: 1,
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -67,17 +80,30 @@ export function usePortfolioSync() {
       
       // Calculate total USDT balance across all exchanges
       const exchangeBalances: Record<string, number> = {};
+      const walletBreakdown: Record<string, { spot: number; futures: number }> = {};
       let totalBalance = 0;
       
       if (data?.balances) {
         for (const balance of data.balances) {
-          // FIXED: Parse correct response structure { exchange, asset, amount }
+          // FIXED: Parse correct response structure { exchange, asset, amount, wallet }
           // Only count stablecoin balances for trading capital
           if (['USDT', 'USDC', 'USD'].includes(balance.asset)) {
             const exchange = balance.exchange;
             const amount = balance.amount || 0;
+            const wallet = balance.wallet || 'spot';
+            
             exchangeBalances[exchange] = (exchangeBalances[exchange] || 0) + amount;
             totalBalance += amount;
+            
+            // Track wallet breakdown
+            if (!walletBreakdown[exchange]) {
+              walletBreakdown[exchange] = { spot: 0, futures: 0 };
+            }
+            if (wallet === 'futures') {
+              walletBreakdown[exchange].futures += amount;
+            } else {
+              walletBreakdown[exchange].spot += amount;
+            }
           }
         }
       }
@@ -101,16 +127,22 @@ export function usePortfolioSync() {
       }
       
       const optimalPositionSize = calculateOptimalPositionSize(totalBalance);
+      const maxPositions = calculateMaxPositions(totalBalance);
       const lastSyncTime = new Date();
       
       const result: PortfolioSyncResult = {
         totalBalance,
         exchangeBalances,
+        walletBreakdown,
         lastSyncTime,
         optimalPositionSize,
+        maxPositions,
       };
       
       setSyncResult(result);
+      
+      // Emit balance synced event for global state
+      eventBus.emit('balance:synced', { totalBalance, exchangeBalances, walletBreakdown, maxPositions });
       
       // Save to database for persistence
       await supabase
@@ -153,7 +185,7 @@ export function usePortfolioSync() {
     }
   }, []);
 
-  // Load cached sync data on mount
+  // Load cached sync data on mount + listen for real-time balance updates
   useEffect(() => {
     if (!user?.id) return;
     
@@ -170,14 +202,39 @@ export function usePortfolioSync() {
           totalBalance: data.synced_portfolio_balance,
           lastSyncTime: data.last_balance_sync ? new Date(data.last_balance_sync) : null,
           optimalPositionSize: calculateOptimalPositionSize(data.synced_portfolio_balance),
+          maxPositions: calculateMaxPositions(data.synced_portfolio_balance),
         }));
       }
     };
     
     loadCachedSync();
     
+    // Listen for real-time balance_synced broadcasts from edge functions
+    const channel = supabase
+      .channel('balance-sync-realtime')
+      .on('broadcast', { event: 'balance_synced' }, (payload) => {
+        console.log('[PortfolioSync] Balance synced broadcast received:', payload);
+        const { totalBalance, exchangeBalances, walletBreakdown } = payload.payload || {};
+        if (totalBalance !== undefined) {
+          setSyncResult(prev => ({
+            ...prev,
+            totalBalance,
+            exchangeBalances: exchangeBalances || prev.exchangeBalances,
+            walletBreakdown: walletBreakdown || prev.walletBreakdown,
+            lastSyncTime: new Date(),
+            optimalPositionSize: calculateOptimalPositionSize(totalBalance),
+            maxPositions: calculateMaxPositions(totalBalance),
+          }));
+          
+          // Also emit to eventBus for other components
+          eventBus.emit('balance:synced', { totalBalance, exchangeBalances, walletBreakdown, maxPositions: calculateMaxPositions(totalBalance) });
+        }
+      })
+      .subscribe();
+    
     return () => {
       stopAutoSync();
+      supabase.removeChannel(channel);
     };
   }, [user?.id, calculateOptimalPositionSize, stopAutoSync]);
 

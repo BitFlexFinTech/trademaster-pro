@@ -48,7 +48,7 @@ import { ProfitWithdrawalChart } from '@/components/bots/ProfitWithdrawalChart';
 import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummaryCard';
 import { ActivityTerminal } from '@/components/bots/ActivityTerminal';
-import { AIStrategyDashboard } from '@/components/bots/AIStrategyDashboard';
+// AIStrategyDashboard removed per user request
 import { ExchangeStatisticsPanel } from '@/components/bots/ExchangeStatisticsPanel';
 import { CumulativeProfitChart } from '@/components/bots/CumulativeProfitChart';
 import { OpenPositionsDashboard } from '@/components/bots/OpenPositionsDashboard';
@@ -138,7 +138,6 @@ export default function Bots() {
   
   // Collapsible sections state - collapsed by default per user request
   const [usdtFloatOpen, setUsdtFloatOpen] = useState(false);
-  const [aiRecommendationOpen, setAiRecommendationOpen] = useState(false);
   const [regimeChartOpen, setRegimeChartOpen] = useState(false);
   
   // Filter state for micro-cards grid
@@ -1552,28 +1551,7 @@ export default function Bots() {
           {/* Open Positions Dashboard - Real-time P&L */}
           <OpenPositionsDashboard />
 
-          {/* AI Strategy Dashboard - Collapsible Panel */}
-          <Collapsible open={aiRecommendationOpen} onOpenChange={setAiRecommendationOpen} className="mb-3">
-            <CollapsibleTrigger asChild>
-              <div className="flex items-center justify-between p-2 bg-primary/5 border border-primary/20 rounded-lg cursor-pointer hover:bg-primary/10 transition-colors">
-                <div className="flex items-center gap-2">
-                  <Brain className="w-4 h-4 text-primary" />
-                  <span className="text-xs font-medium text-foreground">AI Strategy Dashboard</span>
-                  <Badge variant="outline" className="text-[9px] px-1.5 bg-primary/10 border-primary/30 text-primary">
-                    $1 Profit Calculator
-                  </Badge>
-                </div>
-                {aiRecommendationOpen ? (
-                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                )}
-              </div>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2">
-              <AIStrategyDashboard />
-            </CollapsibleContent>
-          </Collapsible>
+          {/* AI Strategy Dashboard removed per user request */}
 
           {/* ============================================
              MICRO-CARDS GRID - High-density bot overview
