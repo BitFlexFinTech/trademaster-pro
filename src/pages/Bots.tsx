@@ -56,6 +56,7 @@ import { ProfitBreakdownDashboard } from '@/components/bots/ProfitBreakdownDashb
 import { ExchangeSettingsPanel } from '@/components/bots/ExchangeSettingsPanel';
 import { TradeAnalyticsDashboard } from '@/components/bots/TradeAnalyticsDashboard';
 import { ComprehensiveAnalyticsDashboard } from '@/components/analytics/ComprehensiveAnalyticsDashboard';
+import { TradingStatusCard } from '@/components/bots/TradingStatusCard';
 import { useAutoCompound } from '@/hooks/useAutoCompound';
 import { useNotificationStack } from '@/hooks/useNotificationStack';
 
@@ -1730,10 +1731,31 @@ export default function Bots() {
               </div>
             </div>
 
+            {/* Trading Status Card */}
+            <div className="mt-4">
+              <TradingStatusCard />
+            </div>
+
             {/* Trading Analytics Dashboard */}
             <div className="mt-4">
               <TradeAnalyticsDashboard defaultExpanded={false} />
             </div>
+
+            {/* Comprehensive Analytics Dashboard */}
+            <Collapsible defaultOpen={false} className="mt-4">
+              <CollapsibleTrigger asChild>
+                <Button variant="outline" className="w-full justify-between h-10">
+                  <span className="flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4" />
+                    Comprehensive Trading Analytics
+                  </span>
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-4">
+                <ComprehensiveAnalyticsDashboard />
+              </CollapsibleContent>
+            </Collapsible>
           </ScrollArea>
         </section>
       </div>

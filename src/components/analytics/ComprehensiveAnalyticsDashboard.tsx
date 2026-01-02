@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,8 @@ import { WinRateOverTimeChart } from './WinRateOverTimeChart';
 import { CumulativePnLChart } from './CumulativePnLChart';
 import { PairComparisonChart } from './PairComparisonChart';
 import { TradingHoursHeatmap } from './TradingHoursHeatmap';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface Trade {
   id: string;
@@ -33,7 +35,7 @@ interface Trade {
 }
 
 interface ComprehensiveAnalyticsDashboardProps {
-  trades: Trade[];
+  trades?: Trade[];
   isLoading?: boolean;
   onRefresh?: () => void;
 }
@@ -41,11 +43,57 @@ interface ComprehensiveAnalyticsDashboardProps {
 type TimeRange = '7d' | '14d' | '30d' | '90d' | 'all';
 
 export function ComprehensiveAnalyticsDashboard({
-  trades,
-  isLoading = false,
+  trades: propTrades,
+  isLoading: propIsLoading = false,
   onRefresh,
 }: ComprehensiveAnalyticsDashboardProps) {
+  const { user } = useAuth();
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
+  const [internalTrades, setInternalTrades] = useState<Trade[]>([]);
+  const [internalLoading, setInternalLoading] = useState(false);
+
+  // Fetch trades internally if not provided
+  useEffect(() => {
+    if (propTrades !== undefined) return;
+    if (!user?.id) return;
+
+    const fetchTrades = async () => {
+      setInternalLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('trades')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('status', 'closed')
+          .order('closed_at', { ascending: false })
+          .limit(500);
+
+        if (error) throw error;
+
+        const mappedTrades: Trade[] = (data || []).map(t => ({
+          id: t.id,
+          pair: t.pair,
+          direction: t.direction,
+          pnl: t.profit_loss || 0,
+          createdAt: t.created_at,
+          closedAt: t.closed_at || undefined,
+          exchange: t.exchange_name || undefined,
+          regime: t.regime_at_entry || undefined,
+        }));
+
+        setInternalTrades(mappedTrades);
+      } catch (err) {
+        console.error('Failed to fetch trades for analytics:', err);
+      } finally {
+        setInternalLoading(false);
+      }
+    };
+
+    fetchTrades();
+  }, [user?.id, propTrades]);
+
+  const trades = propTrades ?? internalTrades;
+  const isLoading = propIsLoading || internalLoading;
 
   const filteredTrades = useMemo(() => {
     if (timeRange === 'all') return trades;
