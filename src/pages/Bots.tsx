@@ -49,16 +49,11 @@ import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummaryCard';
 import { ActivityTerminal } from '@/components/bots/ActivityTerminal';
 // AIStrategyDashboard removed per user request
-import { ExchangeStatisticsPanel } from '@/components/bots/ExchangeStatisticsPanel';
 import { CumulativeProfitChart } from '@/components/bots/CumulativeProfitChart';
 import { OpenPositionsDashboard } from '@/components/bots/OpenPositionsDashboard';
 import { LiveProfitCounter } from '@/components/bots/LiveProfitCounter';
 import { MarketRegimeIndicator } from '@/components/bots/MarketRegimeIndicator';
-import { ProfitBreakdownDashboard } from '@/components/bots/ProfitBreakdownDashboard';
-import { ExchangeSettingsPanel } from '@/components/bots/ExchangeSettingsPanel';
-// TradeAnalyticsDashboard removed per strict rule
-import { ComprehensiveAnalyticsDashboard } from '@/components/analytics/ComprehensiveAnalyticsDashboard';
-import { TradingStatusCard } from '@/components/bots/TradingStatusCard';
+import { TradeQueueVisualization } from '@/components/bots/TradeQueueVisualization';
 import { useAutoCompound } from '@/hooks/useAutoCompound';
 import { useNotificationStack } from '@/hooks/useNotificationStack';
 
@@ -1727,41 +1722,10 @@ export default function Bots() {
             </div>
             </div>
 
-            {/* Bottom Row - Statistics & Breakdowns */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mt-3">
-              <div className="lg:col-span-4">
-                <ExchangeStatisticsPanel />
-              </div>
-              <div className="lg:col-span-4">
-                <ProfitBreakdownDashboard />
-              </div>
-              <div className="lg:col-span-4">
-                <ExchangeSettingsPanel />
-              </div>
+            {/* Trade Queue Visualization */}
+            <div className="mt-3">
+              <TradeQueueVisualization />
             </div>
-
-            {/* Trading Status Card */}
-            <div className="mt-4">
-              <TradingStatusCard />
-            </div>
-
-            {/* TradeAnalyticsDashboard moved to Bot Analytics tab */}
-
-            {/* Comprehensive Analytics Dashboard */}
-            <Collapsible defaultOpen={false} className="mt-4">
-              <CollapsibleTrigger asChild>
-                <Button variant="outline" className="w-full justify-between h-10">
-                  <span className="flex items-center gap-2">
-                    <BarChart3 className="h-4 w-4" />
-                    Comprehensive Trading Analytics
-                  </span>
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="pt-4">
-                <ComprehensiveAnalyticsDashboard />
-              </CollapsibleContent>
-            </Collapsible>
           </ScrollArea>
         </section>
       </div>
