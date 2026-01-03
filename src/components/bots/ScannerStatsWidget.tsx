@@ -111,17 +111,23 @@ export function ScannerStatsWidget({ className }: ScannerStatsWidgetProps) {
             </div>
             Market Scanner
           </CardTitle>
-          <Badge 
-            variant={isScanning ? "default" : "secondary"}
-            className="text-xs"
-          >
-            {isScanning ? (
-              <span className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                Scanning
-              </span>
-            ) : 'Idle'}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <div className={cn(
+              "w-2 h-2 rounded-full",
+              isScanning ? "bg-green-500 animate-pulse" : "bg-muted-foreground"
+            )} />
+            <Badge 
+              variant={isScanning ? "default" : "secondary"}
+              className="text-xs"
+            >
+              {isScanning ? (
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                  SCANNING
+                </span>
+              ) : 'IDLE'}
+            </Badge>
+          </div>
         </div>
         
         {/* Live Pair Counter */}

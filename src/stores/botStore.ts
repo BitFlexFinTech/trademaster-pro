@@ -336,38 +336,64 @@ export const useBotStore = create<BotState>()(
       })
     })),
 
-    calculateCapitalUtilization: () => {
-      const { bots, positions, exchangeBalances } = get();
-      
-      // Use real exchange balances if available, otherwise fall back to bot allocatedCapital
-      let totalCapital = 0;
-      if (exchangeBalances.length > 0) {
-        totalCapital = exchangeBalances.reduce((sum, bal) => sum + bal.total, 0);
-      } else {
-        totalCapital = bots.reduce((sum, bot) => 
-          sum + (bot.status === 'running' ? bot.allocatedCapital : 0), 0
-        );
+  calculateCapitalUtilization: async () => {
+    const state = get();
+    let { bots, positions, exchangeBalances } = state;
+    
+    // If no exchange balances, try to fetch them (async fallback)
+    if (exchangeBalances.length === 0) {
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        if (session?.session?.user?.id) {
+          console.log('[BotStore] No exchange balances - attempting fetch...');
+          const { data } = await supabase.functions.invoke('sync-exchange-balances', {
+            body: { userId: session.session.user.id }
+          });
+          if (data?.balances && Array.isArray(data.balances)) {
+            exchangeBalances = data.balances.map((b: { exchange: string; total: number; available: number; inPositions?: number }) => ({
+              exchange: b.exchange,
+              total: b.total,
+              available: b.available,
+              inPositions: b.inPositions || 0,
+            }));
+            set({ exchangeBalances });
+            console.log('[BotStore] Fetched exchange balances:', exchangeBalances.length, 'exchanges');
+          }
+        }
+      } catch (err) {
+        // Silent fail - edge function may not exist
       }
-      
-      const deployedCapital = positions.reduce((sum, pos) => 
-        sum + pos.entryValue, 0
+    }
+    
+    // Use real exchange balances if available, otherwise fall back to bot allocatedCapital
+    let totalCapital = 0;
+    if (exchangeBalances.length > 0) {
+      totalCapital = exchangeBalances.reduce((sum, bal) => sum + bal.total, 0);
+    } else {
+      totalCapital = bots.reduce((sum, bot) => 
+        sum + (bot.status === 'running' ? bot.allocatedCapital : 0), 0
       );
-      
-      const idleFunds = Math.max(0, totalCapital - deployedCapital);
-      const utilization = totalCapital > 0 
-        ? (deployedCapital / totalCapital) * 100 
-        : 0;
+    }
+    
+    const deployedCapital = positions.reduce((sum, pos) => 
+      sum + pos.entryValue, 0
+    );
+    
+    const idleFunds = Math.max(0, totalCapital - deployedCapital);
+    const utilization = totalCapital > 0 
+      ? (deployedCapital / totalCapital) * 100 
+      : 0;
 
-      // Build byExchange breakdown
-      const byExchange: Record<string, { total: number; deployed: number; available: number }> = {};
-      exchangeBalances.forEach(bal => {
-        const deployed = positions
-          .filter(p => p.exchange === bal.exchange)
-          .reduce((sum, p) => sum + p.entryValue, 0);
-        byExchange[bal.exchange] = {
-          total: bal.total,
-          deployed,
-          available: bal.available,
+    // Build byExchange breakdown
+    const byExchange: Record<string, { total: number; deployed: number; available: number }> = {};
+    exchangeBalances.forEach(bal => {
+      const deployed = positions
+        .filter(p => p.exchange === bal.exchange)
+        .reduce((sum, p) => sum + p.entryValue, 0);
+      byExchange[bal.exchange] = {
+        total: bal.total,
+        deployed,
+        available: bal.available,
         };
       });
 
