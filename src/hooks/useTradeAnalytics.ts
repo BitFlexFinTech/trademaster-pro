@@ -224,6 +224,39 @@ export function useTradeAnalytics(days: number = 30) {
         }).length,
       }));
 
+      // Calculate MTF alignment win rates
+      const mtfAlignedTrades = trades.filter(t => {
+        if (!t.mtf_analysis) return false;
+        try {
+          const mtf = typeof t.mtf_analysis === 'string' 
+            ? JSON.parse(t.mtf_analysis) 
+            : t.mtf_analysis;
+          return mtf.alignment === 'aligned' || (mtf.confluence && mtf.confluence >= 3);
+        } catch {
+          return false;
+        }
+      });
+      
+      const mtfMixedTrades = trades.filter(t => {
+        if (!t.mtf_analysis) return false;
+        try {
+          const mtf = typeof t.mtf_analysis === 'string' 
+            ? JSON.parse(t.mtf_analysis) 
+            : t.mtf_analysis;
+          return mtf.alignment === 'mixed' || (mtf.confluence && mtf.confluence < 3);
+        } catch {
+          return false;
+        }
+      });
+      
+      const mtfAlignedWinRate = mtfAlignedTrades.length > 0
+        ? (mtfAlignedTrades.filter(t => (t.profit_loss || 0) > 0).length / mtfAlignedTrades.length) * 100
+        : 0;
+        
+      const mtfMixedWinRate = mtfMixedTrades.length > 0
+        ? (mtfMixedTrades.filter(t => (t.profit_loss || 0) > 0).length / mtfMixedTrades.length) * 100
+        : 0;
+
       setAnalytics({
         totalTrades,
         totalWins: wins.length,
@@ -239,8 +272,8 @@ export function useTradeAnalytics(days: number = 30) {
         shortStats,
         dailyProfits,
         profitDistribution,
-        mtfAlignedWinRate: 0, // TODO: Implement when mtf_analysis column is added
-        mtfMixedWinRate: 0,
+        mtfAlignedWinRate,
+        mtfMixedWinRate,
       });
     } catch (e) {
       console.error('Failed to fetch trade analytics:', e);
