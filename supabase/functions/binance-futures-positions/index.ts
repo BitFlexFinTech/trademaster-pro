@@ -55,9 +55,9 @@ async function decryptCredentials(
 ): Promise<{ apiKey: string; apiSecret: string }> {
   const decoder = new TextDecoder();
   
-  // Convert hex IV to Uint8Array
-  const ivBytes = new Uint8Array(iv.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
-  
+  // Convert base64 IV to Uint8Array (encrypt-api-key stores IV as base64)
+  const ivBytes = Uint8Array.from(atob(iv), c => c.charCodeAt(0));
+
   // Import the encryption key
   const keyBytes = new TextEncoder().encode(encryptionKey.slice(0, 32).padEnd(32, '0'));
   const cryptoKey = await crypto.subtle.importKey(
