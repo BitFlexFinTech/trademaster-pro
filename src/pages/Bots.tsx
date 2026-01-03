@@ -48,7 +48,7 @@ import { RegimeTransitionChart } from '@/components/bots/RegimeTransitionChart';
 import { RegimeHistorySummaryCard } from '@/components/bots/RegimeHistorySummaryCard';
 import { ActivityTerminal } from '@/components/bots/ActivityTerminal';
 // AIStrategyDashboard removed per user request
-import { CumulativeProfitChart } from '@/components/bots/CumulativeProfitChart';
+// CumulativeProfitChart moved to BotAnalytics
 import { LiveProfitCounter } from '@/components/bots/LiveProfitCounter';
 import { MarketRegimeIndicator } from '@/components/bots/MarketRegimeIndicator';
 import { TradeQueueVisualization } from '@/components/bots/TradeQueueVisualization';
@@ -83,6 +83,7 @@ import { DashboardEditMode } from '@/components/bots/DashboardEditMode';
 import { useDashboardLayout } from '@/hooks/useDashboardLayout';
 import { ResizableCard } from '@/components/bots/ResizableCard';
 import { TradingLoopMonitor } from '@/components/bots/TradingLoopMonitor';
+import { PositionSizingHistoryChart } from '@/components/bots/PositionSizingHistoryChart';
 
 interface UsdtFloat {
   exchange: string;
@@ -1555,8 +1556,8 @@ export default function Bots() {
               {/* Unified Trading Dashboard - Merged positions + trades */}
               <UnifiedTradingDashboard className="flex-1 min-h-0" />
               
-              {/* Cumulative Profit Chart */}
-              <CumulativeProfitChart />
+              {/* Position Sizing History Chart (CumulativeProfitChart moved to BotAnalytics) */}
+              <PositionSizingHistoryChart />
 
               {/* Link to full analytics page */}
               <Button asChild variant="outline" className="h-8 gap-2">

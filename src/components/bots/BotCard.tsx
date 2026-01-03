@@ -256,6 +256,72 @@ export function BotCard({
   // Regime direction sync state
   const [regimeDirectionSync, setRegimeDirectionSync] = useState(false);
 
+  // Dynamic sizing toggle state - uses volatility-based position sizing
+  const [useDynamicSizing, setUseDynamicSizing] = useState(true);
+  
+  // Auto-extract profits toggle - transfers profits to funding wallet after each trade
+  const [autoExtractProfits, setAutoExtractProfits] = useState(false);
+
+  // Load dynamic sizing and auto-extract settings from database
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    const loadSettings = async () => {
+      const { data } = await supabase
+        .from('bot_config')
+        .select('use_dynamic_sizing, auto_extract_profits')
+        .eq('user_id', user.id)
+        .single();
+      
+      if (data) {
+        setUseDynamicSizing(data.use_dynamic_sizing ?? true);
+        setAutoExtractProfits(data.auto_extract_profits ?? false);
+      }
+    };
+    
+    loadSettings();
+  }, [user?.id]);
+
+  // Handler for dynamic sizing toggle
+  const handleDynamicSizingToggle = useCallback(async (enabled: boolean) => {
+    setUseDynamicSizing(enabled);
+    
+    if (!user?.id) return;
+    
+    await supabase
+      .from('bot_config')
+      .upsert({
+        user_id: user.id,
+        use_dynamic_sizing: enabled,
+      }, { onConflict: 'user_id' });
+    
+    toast.success(enabled ? 'Dynamic sizing enabled' : 'Fixed sizing enabled', {
+      description: enabled 
+        ? `Position sizes will adjust based on volatility`
+        : `Using fixed $${localAmountPerTrade} per trade`,
+    });
+  }, [user?.id, localAmountPerTrade]);
+
+  // Handler for auto-extract profits toggle
+  const handleAutoExtractToggle = useCallback(async (enabled: boolean) => {
+    setAutoExtractProfits(enabled);
+    
+    if (!user?.id) return;
+    
+    await supabase
+      .from('bot_config')
+      .upsert({
+        user_id: user.id,
+        auto_extract_profits: enabled,
+      }, { onConflict: 'user_id' });
+    
+    toast.success(enabled ? 'Profit lock enabled' : 'Profit lock disabled', {
+      description: enabled 
+        ? 'Profits will be transferred to funding wallet after each trade'
+        : 'Profits will remain in trading wallet',
+    });
+  }, [user?.id]);
+
   // Position auto-scaling based on consecutive wins/losses + regime
   const { 
     scaledPositionSize, 
@@ -2992,7 +3058,7 @@ export function BotCard({
                   onConfigChange?.('amountPerTrade', val);
                 }
               }}
-              disabled={isRunning}
+              disabled={isRunning || useDynamicSizing}
               className="h-7 text-xs font-mono"
               min={5}
               step={1}
@@ -3019,6 +3085,41 @@ export function BotCard({
             />
           </div>
         </div>
+
+        {/* Dynamic/Fixed Sizing & Auto-Extract Profits Toggles */}
+        <div className="grid grid-cols-2 gap-2 mb-2 p-2 bg-muted/30 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <Gauge className="w-3 h-3 text-muted-foreground" />
+              <span className="text-[10px] text-muted-foreground">Dynamic Size</span>
+            </div>
+            <Switch
+              checked={useDynamicSizing}
+              onCheckedChange={handleDynamicSizingToggle}
+              disabled={isRunning}
+              className="scale-75"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <Banknote className="w-3 h-3 text-muted-foreground" />
+              <span className="text-[10px] text-muted-foreground">Lock Profits</span>
+            </div>
+            <Switch
+              checked={autoExtractProfits}
+              onCheckedChange={handleAutoExtractToggle}
+              disabled={isRunning}
+              className="scale-75"
+            />
+          </div>
+        </div>
+        
+        {useDynamicSizing && (
+          <div className="mb-2 p-1.5 bg-primary/5 border border-primary/20 rounded text-[10px] text-muted-foreground">
+            📐 Next size: <span className="font-mono text-primary font-bold">${scaledPositionSize.toFixed(0)}</span>
+            <span className="ml-1 opacity-75">(volatility-based)</span>
+          </div>
+        )}
 
         {/* Configuration Row 3: Stop Losses & Min Edge */}
         <div className="grid grid-cols-3 gap-2 mb-2">

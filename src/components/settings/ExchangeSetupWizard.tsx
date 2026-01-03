@@ -24,6 +24,14 @@ interface ExchangeCapabilities {
   permissions: string[];
   spotBalance: number;
   futuresBalance: number;
+  fundingBalance: number;
+}
+
+interface WalletBalances {
+  spot: number;
+  futures: number;
+  funding: number;
+  total: number;
 }
 
 type ExchangeType = 'binance' | 'okx' | 'bybit';
@@ -80,6 +88,14 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [passphrase, setPassphrase] = useState('');
+  
+  // Wallet transfer state
+  const [walletBalances, setWalletBalances] = useState<WalletBalances | null>(null);
+  const [transferAmount, setTransferAmount] = useState('');
+  const [sourceWallet, setSourceWallet] = useState<'funding' | 'spot'>('funding');
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [isLoadingBalances, setIsLoadingBalances] = useState(false);
+  const [canTransfer, setCanTransfer] = useState(false);
 
   const handleSelectExchange = async (exchange: ExchangeType) => {
     setSelectedExchange(exchange);
@@ -189,6 +205,7 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
           permissions: data?.permissions ?? ['Read', 'Trade'],
           spotBalance: data?.spotBalance ?? 0,
           futuresBalance: data?.futuresBalance ?? data?.totalBalance ?? 0,
+          fundingBalance: data?.fundingBalance ?? 0,
         });
         
         // Auto-advance based on capabilities
@@ -457,55 +474,230 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
     </div>
   );
 
-  const renderStep5_VerifyBalance = () => (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
-        <Check className="h-5 w-5 text-emerald-500" />
-        <span className="text-sm">Futures trading enabled!</span>
-      </div>
+  const renderStep5_VerifyBalance = () => {
+    // Fetch wallet balances on mount
+    const fetchBalances = async () => {
+      if (selectedExchange !== 'binance' || isLoadingBalances) return;
       
-      <Card>
-        <CardContent className="pt-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Spot Balance</span>
-            <span className="font-mono font-bold">${capabilities?.spotBalance.toFixed(2) ?? '0.00'}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Futures Balance</span>
-            <span className={cn(
-              "font-mono font-bold",
-              (capabilities?.futuresBalance ?? 0) < 10 ? "text-amber-500" : "text-emerald-500"
-            )}>
-              ${capabilities?.futuresBalance.toFixed(2) ?? '0.00'}
-            </span>
-          </div>
-        </CardContent>
-      </Card>
+      setIsLoadingBalances(true);
+      try {
+        // Check transfer permission
+        const { data: permData } = await supabase.functions.invoke('binance-wallet-transfer', {
+          body: { action: 'checkTransferPermission' }
+        });
+        setCanTransfer(permData?.canTransfer ?? false);
+        
+        // Get all wallet balances
+        const { data, error } = await supabase.functions.invoke('binance-wallet-transfer', {
+          body: { action: 'getBalances' }
+        });
+        
+        if (data?.success) {
+          setWalletBalances(data.balances);
+        }
+      } catch (e) {
+        console.error('Failed to fetch balances:', e);
+      } finally {
+        setIsLoadingBalances(false);
+      }
+    };
+    
+    // Fetch on step load
+    if (!walletBalances && !isLoadingBalances && selectedExchange === 'binance') {
+      fetchBalances();
+    }
+    
+    const handleTransfer = async () => {
+      if (!transferAmount || parseFloat(transferAmount) <= 0) {
+        toast.error('Please enter a valid amount');
+        return;
+      }
       
-      {(capabilities?.futuresBalance ?? 0) < 10 && (
-        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-          <p className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
-            <Wallet className="h-4 w-4" />
-            Transfer at least $10 USDT to your Futures wallet to start trading
-          </p>
+      setIsTransferring(true);
+      try {
+        const transferType = sourceWallet === 'funding' ? 'FUNDING_UMFUTURE' : 'MAIN_UMFUTURE';
+        const { data, error } = await supabase.functions.invoke('binance-wallet-transfer', {
+          body: {
+            action: 'transfer',
+            fromType: transferType,
+            asset: 'USDT',
+            amount: parseFloat(transferAmount),
+          }
+        });
+        
+        if (data?.success) {
+          toast.success(`Transferred $${transferAmount} to Futures wallet`);
+          setTransferAmount('');
+          // Refresh balances
+          const { data: newBalances } = await supabase.functions.invoke('binance-wallet-transfer', {
+            body: { action: 'getBalances' }
+          });
+          if (newBalances?.success) {
+            setWalletBalances(newBalances.balances);
+          }
+          // Check if we can proceed
+          if ((newBalances?.balances?.futures ?? 0) >= 10) {
+            setCurrentStep(6);
+          }
+        } else {
+          toast.error(data?.error || 'Transfer failed');
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Transfer failed');
+      } finally {
+        setIsTransferring(false);
+      }
+    };
+    
+    const maxTransfer = sourceWallet === 'funding' 
+      ? walletBalances?.funding ?? 0 
+      : walletBalances?.spot ?? 0;
+    
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+          <Check className="h-5 w-5 text-emerald-500" />
+          <span className="text-sm">Futures trading enabled!</span>
         </div>
-      )}
-      
-      <Button onClick={handleCheckPermissions} disabled={isChecking} className="w-full">
-        {isChecking ? (
-          <>
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            Checking Balance...
-          </>
-        ) : (
-          <>
-            I've Transferred Funds - Check Again
-            <ArrowRight className="h-4 w-4 ml-2" />
-          </>
+        
+        {/* Wallet Balances */}
+        <Card>
+          <CardContent className="pt-4 space-y-3">
+            <h4 className="font-medium flex items-center gap-2">
+              <Wallet className="h-4 w-4" />
+              Wallet Balances
+              {isLoadingBalances && <Loader2 className="h-3 w-3 animate-spin" />}
+            </h4>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Spot Wallet</span>
+                <span className="font-mono font-bold">${walletBalances?.spot?.toFixed(2) ?? '0.00'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Funding Wallet</span>
+                <span className="font-mono font-bold">${walletBalances?.funding?.toFixed(2) ?? '0.00'}</span>
+              </div>
+              <div className="flex items-center justify-between border-t pt-2">
+                <span className="text-sm text-muted-foreground">Futures Wallet</span>
+                <span className={cn(
+                  "font-mono font-bold",
+                  (walletBalances?.futures ?? 0) < 10 ? "text-amber-500" : "text-emerald-500"
+                )}>
+                  ${walletBalances?.futures?.toFixed(2) ?? '0.00'}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        {/* Transfer Form - Only for Binance */}
+        {selectedExchange === 'binance' && canTransfer && (
+          <Card>
+            <CardContent className="pt-4 space-y-3">
+              <h4 className="font-medium">Transfer to Futures</h4>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant={sourceWallet === 'funding' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSourceWallet('funding')}
+                  className="text-xs"
+                >
+                  From Funding
+                </Button>
+                <Button
+                  variant={sourceWallet === 'spot' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSourceWallet('spot')}
+                  className="text-xs"
+                >
+                  From Spot
+                </Button>
+              </div>
+              
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  value={transferAmount}
+                  onChange={(e) => setTransferAmount(e.target.value)}
+                  placeholder="Amount (USDT)"
+                  className="flex-1"
+                  min={0}
+                  max={maxTransfer}
+                />
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setTransferAmount(maxTransfer.toFixed(2))}
+                >
+                  MAX
+                </Button>
+              </div>
+              
+              <p className="text-xs text-muted-foreground">
+                Available: ${maxTransfer.toFixed(2)} {sourceWallet === 'funding' ? '(Funding)' : '(Spot)'}
+              </p>
+              
+              <Button 
+                onClick={handleTransfer} 
+                disabled={isTransferring || !transferAmount || parseFloat(transferAmount) <= 0}
+                className="w-full"
+              >
+                {isTransferring ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Transferring...
+                  </>
+                ) : (
+                  <>
+                    Transfer ${transferAmount || '0'} to Futures
+                    <ArrowRight className="h-4 w-4 ml-2" />
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
         )}
-      </Button>
-    </div>
-  );
+        
+        {selectedExchange === 'binance' && !canTransfer && (
+          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+            <p className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              API key doesn't have Universal Transfer permission. Please enable it in Binance API settings.
+            </p>
+          </div>
+        )}
+        
+        {(walletBalances?.futures ?? 0) < 10 && (
+          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+            <p className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
+              <Wallet className="h-4 w-4" />
+              Transfer at least $10 USDT to your Futures wallet to start trading
+            </p>
+          </div>
+        )}
+        
+        <Button onClick={handleCheckPermissions} disabled={isChecking} className="w-full">
+          {isChecking ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Checking Balance...
+            </>
+          ) : (walletBalances?.futures ?? 0) >= 10 ? (
+            <>
+              Continue
+              <ArrowRight className="h-4 w-4 ml-2" />
+            </>
+          ) : (
+            <>
+              I've Transferred Funds - Check Again
+              <ArrowRight className="h-4 w-4 ml-2" />
+            </>
+          )}
+        </Button>
+      </div>
+    );
+  };
 
   const renderStep6_Complete = () => (
     <div className="space-y-4 text-center">
