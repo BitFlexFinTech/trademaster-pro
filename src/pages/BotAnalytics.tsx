@@ -9,6 +9,8 @@ import { RiskManagementPanel } from '@/components/bots/RiskManagementPanel';
 import { SessionDashboard } from '@/components/bots/SessionDashboard';
 import { SpreadMonitor } from '@/components/bots/SpreadMonitor';
 import { DailyPnLChart } from '@/components/bots/DailyPnLChart';
+import { ExecutionOptimizationPanel } from '@/components/bots/ExecutionOptimizationPanel';
+import { TelemetryHistoryDashboard } from '@/components/bots/TelemetryHistoryDashboard';
 import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
 import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboard';
 import { TradeDistributionChart } from '@/components/bots/TradeDistributionChart';
@@ -292,10 +294,12 @@ export default function BotAnalytics() {
           <TabsContent value="execution" className="m-0 space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <TradeExecutionTimeline />
-              <div className="space-y-4">
-                <TradeExecutionStatus isRunning={!!activeBot} />
-                <ProfitEnginePanel />
-              </div>
+              <ExecutionOptimizationPanel />
+            </div>
+            <TelemetryHistoryDashboard />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <TradeExecutionStatus isRunning={!!activeBot} />
+              <ProfitEnginePanel />
             </div>
           </TabsContent>
 
