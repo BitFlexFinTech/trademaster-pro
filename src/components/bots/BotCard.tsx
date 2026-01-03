@@ -29,6 +29,8 @@ import { recordTradeForAudit, shouldGenerateAudit, generateAuditReport, AuditRep
 import { generateDashboards, recordProfitForDashboard, DashboardCharts } from '@/lib/dashboardGenerator';
 import { profitLockStrategy } from '@/lib/profitLockStrategy';
 import { dailyTargetAnalyzer, type TradeRecord } from '@/lib/dailyTargetAnalyzer';
+import { tradeQualificationFilter } from '@/lib/tradeQualificationFilter';
+import { continuousMarketScanner } from '@/lib/continuousMarketScanner';
 import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { usePositionAutoScaling } from '@/hooks/usePositionAutoScaling';
 import { useAutoCompound } from '@/hooks/useAutoCompound';
@@ -222,6 +224,10 @@ export function BotCard({
 
   // Open positions for WebSocket monitoring
   const [openPositions, setOpenPositions] = useState<OpenPosition[]>([]);
+  
+  // Trade qualification state
+  const [lastRejection, setLastRejection] = useState<{ symbol: string; reason: string; timestamp: number } | null>(null);
+  const [qualificationEnabled, setQualificationEnabled] = useState(true);
   
   // Execution benchmark tracking
   const { 
@@ -938,6 +944,18 @@ export function BotCard({
       console.log(`   Trade Interval: ${localTradeIntervalMs}ms`);
       console.log(`   Amount Per Trade: $${localAmountPerTrade}`);
       console.log(`   Trading Loop ID: ${tradingLoopIdRef.current}`);
+      console.log(`   Trade Qualification: ${qualificationEnabled ? 'ENABLED' : 'DISABLED'}`);
+      
+      // Start the continuous scanner for trade qualification
+      if (qualificationEnabled) {
+        const priceGetter = (symbol: string) => {
+          const pd = prices.find(p => p.symbol.toUpperCase() === symbol.toUpperCase());
+          if (!pd) return null;
+          return { price: pd.price, change: pd.change_24h || 0, volume: 0 };
+        };
+        continuousMarketScanner.start(priceGetter, user?.id);
+        console.log('🔍 Started continuous market scanner for trade qualification');
+      }
       
       const exchangeCooldowns = new Map<string, number>();
       let consecutiveErrors = 0;
@@ -1029,11 +1047,56 @@ export function BotCard({
             console.warn('⚠️ manage-open-trades catch error:', manageErr);
           }
           
-          // STEP 2: Open new trades
+          // STEP 2: Pre-trade qualification check (5-minute filter)
           // Start benchmark timing
           startBenchmark();
           
-          console.log('📤 Step 2: Calling execute-bot-trade edge function...');
+          // TRADE QUALIFICATION: Check if scanner has qualified opportunity
+          if (qualificationEnabled) {
+            const bestOpportunity = continuousMarketScanner.getBestOpportunity(availableExchanges[0]);
+            
+            if (!bestOpportunity) {
+              // No qualified opportunity - check qualification manually
+              const symbol = TOP_PAIRS[Math.floor(Math.random() * TOP_PAIRS.length)];
+              const priceData = prices.find(p => p.symbol.toUpperCase() === symbol);
+              
+              if (priceData) {
+                const marketData = {
+                  momentum: Math.abs(priceData.change_24h || 0) / 100,
+                  volatility: Math.abs(priceData.change_24h || 0) / 50,
+                  volumeSurge: 1.5,
+                  spread: 0.0005,
+                  currentPrice: priceData.price,
+                };
+                
+                const qualification = await tradeQualificationFilter.shouldEnterTrade(
+                  {
+                    symbol,
+                    pair: `${symbol}/USDT`,
+                    exchange: availableExchanges[0],
+                    direction: (priceData.change_24h || 0) > 0 ? 'long' : 'short',
+                    entryPrice: priceData.price,
+                    profitTargetPercent: 0.003,
+                    timeframe: '1m',
+                  },
+                  marketData,
+                  user?.id
+                );
+                
+                if (!qualification.enter) {
+                  console.log(`🚫 Trade rejected: ${qualification.reason}`);
+                  setLastRejection({ symbol, reason: qualification.reason, timestamp: Date.now() });
+                  return; // Skip this trade cycle
+                }
+                
+                console.log(`✅ Trade qualified: ${symbol} (${(qualification.confidence * 100).toFixed(0)}% confidence, ~${qualification.expectedDuration}s)`);
+              }
+            } else {
+              console.log(`✅ Using scanner opportunity: ${bestOpportunity.symbol} (${(bestOpportunity.qualification.confidence * 100).toFixed(0)}% confidence)`);
+            }
+          }
+          
+          console.log('📤 Step 3: Calling execute-bot-trade edge function...');
           console.log('   Request payload:', JSON.stringify({
             botId: existingBot.id,
             mode: botType,
@@ -1402,6 +1465,13 @@ export function BotCard({
         console.log('🛑 STOPPING: Live trade execution loop cleanup');
         isCancelledRef.current = true;
         isStoppingRef.current = true;
+        
+        // Stop the continuous scanner
+        if (qualificationEnabled) {
+          continuousMarketScanner.stop();
+          console.log('🛑 Stopped continuous market scanner');
+        }
+        
         if (abortControllerRef.current) {
           abortControllerRef.current.abort();
           abortControllerRef.current = null;

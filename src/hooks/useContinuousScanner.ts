@@ -7,6 +7,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { continuousMarketScanner, type ScanOpportunity } from '@/lib/continuousMarketScanner';
 import { useAuth } from './useAuth';
 
+interface RejectionBreakdown {
+  reason: string;
+  count: number;
+  percentage: number;
+}
+
 interface ScannerState {
   isScanning: boolean;
   opportunities: ScanOpportunity[];
@@ -14,6 +20,10 @@ interface ScannerState {
     opportunityCount: number;
     rejectionsLast5Min: number;
     symbolsActive: number;
+  };
+  detailedStats: {
+    rejectionBreakdown: RejectionBreakdown[];
+    topOpportunities: Array<{ symbol: string; confidence: number; expectedDuration: number }>;
   };
 }
 
@@ -28,6 +38,10 @@ export function useContinuousScanner(
       opportunityCount: 0,
       rejectionsLast5Min: 0,
       symbolsActive: 0,
+    },
+    detailedStats: {
+      rejectionBreakdown: [],
+      topOpportunities: [],
     },
   });
 
@@ -48,7 +62,12 @@ export function useContinuousScanner(
 
   const stopScanning = useCallback(() => {
     continuousMarketScanner.stop();
-    setState(prev => ({ ...prev, isScanning: false, opportunities: [] }));
+    setState(prev => ({ 
+      ...prev, 
+      isScanning: false, 
+      opportunities: [],
+      detailedStats: { rejectionBreakdown: [], topOpportunities: [] },
+    }));
   }, []);
 
   // Subscribe to opportunities
@@ -69,22 +88,34 @@ export function useContinuousScanner(
   useEffect(() => {
     if (!state.isScanning) return;
 
-    const interval = setInterval(() => {
-      const stats = continuousMarketScanner.getStats();
+    const statsInterval = setInterval(() => {
+      const detailedStats = continuousMarketScanner.getDetailedStats();
       const opportunities = continuousMarketScanner.getAllOpportunities();
       
       setState(prev => ({
         ...prev,
         opportunities,
         stats: {
-          opportunityCount: stats.opportunityCount,
-          rejectionsLast5Min: stats.rejectionsLast5Min,
-          symbolsActive: stats.symbolsActive,
+          opportunityCount: detailedStats.opportunityCount,
+          rejectionsLast5Min: detailedStats.rejectionsLast5Min,
+          symbolsActive: detailedStats.symbolsActive,
+        },
+        detailedStats: {
+          rejectionBreakdown: detailedStats.rejectionBreakdown,
+          topOpportunities: detailedStats.topOpportunities,
         },
       }));
     }, 1000);
 
-    return () => clearInterval(interval);
+    // Clear rejection stats every 5 minutes
+    const clearStatsInterval = setInterval(() => {
+      continuousMarketScanner.clearRejectionStats();
+    }, 300000);
+
+    return () => {
+      clearInterval(statsInterval);
+      clearInterval(clearStatsInterval);
+    };
   }, [state.isScanning]);
 
   // Cleanup on unmount

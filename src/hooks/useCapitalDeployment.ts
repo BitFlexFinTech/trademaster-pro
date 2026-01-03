@@ -1,13 +1,22 @@
 /**
  * Capital Deployment Hook
- * React state management for the capital manager
+ * React state management for the capital manager with history tracking
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { capitalManager, type ExchangeCapital, type Position } from '@/lib/capitalManager';
+
+interface ExchangeCapitalForChart {
+  exchange: string;
+  total: number;
+  deployed: number;
+  idle: number;
+  utilization: number;
+}
 
 interface CapitalState {
   exchanges: ExchangeCapital[];
+  exchangesForChart: ExchangeCapitalForChart[];
   totalCapital: number;
   totalDeployed: number;
   totalIdle: number;
@@ -20,6 +29,7 @@ export function useCapitalDeployment(
 ) {
   const [state, setState] = useState<CapitalState>({
     exchanges: [],
+    exchangesForChart: [],
     totalCapital: 0,
     totalDeployed: 0,
     totalIdle: 0,
@@ -32,6 +42,30 @@ export function useCapitalDeployment(
     usdtFloat.forEach(({ exchange, amount }) => {
       capitalManager.updateBalance(exchange, amount);
     });
+    
+    // Update state with current balances even when not monitoring
+    const status = capitalManager.getCapitalStatus();
+    const totalCapital = status.reduce((sum, ex) => sum + ex.total, 0);
+    const totalDeployed = status.reduce((sum, ex) => sum + ex.deployed, 0);
+    const totalIdle = status.reduce((sum, ex) => sum + ex.idle, 0);
+    
+    const exchangesForChart = status.map(ex => ({
+      exchange: ex.name,
+      total: ex.total,
+      deployed: ex.deployed,
+      idle: ex.idle,
+      utilization: ex.utilizationPercent,
+    }));
+
+    setState(prev => ({
+      ...prev,
+      exchanges: status,
+      exchangesForChart,
+      totalCapital,
+      totalDeployed,
+      totalIdle,
+      overallUtilization: totalCapital > 0 ? (totalDeployed / totalCapital) * 100 : 0,
+    }));
   }, [usdtFloat]);
 
   const startMonitoring = useCallback(() => {
@@ -39,9 +73,18 @@ export function useCapitalDeployment(
       const totalCapital = status.reduce((sum, ex) => sum + ex.total, 0);
       const totalDeployed = status.reduce((sum, ex) => sum + ex.deployed, 0);
       const totalIdle = status.reduce((sum, ex) => sum + ex.idle, 0);
+      
+      const exchangesForChart = status.map(ex => ({
+        exchange: ex.name,
+        total: ex.total,
+        deployed: ex.deployed,
+        idle: ex.idle,
+        utilization: ex.utilizationPercent,
+      }));
 
       setState({
         exchanges: status,
+        exchangesForChart,
         totalCapital,
         totalDeployed,
         totalIdle,
