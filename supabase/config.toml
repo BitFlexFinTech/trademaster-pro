@@ -101,3 +101,9 @@ verify_jwt = false
 
 [functions.analyze-pairs-batch]
 verify_jwt = false
+
+[functions.send-alert-webhook]
+verify_jwt = true
+
+[functions.manage-open-trades]
+verify_jwt = true

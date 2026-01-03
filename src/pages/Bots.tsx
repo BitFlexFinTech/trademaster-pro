@@ -25,7 +25,6 @@ import { Badge } from '@/components/ui/badge';
 export type BotFilter = 'all' | 'running' | 'stopped' | 'profitable' | 'losing';
 import { BotCard } from '@/components/bots/BotCard';
 import { BotCardSkeleton } from '@/components/bots/BotCardSkeleton';
-import { BotMicroCard } from '@/components/bots/BotMicroCard';
 import { ConnectionStatusIndicator } from '@/components/bots/ConnectionStatusIndicator';
 import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
 import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboard';
