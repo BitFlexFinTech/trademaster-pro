@@ -166,8 +166,8 @@ export const LiveProfitCounter = () => {
 
   return (
     <div className={cn(
-      "relative overflow-hidden rounded-xl border bg-card p-4 transition-all duration-300",
-      isFlashing && "ring-2 ring-emerald-500/50 shadow-lg shadow-emerald-500/20"
+      "relative overflow-hidden rounded-md border bg-card p-2 transition-all duration-300",
+      isFlashing && "ring-1 ring-emerald-500/50 shadow-md shadow-emerald-500/20"
     )}>
       {/* Flash overlay */}
       <div className={cn(
@@ -176,48 +176,41 @@ export const LiveProfitCounter = () => {
       )} />
       
       <div className="relative z-10">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Zap className="h-4 w-4 text-yellow-500" />
-            <span>Session Profit</span>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-1.5 text-muted-foreground text-[10px]">
+            <Zap className="h-3 w-3 text-yellow-500" />
+            <span>Session</span>
           </div>
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <TrendingUp className="h-3 w-3" />
-            <span>{tradeCount} trades</span>
+          <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
+            <TrendingUp className="h-2.5 w-2.5" />
+            <span>{tradeCount}</span>
           </div>
         </div>
         
-        <div className="flex items-baseline gap-1">
+        <div className="flex items-baseline gap-0.5">
           <DollarSign className={cn(
-            "h-6 w-6 transition-colors",
+            "h-4 w-4 transition-colors",
             sessionProfit > 0 ? "text-emerald-500" : "text-muted-foreground"
           )} />
           {isLoading ? (
-            <span className="text-3xl font-bold tabular-nums text-muted-foreground">
-              <RefreshCw className="h-6 w-6 animate-spin" />
-            </span>
+            <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : (
-            <span 
-              ref={displayRef}
-              className={cn(
-                "text-3xl font-bold tabular-nums transition-colors",
-                sessionProfit > 0 ? "text-emerald-500" : "text-foreground"
-              )}
-            >
+            <span className={cn(
+              "text-xl font-bold tabular-nums transition-colors",
+              sessionProfit > 0 ? "text-emerald-500" : "text-foreground"
+            )}>
               {displayValue.toFixed(2)}
             </span>
           )}
+          {lastProfit !== null && (
+            <span className={cn(
+              "text-[10px] ml-1 transition-all",
+              isFlashing ? "text-emerald-400" : "text-muted-foreground"
+            )}>
+              +${lastProfit.toFixed(2)}
+            </span>
+          )}
         </div>
-        
-        {/* Last profit indicator */}
-        {lastProfit !== null && (
-          <div className={cn(
-            "mt-2 flex items-center gap-1 text-sm transition-all duration-500",
-            isFlashing ? "text-emerald-400 scale-105" : "text-muted-foreground scale-100"
-          )}>
-            <span>Last: +${lastProfit.toFixed(2)}</span>
-          </div>
-        )}
       </div>
     </div>
   );

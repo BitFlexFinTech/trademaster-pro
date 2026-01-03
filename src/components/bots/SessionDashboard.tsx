@@ -68,108 +68,52 @@ export function SessionDashboard() {
   const winRateColor = metrics.winRateLast20 >= 50 ? 'text-green-500' : 'text-red-500';
 
   return (
-    <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg border bg-card/50">
+    <div className="flex items-center gap-2 px-2 py-1 rounded-md border bg-card/50">
       {/* Session Status */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1">
         {metrics.canTrade ? (
-          <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+          <CheckCircle className="h-3 w-3 text-green-500" />
         ) : (
-          <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+          <AlertTriangle className="h-3 w-3 text-red-500" />
         )}
         <Badge 
           variant={metrics.canTrade ? "default" : "destructive"} 
-          className="text-[9px] h-4 px-1.5"
+          className="text-[8px] h-3.5 px-1"
         >
-          {metrics.canTrade ? 'ACTIVE' : 'HALTED'}
+          {metrics.canTrade ? 'OK' : 'HALT'}
         </Badge>
       </div>
 
       {/* Wins */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className={cn(
-            "flex items-center gap-1 px-1.5 py-0.5 rounded",
-            metrics.consecutiveWins > 0 ? "bg-green-500/10" : "bg-muted/30"
-          )}>
-            <Trophy className={cn(
-              "h-3 w-3",
-              metrics.consecutiveWins > 0 ? "text-green-500" : "text-muted-foreground"
-            )} />
-            <span className={cn(
-              "text-xs font-bold",
-              metrics.consecutiveWins > 0 ? "text-green-500" : "text-muted-foreground"
-            )}>
-              {metrics.consecutiveWins}
-            </span>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="text-[10px]">
-          Consecutive wins streak
-        </TooltipContent>
-      </Tooltip>
+      <div className={cn(
+        "flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px]",
+        metrics.consecutiveWins > 0 ? "bg-green-500/10 text-green-500" : "text-muted-foreground"
+      )}>
+        <Trophy className="h-2.5 w-2.5" />
+        <span className="font-bold">{metrics.consecutiveWins}</span>
+      </div>
 
       {/* Losses */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className={cn(
-            "flex items-center gap-1 px-1.5 py-0.5 rounded",
-            metrics.consecutiveLosses >= 3 ? "bg-red-500/20 animate-pulse" : 
-            metrics.consecutiveLosses > 0 ? "bg-red-500/10" : "bg-muted/30"
-          )}>
-            <XCircle className={cn(
-              "h-3 w-3",
-              metrics.consecutiveLosses > 0 ? "text-red-500" : "text-muted-foreground"
-            )} />
-            <span className={cn(
-              "text-xs font-bold",
-              metrics.consecutiveLosses > 0 ? "text-red-500" : "text-muted-foreground"
-            )}>
-              {metrics.consecutiveLosses}
-            </span>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="text-[10px]">
-          Consecutive losses (3 = halt)
-        </TooltipContent>
-      </Tooltip>
+      <div className={cn(
+        "flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px]",
+        metrics.consecutiveLosses >= 3 ? "bg-red-500/20 animate-pulse text-red-500" : 
+        metrics.consecutiveLosses > 0 ? "bg-red-500/10 text-red-500" : "text-muted-foreground"
+      )}>
+        <XCircle className="h-2.5 w-2.5" />
+        <span className="font-bold">{metrics.consecutiveLosses}</span>
+      </div>
 
       {/* Win Rate */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="flex items-center gap-1">
-            <span className={cn("text-xs font-mono font-medium", winRateColor)}>
-              {metrics.winRateLast20.toFixed(0)}%
-            </span>
-            <span className="text-[9px] text-muted-foreground">WR</span>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="text-[10px]">
-          Win rate (last 20 trades) - Min 50%
-        </TooltipContent>
-      </Tooltip>
+      <span className={cn("text-[10px] font-mono font-medium", winRateColor)}>
+        {metrics.winRateLast20.toFixed(0)}%
+      </span>
 
       {/* Cooldown Timer */}
       {metrics.cooloffRemainingMs > 0 && (
-        <div className="flex items-center gap-1 text-yellow-500">
-          <Clock className="h-3 w-3" />
-          <span className="text-[10px] font-mono">
-            {formatCountdown(metrics.cooloffRemainingMs)}
-          </span>
+        <div className="flex items-center gap-0.5 text-yellow-500 text-[10px]">
+          <Clock className="h-2.5 w-2.5" />
+          <span className="font-mono">{formatCountdown(metrics.cooloffRemainingMs)}</span>
         </div>
-      )}
-
-      {/* Halt Reason (if halted) */}
-      {!metrics.canTrade && metrics.haltReason && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="text-[9px] text-red-400 truncate max-w-[100px]">
-              {metrics.haltReason}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-[10px] max-w-[200px]">
-            {metrics.haltReason}
-          </TooltipContent>
-        </Tooltip>
       )}
     </div>
   );

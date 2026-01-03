@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw, CheckCircle2, XCircle, Radio, SlidersHorizontal, Check, Gauge, Wifi, WifiOff } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw, CheckCircle2, XCircle, Radio, SlidersHorizontal, Check, Gauge, Wifi, WifiOff, Lock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -2462,6 +2462,19 @@ export function BotCard({
                   "flex-1",
                   tempProfitPerTrade === 1.00 && "ring-1 ring-primary/50 rounded"
                 )}
+              />
+            </div>
+
+            {/* Lock Profits Toggle */}
+            <div className="flex items-center justify-between py-1">
+              <div className="flex items-center gap-2">
+                <Lock className="w-3.5 h-3.5 text-primary shrink-0" />
+                <span className="text-[10px] text-muted-foreground">Lock Profits</span>
+              </div>
+              <Switch
+                checked={autoExtractProfits}
+                onCheckedChange={handleAutoExtractToggle}
+                className="h-4 w-7"
               />
             </div>
             
