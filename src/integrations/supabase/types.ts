@@ -1097,6 +1097,7 @@ export type Database = {
           emotion: string | null
           entry_price: number
           exchange_name: string | null
+          execution_telemetry: Json | null
           exit_price: number | null
           holding_for_profit: boolean | null
           id: string
@@ -1125,6 +1126,7 @@ export type Database = {
           emotion?: string | null
           entry_price: number
           exchange_name?: string | null
+          execution_telemetry?: Json | null
           exit_price?: number | null
           holding_for_profit?: boolean | null
           id?: string
@@ -1153,6 +1155,7 @@ export type Database = {
           emotion?: string | null
           entry_price?: number
           exchange_name?: string | null
+          execution_telemetry?: Json | null
           exit_price?: number | null
           holding_for_profit?: boolean | null
           id?: string

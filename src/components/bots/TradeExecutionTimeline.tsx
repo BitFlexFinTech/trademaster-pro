@@ -15,6 +15,7 @@ const STEP_ICONS: Record<string, React.ReactNode> = {
   'Confirmation': <ThumbsUp className="w-3 h-3" />,
 };
 
+
 function StepIndicator({ step }: { step: ExecutionStep }) {
   const icon = STEP_ICONS[step.name] || <Clock className="w-3 h-3" />;
   
@@ -79,6 +80,16 @@ function ExecutionCard({ execution }: { execution: TradeExecution }) {
           >
             {execution.direction.toUpperCase()}
           </Badge>
+          {/* Telemetry indicator */}
+          <Badge 
+            variant="outline" 
+            className={cn(
+              'text-[8px] px-1 py-0',
+              execution.hasTelemetry ? 'text-primary border-primary/30' : 'text-muted-foreground border-muted'
+            )}
+          >
+            {execution.hasTelemetry ? '📊 Real' : '⏱️ Est'}
+          </Badge>
         </div>
         <div className="flex items-center gap-1.5">
           <Badge className={cn('text-[9px] px-1.5 py-0', statusBadge.className)}>
@@ -92,43 +103,52 @@ function ExecutionCard({ execution }: { execution: TradeExecution }) {
 
       {/* Timeline */}
       <div className="flex items-center gap-1">
-        {execution.steps.map((step, i) => (
-          <div key={step.name} className="flex items-center">
-            <div 
-              className={cn(
-                'w-2 h-2 rounded-full',
-                step.status === 'completed' ? 'bg-emerald-500' :
-                step.status === 'in-progress' ? 'bg-amber-500 animate-pulse' :
-                step.status === 'failed' ? 'bg-destructive' :
-                'bg-muted'
+        {execution.steps.map((step, i) => {
+          const isSlow = (step.duration || 0) > 500;
+          return (
+            <div key={step.name} className="flex items-center">
+              <div 
+                className={cn(
+                  'w-2 h-2 rounded-full',
+                  step.status === 'completed' ? (isSlow ? 'bg-amber-500' : 'bg-emerald-500') :
+                  step.status === 'in-progress' ? 'bg-amber-500 animate-pulse' :
+                  step.status === 'failed' ? 'bg-destructive' :
+                  'bg-muted'
+                )}
+              />
+              {i < execution.steps.length - 1 && (
+                <div className={cn(
+                  'w-4 h-0.5 mx-0.5',
+                  step.status === 'completed' ? 'bg-emerald-500' : 'bg-muted'
+                )} />
               )}
-            />
-            {i < execution.steps.length - 1 && (
-              <div className={cn(
-                'w-4 h-0.5 mx-0.5',
-                step.status === 'completed' ? 'bg-emerald-500' : 'bg-muted'
-              )} />
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
         <span className="ml-2 text-[10px] font-mono text-muted-foreground">
           {execution.totalDuration.toFixed(0)}ms total
         </span>
       </div>
 
-      {/* Step details (collapsed by default, could expand) */}
+      {/* Step details */}
       <div className="grid grid-cols-5 gap-1">
-        {execution.steps.map(step => (
-          <div key={step.name} className="text-center">
-            <span className="text-[8px] text-muted-foreground block truncate">{step.name.split(' ')[0]}</span>
-            <span className={cn(
-              'text-[9px] font-mono',
-              step.status === 'completed' ? 'text-emerald-400' : 'text-muted-foreground'
-            )}>
-              {step.duration ? `${step.duration.toFixed(0)}ms` : '--'}
-            </span>
-          </div>
-        ))}
+        {execution.steps.map(step => {
+          const isSlow = (step.duration || 0) > 500;
+          return (
+            <div key={step.name} className="text-center">
+              <span className="text-[8px] text-muted-foreground block truncate">{step.name.split(' ')[0]}</span>
+              <span className={cn(
+                'text-[9px] font-mono',
+                step.status === 'completed' 
+                  ? (isSlow ? 'text-amber-400' : 'text-emerald-400') 
+                  : 'text-muted-foreground'
+              )}>
+                {step.duration ? `${step.duration.toFixed(0)}ms` : '--'}
+                {step.isEstimated && step.duration ? '*' : ''}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       {/* Profit if available */}
@@ -171,7 +191,7 @@ export function TradeExecutionTimeline({ className }: { className?: string }) {
         </div>
         
         {/* Metrics summary */}
-        <div className="grid grid-cols-4 gap-2 mt-2">
+        <div className="grid grid-cols-5 gap-2 mt-2">
           <div className="text-center p-1.5 bg-muted/30 rounded">
             <span className="text-[9px] text-muted-foreground block">Avg Total</span>
             <span className="text-xs font-mono text-foreground">{metrics.avgTotalDuration.toFixed(0)}ms</span>
@@ -187,6 +207,13 @@ export function TradeExecutionTimeline({ className }: { className?: string }) {
           <div className="text-center p-1.5 bg-muted/30 rounded">
             <span className="text-[9px] text-muted-foreground block">Success</span>
             <span className="text-xs font-mono text-emerald-400">{metrics.successRate.toFixed(0)}%</span>
+          </div>
+          <div className="text-center p-1.5 bg-muted/30 rounded">
+            <span className="text-[9px] text-muted-foreground block">Real Data</span>
+            <span className={cn(
+              "text-xs font-mono",
+              metrics.telemetryRate > 50 ? "text-primary" : "text-muted-foreground"
+            )}>{metrics.telemetryRate.toFixed(0)}%</span>
           </div>
         </div>
       </CardHeader>
