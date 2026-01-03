@@ -36,6 +36,7 @@ import { useBotStrategyAI } from '@/hooks/useBotStrategyAI';
 import { toast } from 'sonner';
 import { LivePositionProfitTracker } from './LivePositionProfitTracker';
 import { ExecutionBenchmarkDashboard } from './ExecutionBenchmarkDashboard';
+import { VolatilityOpportunityIndicator } from './VolatilityOpportunityIndicator';
 import { OpenPosition } from '@/hooks/useWebSocketPositionMonitor';
 import {
   Tooltip,
@@ -2621,6 +2622,11 @@ export function BotCard({
             />
           </div>
         </div>
+      )}
+
+      {/* Real-Time Volatility Opportunity Indicator */}
+      {isRunning && (
+        <VolatilityOpportunityIndicator className="mb-3" />
       )}
 
       {/* Progress */}
