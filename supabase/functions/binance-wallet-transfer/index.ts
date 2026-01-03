@@ -458,10 +458,21 @@ serve(async (req) => {
         }
         
         const permissions = await response.json();
+        console.log(`[wallet-transfer] Binance API permissions:`, JSON.stringify(permissions));
+        
+        // Check BOTH permission fields - Binance returns different fields based on account type
+        // permitsUniversalTransfer = Universal Transfer API (what we need for UMFUTURE_FUNDING)
+        // enableInternalTransfer = Master/Sub-account transfers
+        const canTransfer = 
+          permissions.permitsUniversalTransfer === true ||
+          permissions.enableInternalTransfer === true;
+        
         return new Response(
           JSON.stringify({ 
             success: true, 
-            canTransfer: permissions.enableInternalTransfer === true,
+            canTransfer,
+            permitsUniversalTransfer: permissions.permitsUniversalTransfer,
+            enableInternalTransfer: permissions.enableInternalTransfer,
             permissions 
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }

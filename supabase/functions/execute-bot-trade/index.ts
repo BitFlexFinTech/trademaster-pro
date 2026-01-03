@@ -2022,13 +2022,45 @@ serve(async (req) => {
       });
     }
 
+    // ========== BATCH PAIR ANALYSIS FOR OPTIMAL SELECTION ==========
+    // Try batch analysis first to find highest opportunity pair
+    let batchAnalysisResult: { symbol: string; direction: 'long' | 'short'; score: number } | null = null;
+    try {
+      const batchResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/analyze-pairs-batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+        },
+        body: JSON.stringify({ limit: 5, minScore: 50, realtimePrices }),
+      });
+      
+      if (batchResponse.ok) {
+        const batchData = await batchResponse.json();
+        if (batchData.topOpportunity && batchData.topOpportunity.opportunityScore > 60) {
+          batchAnalysisResult = {
+            symbol: batchData.topOpportunity.symbol,
+            direction: batchData.topOpportunity.suggestedDirection,
+            score: batchData.topOpportunity.opportunityScore,
+          };
+          console.log(`📊 Batch analysis: ${batchAnalysisResult.symbol} (${batchAnalysisResult.direction}) Score: ${batchAnalysisResult.score}`);
+        }
+      }
+    } catch (batchErr) {
+      console.warn(`⚠️ Batch analysis failed, using fallback:`, batchErr);
+    }
+
     // ========== SMART PAIR SELECTION WITH FALLBACK ==========
-    // Try to find an unblocked pair from the fallback list
+    // Use batch analysis result if available, otherwise use fallback list
+    const pairsToTry = batchAnalysisResult 
+      ? [batchAnalysisResult.symbol, ...FALLBACK_PAIRS_ORDER.filter(p => p !== batchAnalysisResult!.symbol)]
+      : FALLBACK_PAIRS_ORDER;
+    
     const { pair: selectedPair, skippedPairs } = await findUnblockedPair(
       supabase,
       user.id,
       isSandbox,
-      FALLBACK_PAIRS_ORDER
+      pairsToTry
     );
 
     // If all pairs are blocked, return skip response

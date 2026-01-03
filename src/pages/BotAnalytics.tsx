@@ -26,11 +26,12 @@ import { TradeReplayHistory } from '@/components/bots/TradeReplayHistory';
 import { MultiExchangePositionDashboard } from '@/components/bots/MultiExchangePositionDashboard';
 import { TradingDataProvider } from '@/contexts/TradingDataContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity, Clock, List, Zap, PlayCircle, Layers, LineChart, Target, Ruler } from 'lucide-react';
+import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity, Clock, List, Zap, PlayCircle, Layers, LineChart, Target, Ruler, GitCompare } from 'lucide-react';
 import { PositionSizingHistoryChart } from '@/components/bots/PositionSizingHistoryChart';
 import { CumulativeProfitChart } from '@/components/bots/CumulativeProfitChart';
 import { TradePerformanceDashboard } from '@/components/bots/TradePerformanceDashboard';
 import { ProfitTimelineChart } from '@/components/analytics/ProfitTimelineChart';
+import { MTFPerformanceChart } from '@/components/analytics/MTFPerformanceChart';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -243,9 +244,10 @@ export default function BotAnalytics() {
           </TabsContent>
 
           <TabsContent value="performance" className="m-0 space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <BotAnalyticsDashboard />
               <BotPerformanceDashboard />
+              <MTFPerformanceChart days={30} />
             </div>
           </TabsContent>
 

@@ -523,7 +523,14 @@ async function extractProfitToFunding(
       
       if (!response.ok) {
         const data = await response.json();
-        return { success: false, error: data.msg || 'Binance transfer failed' };
+        console.error(`[extractProfitToFunding] Binance transfer FAILED:`, {
+          code: data.code,
+          msg: data.msg,
+          amount: transferAmount,
+          type: 'UMFUTURE_FUNDING',
+          hint: data.code === -3041 ? 'Universal Transfer permission not enabled in Binance API settings' : undefined,
+        });
+        return { success: false, error: `${data.msg || 'Binance transfer failed'} (code: ${data.code})` };
       }
       
       return { success: true };
