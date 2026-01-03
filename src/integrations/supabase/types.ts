@@ -1114,6 +1114,80 @@ export type Database = {
         }
         Relationships: []
       }
+      trade_error_recovery: {
+        Row: {
+          attempt_number: number
+          backoff_ms: number
+          created_at: string
+          error_code: string | null
+          error_message: string
+          error_type: string
+          exchange: string
+          id: string
+          last_response: Json | null
+          max_attempts: number
+          next_retry_at: string | null
+          original_request: Json | null
+          resolution: string | null
+          resolved_at: string | null
+          status: string
+          symbol: string
+          trade_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempt_number?: number
+          backoff_ms: number
+          created_at?: string
+          error_code?: string | null
+          error_message: string
+          error_type: string
+          exchange: string
+          id?: string
+          last_response?: Json | null
+          max_attempts?: number
+          next_retry_at?: string | null
+          original_request?: Json | null
+          resolution?: string | null
+          resolved_at?: string | null
+          status?: string
+          symbol: string
+          trade_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempt_number?: number
+          backoff_ms?: number
+          created_at?: string
+          error_code?: string | null
+          error_message?: string
+          error_type?: string
+          exchange?: string
+          id?: string
+          last_response?: Json | null
+          max_attempts?: number
+          next_retry_at?: string | null
+          original_request?: Json | null
+          resolution?: string | null
+          resolved_at?: string | null
+          status?: string
+          symbol?: string
+          trade_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_error_recovery_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trades: {
         Row: {
           amount: number

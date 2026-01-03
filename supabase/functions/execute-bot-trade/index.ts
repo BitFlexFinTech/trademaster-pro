@@ -248,6 +248,116 @@ const TOP_PAIRS = GREENBACK_CONFIG.instruments_whitelist;
 
 // REMOVED: EXCLUDED_COMBOS was blocking profitable pairs - all pairs now enabled
 
+// ============ ERROR RECOVERY SYSTEM ============
+// Exponential backoff with jitter for retry attempts
+function getExponentialBackoff(attempt: number): number {
+  const baseDelay = Math.min(1000 * Math.pow(2, attempt - 1), 60000);
+  const jitter = baseDelay * 0.2 * (Math.random() - 0.5) * 2;
+  return Math.round(baseDelay + jitter);
+}
+
+// Classify error type for retry decision
+function classifyError(error: any): string {
+  const msg = (error?.message || error?.toString() || '').toLowerCase();
+  if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many')) return 'rate_limit';
+  if (msg.includes('timeout') || msg.includes('etimedout') || msg.includes('timed out')) return 'timeout';
+  if (msg.includes('network') || msg.includes('econnrefused') || msg.includes('fetch failed')) return 'network';
+  if (msg.includes('insufficient') || msg.includes('balance') || msg.includes('not enough')) return 'insufficient_balance';
+  if (msg.includes('rejected') || msg.includes('invalid')) return 'order_rejected';
+  if (msg.includes('-1021') || msg.includes('timestamp')) return 'timestamp_sync';
+  return 'unknown';
+}
+
+// Check if error is retryable
+function isRetryableError(errorType: string): boolean {
+  return ['rate_limit', 'timeout', 'network', 'timestamp_sync'].includes(errorType);
+}
+
+// Execute with error recovery - logs to trade_error_recovery table
+async function executeWithErrorRecovery<T>(
+  supabaseClient: any,
+  userId: string,
+  exchange: string,
+  symbol: string,
+  originalRequest: Record<string, any>,
+  operation: () => Promise<T>,
+  maxAttempts: number = 3
+): Promise<{ success: boolean; data?: T; error?: string; recoveryId?: string }> {
+  let attempt = 0;
+  let recoveryId: string | null = null;
+  let lastError: any = null;
+  
+  while (attempt < maxAttempts) {
+    attempt++;
+    const backoffMs = getExponentialBackoff(attempt);
+    
+    try {
+      const result = await operation();
+      
+      // If we had a recovery record, mark as success
+      if (recoveryId) {
+        await supabaseClient.from('trade_error_recovery').update({
+          status: 'success',
+          resolved_at: new Date().toISOString(),
+          resolution: 'auto_retry_success'
+        }).eq('id', recoveryId);
+        console.log(`✅ Error recovery successful after ${attempt} attempts for ${symbol} on ${exchange}`);
+      }
+      
+      return { success: true, data: result };
+    } catch (error: any) {
+      lastError = error;
+      const errorType = classifyError(error);
+      const errorMessage = error?.message || String(error);
+      
+      console.log(`⚠️ Trade execution error (attempt ${attempt}/${maxAttempts}): ${errorType} - ${errorMessage}`);
+      
+      // Log to recovery table
+      try {
+        const { data: recovery } = await supabaseClient.from('trade_error_recovery').insert({
+          user_id: userId,
+          error_type: errorType,
+          error_message: errorMessage.substring(0, 500),
+          error_code: error?.code || null,
+          exchange,
+          symbol,
+          attempt_number: attempt,
+          max_attempts: maxAttempts,
+          backoff_ms: backoffMs,
+          next_retry_at: attempt < maxAttempts ? new Date(Date.now() + backoffMs).toISOString() : null,
+          status: attempt < maxAttempts && isRetryableError(errorType) ? 'retrying' : 'failed',
+          original_request: originalRequest,
+          last_response: { error: errorMessage }
+        }).select().single();
+        
+        recoveryId = recovery?.id || recoveryId;
+      } catch (logError) {
+        console.error('Failed to log error recovery entry:', logError);
+      }
+      
+      // Retry if applicable
+      if (attempt < maxAttempts && isRetryableError(errorType)) {
+        console.log(`🔄 Retrying in ${backoffMs}ms...`);
+        await new Promise(r => setTimeout(r, backoffMs));
+        continue;
+      }
+      
+      // Mark as failed if we've exhausted retries
+      if (recoveryId) {
+        await supabaseClient.from('trade_error_recovery').update({
+          status: 'failed',
+          resolved_at: new Date().toISOString(),
+          resolution: 'abandoned_max_retries'
+        }).eq('id', recoveryId);
+      }
+      
+      return { success: false, error: errorMessage, recoveryId: recoveryId || undefined };
+    }
+  }
+  
+  return { success: false, error: lastError?.message || 'Max retries exceeded' };
+}
+
 // Spot-safe pairs for LONG trades (>50% win rate historically)
 const SPOT_SAFE_PAIRS = new Set(['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'MATIC/USDT']);
 
