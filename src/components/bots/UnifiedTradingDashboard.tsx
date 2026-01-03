@@ -32,6 +32,7 @@ export function UnifiedTradingDashboard({ className }: UnifiedTradingDashboardPr
     isLoading,
   } = useTradingData();
   
+  
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
 
   const handleManualClose = async (tradeId: string, pair: string) => {

@@ -53,10 +53,24 @@ const bottomNavItems = [
 ];
 
 export function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false);
+  // Persist sidebar collapse state to localStorage
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('sidebar-collapsed');
+      return stored === 'true';
+    }
+    return false;
+  });
   const [isAdmin, setIsAdmin] = useState(false);
   const { user } = useAuth();
   const { unreadCount } = useAlerts();
+  
+  // Save collapse state when it changes
+  const handleToggleCollapse = () => {
+    const newState = !collapsed;
+    setCollapsed(newState);
+    localStorage.setItem('sidebar-collapsed', String(newState));
+  };
 
   useEffect(() => {
     const checkAdminRole = async () => {
@@ -177,7 +191,7 @@ export function Sidebar() {
 
         {/* Collapse Button */}
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={handleToggleCollapse}
           className={cn(
             'flex items-center gap-3 px-3 py-2 mx-2 mt-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors w-[calc(100%-16px)]',
             collapsed && 'justify-center px-2'

@@ -28,9 +28,12 @@ export interface TradeContext {
   minProfitThreshold?: number;
 }
 
-// Minimum profit threshold in dollars - $1 NET profit target
-// This is the ONLY exit condition - no stop loss, hold until profitable
-export const DEFAULT_MIN_PROFIT_THRESHOLD = 1.00; // $1.00 minimum NET profit
+// Profit targets - EXACT net profit after all fees
+export const SPOT_PROFIT_TARGET = 1.00;      // $1.00 NET for spot trading
+export const LEVERAGE_PROFIT_TARGET = 3.00;  // $3.00 NET for futures/leverage
+
+// Default uses spot target
+export const DEFAULT_MIN_PROFIT_THRESHOLD = SPOT_PROFIT_TARGET;
 
 /**
  * MASTER PROFIT CALCULATION FUNCTION
@@ -92,10 +95,12 @@ export function calculateTradeProfitWithFees(context: TradeContext): ProfitCalcu
   // STEP 6: Calculate profit percentage
   const profitPercent = (netProfit / positionSize) * 100;
 
-  // STEP 7: Check threshold
+  // STEP 7: Check threshold - EXACT target, no inflation
+  // The threshold passed in IS the take-home profit target ($1 spot, $3 leverage)
   const isAboveThreshold = netProfit >= minProfitThreshold;
-  const effectiveThreshold = Math.max(minProfitThreshold, totalFees * 1.5);
-  const shouldClose = netProfit >= effectiveThreshold;
+  // CRITICAL: Use exact threshold - do NOT inflate with fees
+  // The minProfitThreshold already represents the NET profit target AFTER fees
+  const shouldClose = netProfit >= minProfitThreshold;
 
   // STEP 8: Log for debugging
   logProfitCalculation({
@@ -124,8 +129,8 @@ export function calculateTradeProfitWithFees(context: TradeContext): ProfitCalcu
     isAboveThreshold,
     shouldClose,
     reason: shouldClose 
-      ? `Net profit $${netProfit.toFixed(4)} exceeds threshold $${effectiveThreshold.toFixed(4)}`
-      : `Net profit $${netProfit.toFixed(4)} below threshold $${effectiveThreshold.toFixed(4)}`,
+      ? `Net profit $${netProfit.toFixed(4)} reached target $${minProfitThreshold.toFixed(2)}`
+      : `Net profit $${netProfit.toFixed(4)} below target $${minProfitThreshold.toFixed(2)}`,
   };
 }
 
