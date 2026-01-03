@@ -173,6 +173,61 @@ serve(async (req) => {
       const MINIMUM_PROFIT_TARGET = Math.max(tradeTargetProfit, 1.00);
       const effectiveTarget = MINIMUM_PROFIT_TARGET;
       
+      // ============ STALE POSITION FORCE-CLOSE (>24 HOURS) ============
+      const MAX_TRADE_AGE_HOURS = 24;
+      const tradeAgeMs = Date.now() - new Date(trade.created_at).getTime();
+      const tradeAgeHours = tradeAgeMs / (1000 * 60 * 60);
+
+      if (tradeAgeHours > MAX_TRADE_AGE_HOURS) {
+        console.log(`[manage-open-trades] ⏰ STALE TRADE: ${trade.pair} open for ${tradeAgeHours.toFixed(1)} hours - force closing`);
+
+        // Force close stale trade
+        const { error: updateError } = await supabaseService
+          .from('trades')
+          .update({
+            status: 'closed',
+            exit_price: currentPrice,
+            profit_loss: netPnl,
+            profit_percentage: ((currentPrice - trade.entry_price) / trade.entry_price) * 100,
+            closed_at: new Date().toISOString(),
+            holding_for_profit: false,
+            notes: `Auto-closed after ${tradeAgeHours.toFixed(1)} hours (stale position protection)`,
+          })
+          .eq('id', trade.id);
+
+        if (updateError) {
+          console.error(`[manage-open-trades] Failed to force-close stale trade ${trade.id}:`, updateError);
+          continue;
+        }
+
+        // Insert audit log for stale closure
+        await supabaseService.from('profit_audit_log').insert({
+          user_id: user.id,
+          trade_id: trade.id,
+          action: 'force_closed_stale',
+          symbol: trade.pair,
+          exchange: trade.exchange_name || 'binance',
+          entry_price: trade.entry_price,
+          current_price: currentPrice,
+          quantity: trade.amount,
+          gross_pnl: grossPnl,
+          fees: fees,
+          net_pnl: netPnl,
+          success: true,
+        });
+
+        closedTrades.push({
+          id: trade.id,
+          pair: trade.pair,
+          direction: trade.direction,
+          netPnl,
+          reason: 'stale_position',
+        });
+
+        console.log(`[manage-open-trades] ✅ Force-closed stale trade ${trade.pair} with netPnL=$${netPnl.toFixed(2)}`);
+        continue; // Skip to next trade
+      }
+
       // Check if profit target is reached
       if (netPnl >= effectiveTarget) {
         console.log(`[manage-open-trades] ✅ TARGET HIT: ${trade.pair} netPnL=$${netPnl.toFixed(2)} >= $${effectiveTarget}`);

@@ -24,6 +24,14 @@ export interface ExecutionAlert {
   timestamp: Date;
 }
 
+interface WebhookConfig {
+  enabled: boolean;
+  discord_url: string | null;
+  slack_url: string | null;
+  alert_types: string[];
+  cooldown_seconds: number;
+}
+
 const DEFAULT_THRESHOLDS: ExecutionTimeThresholds = {
   totalMs: 1500,
   pairSelectionMs: 300,
@@ -54,6 +62,51 @@ export function useExecutionTimeAlerts() {
   const [alerts, setAlerts] = useState<ExecutionAlert[]>([]);
   const [recentAlertCount, setRecentAlertCount] = useState(0);
   const processedTradesRef = useRef<Set<string>>(new Set());
+  
+  // Webhook state
+  const [webhookConfig, setWebhookConfig] = useState<WebhookConfig | null>(null);
+  const lastAlertTimesRef = useRef<Record<string, number>>({});
+
+  // Fetch webhook config from user_settings
+  useEffect(() => {
+    if (!user) return;
+    
+    const fetchWebhookConfig = async () => {
+      const { data } = await supabase
+        .from('user_settings')
+        .select('webhook_config')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      
+      if (data?.webhook_config) {
+        const config = data.webhook_config as unknown as WebhookConfig;
+        setWebhookConfig(config);
+      }
+    };
+    
+    fetchWebhookConfig();
+    
+    // Subscribe to changes
+    const channel = supabase
+      .channel('webhook-config-sync')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'user_settings',
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        const newData = payload.new as any;
+        if (newData?.webhook_config) {
+          const config = newData.webhook_config as unknown as WebhookConfig;
+          setWebhookConfig(config);
+        }
+      })
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   // Save thresholds to localStorage
   useEffect(() => {
@@ -64,6 +117,55 @@ export function useExecutionTimeAlerts() {
   const updateThresholds = useCallback((updates: Partial<ExecutionTimeThresholds>) => {
     setThresholds(prev => ({ ...prev, ...updates }));
   }, []);
+
+  // Send webhook alert
+  const sendWebhookAlert = useCallback(async (alert: ExecutionAlert) => {
+    if (!webhookConfig?.enabled) return;
+    if (!webhookConfig.discord_url && !webhookConfig.slack_url) return;
+    
+    // Check if alert type is enabled
+    if (!webhookConfig.alert_types.includes(alert.type)) return;
+    
+    // Check cooldown
+    const alertKey = `${alert.type}-${alert.phase || 'total'}`;
+    const lastAlertTime = lastAlertTimesRef.current[alertKey] || 0;
+    const cooldownMs = (webhookConfig.cooldown_seconds || 60) * 1000;
+    
+    if (Date.now() - lastAlertTime < cooldownMs) {
+      console.log(`[Webhook] Skipping alert - cooldown active for ${alertKey}`);
+      return;
+    }
+    
+    try {
+      const { error } = await supabase.functions.invoke('send-alert-webhook', {
+        body: {
+          alert_type: alert.type,
+          title: alert.type === 'slow_total' 
+            ? `⚠️ Slow Execution: ${alert.pair}` 
+            : `⚠️ Slow Phase: ${alert.phase}`,
+          message: `Duration: ${alert.durationMs}ms (threshold: ${alert.thresholdMs}ms)`,
+          severity: alert.durationMs > alert.thresholdMs * 2 ? 'critical' : 'warning',
+          trade_data: {
+            tradeId: alert.tradeId,
+            pair: alert.pair,
+            exchange: alert.exchange,
+            durationMs: alert.durationMs,
+            thresholdMs: alert.thresholdMs,
+            phase: alert.phase,
+          },
+        },
+      });
+      
+      if (error) {
+        console.error('[Webhook] Failed to send alert:', error);
+      } else {
+        lastAlertTimesRef.current[alertKey] = Date.now();
+        console.log(`[Webhook] Alert sent for ${alertKey}`);
+      }
+    } catch (e) {
+      console.error('[Webhook] Error sending alert:', e);
+    }
+  }, [webhookConfig]);
 
   // Check trade telemetry and generate alerts
   const checkTradeForAlerts = useCallback((trade: any) => {
@@ -98,6 +200,8 @@ export function useExecutionTimeAlerts() {
       toast.warning(`Slow Execution: ${trade.pair}`, {
         description: `Total: ${totalMs}ms (threshold: ${thresholds.totalMs}ms)`,
       });
+      // Send webhook
+      sendWebhookAlert(alert);
     }
 
     // Check individual phase thresholds
@@ -121,6 +225,10 @@ export function useExecutionTimeAlerts() {
           timestamp: new Date(),
         };
         newAlerts.push(alert);
+        // Send webhook for critical phases
+        if (phaseDuration > phaseThreshold * 2) {
+          sendWebhookAlert(alert);
+        }
       }
     }
 
@@ -128,7 +236,7 @@ export function useExecutionTimeAlerts() {
       setAlerts(prev => [...newAlerts, ...prev].slice(0, 50)); // Keep last 50 alerts
       setRecentAlertCount(prev => prev + newAlerts.length);
     }
-  }, [thresholds]);
+  }, [thresholds, sendWebhookAlert]);
 
   // Subscribe to realtime trade inserts
   useEffect(() => {
@@ -184,5 +292,6 @@ export function useExecutionTimeAlerts() {
     dismissAlert,
     clearAlerts,
     DEFAULT_THRESHOLDS,
+    webhookConfig,
   };
 }
