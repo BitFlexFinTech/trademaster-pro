@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
+import { createTelemetryTracker, type TelemetryTracker } from "../_shared/executionTelemetry.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -1919,6 +1919,9 @@ serve(async (req) => {
   }
 
   try {
+    // Initialize telemetry tracker at the very start
+    const telemetryTracker = createTelemetryTracker();
+    
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const encryptionKey = Deno.env.get("ENCRYPTION_KEY");
@@ -2024,6 +2027,9 @@ serve(async (req) => {
 
     // ========== BATCH PAIR ANALYSIS FOR OPTIMAL SELECTION ==========
     // Try batch analysis first to find highest opportunity pair
+    // Start PAIR_SELECTION phase
+    telemetryTracker.startPhase('PAIR_SELECTION');
+    
     let batchAnalysisResult: { symbol: string; direction: 'long' | 'short'; score: number } | null = null;
     try {
       const batchResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/analyze-pairs-batch`, {
@@ -2079,6 +2085,12 @@ serve(async (req) => {
 
     const pair = selectedPair;
     console.log(`📊 Selected pair: ${pair} (skipped ${skippedPairs.length} blocked pairs)`);
+    
+    // End PAIR_SELECTION phase
+    telemetryTracker.endPhase('PAIR_SELECTION', `Selected ${pair} from ${pairsToTry.length} candidates, ${skippedPairs.length} blocked`);
+    
+    // Start AI_ANALYSIS phase (direction + momentum analysis)
+    telemetryTracker.startPhase('AI_ANALYSIS');
     
     // Use optimized price fetching (WebSocket first, REST fallback)
     const currentPrice = await fetchPriceOptimized(pair, realtimePrices);
@@ -2162,6 +2174,11 @@ serve(async (req) => {
       mtfAligned: mtfAnalysis?.aligned || false,
     };
     console.log(`📊 TELEMETRY: ${JSON.stringify(telemetry)}`);
+    
+    // End AI_ANALYSIS phase
+    telemetryTracker.endPhase('AI_ANALYSIS', `${direction.toUpperCase()} ${pair} | Confidence: ${directionResult.confidence.toFixed(0)}% | ${marketState}`);
+    telemetryTracker.updateTradeInfo('', pair, direction, '');
+
 
     // ========== CONSECUTIVE LOSS PROTECTION - IMPROVED ==========
     // Only check losses from last 24 hours (not all-time)
@@ -2788,6 +2805,10 @@ serve(async (req) => {
     if (canExecuteRealTrade) {
       console.log(`✅ REAL TRADE MODE ACTIVATED for ${exchangeName.toUpperCase()}`);
       
+      // Start ORDER_PREPARATION phase
+      telemetryTracker.startPhase('ORDER_PREPARATION');
+      telemetryTracker.updateTradeInfo('', pair, direction, exchangeName);
+      
       try {
         const side = direction === 'long' ? 'BUY' : 'SELL';
         
@@ -2836,6 +2857,10 @@ serve(async (req) => {
         // Generate clientOrderId for idempotency
         const entryClientOrderId = generateClientOrderId(botId, side);
         console.log(`Using clientOrderId for entry: ${entryClientOrderId}`);
+        
+        // End ORDER_PREPARATION, start ORDER_PLACEMENT
+        telemetryTracker.endPhase('ORDER_PREPARATION', `Size: $${adjustedPositionSize.toFixed(2)}, Qty: ${quantity}, Exchange: ${exchangeName}`);
+        telemetryTracker.startPhase('ORDER_PLACEMENT');
 
         // Place ENTRY order with clientOrderId and rate limit handling
         const entryResult = await executeWithRateLimit(exchangeName, async () => {
@@ -2877,6 +2902,12 @@ serve(async (req) => {
         const entryOrder = entryResult.data;
 
         if (entryOrder) {
+          // End ORDER_PLACEMENT phase
+          telemetryTracker.endPhase('ORDER_PLACEMENT', `Order ${entryOrder.orderId} placed on ${exchangeName}`);
+          
+          // Start CONFIRMATION phase
+          telemetryTracker.startPhase('CONFIRMATION');
+          
           // Use the ACTUAL executed quantity from the entry order for exit
           const actualExecutedQty = entryOrder.executedQty || quantity;
           console.log(`Entry order placed: ${entryOrder.orderId}, avg price: ${entryOrder.avgPrice}, executedQty: ${actualExecutedQty}`);
@@ -2918,6 +2949,10 @@ serve(async (req) => {
               // Position will be held until $1 NET profit is achieved
               
               // Record trade as OPEN with $1 target and holding_for_profit flag
+              // Include execution telemetry
+              telemetryTracker.updateTradeInfo('', pair, direction, selectedExchange.exchange_name);
+              const executionTelemetry = telemetryTracker.getMetrics(true);
+              
               const { data: insertedTrade, error: insertError } = await supabase.from("trades").insert({
                 user_id: user.id,
                 pair,
@@ -2934,13 +2969,17 @@ serve(async (req) => {
                 bot_run_id: botId,
                 target_profit_usd: 1.00,
                 holding_for_profit: true,
+                execution_telemetry: executionTelemetry,
               }).select().single();
               
               if (insertError) {
                 console.error('Failed to insert open trade:', insertError);
+                telemetryTracker.endPhase('CONFIRMATION', `Failed: ${insertError.message}`);
               } else {
                 tradeRecordedAsOpen = true;
                 console.log(`📝 Trade recorded as OPEN with $1 target: ${insertedTrade?.id}`);
+                telemetryTracker.updateTradeInfo(insertedTrade?.id || '', pair, direction, selectedExchange.exchange_name);
+                telemetryTracker.endPhase('CONFIRMATION', `Trade ${insertedTrade?.id} saved to database`);
                 
                 // Create alert for position tracking
                 await supabase.from('alerts').insert({
@@ -2989,7 +3028,8 @@ serve(async (req) => {
                 takeProfitPrice,
                 targetProfitUsd: 1.00,
                 stopLoss: 'DISABLED',
-                message: '$1 PROFIT STRATEGY - Position will be held until $1 NET profit is achieved. NO STOP LOSS.'
+                message: '$1 PROFIT STRATEGY - Position will be held until $1 NET profit is achieved. NO STOP LOSS.',
+                executionTelemetry: telemetryTracker.getMetrics(true),
               }), { 
                 headers: { ...corsHeaders, "Content-Type": "application/json" } 
               });
@@ -3193,7 +3233,10 @@ serve(async (req) => {
       console.error(`   Entry: ${tradeResult.entryPrice}, Exit: ${tradeResult.exitPrice}, Recorded P&L: ${tradeResult.pnl}`);
     }
 
-    // Record the trade
+    // Record the trade with telemetry
+    telemetryTracker.updateTradeInfo('', pair, direction, selectedExchange.exchange_name);
+    telemetryTracker.endPhase('CONFIRMATION', 'Trade saved to database');
+    
     await supabase.from("trades").insert({
       user_id: user.id,
       pair,
@@ -3208,6 +3251,7 @@ serve(async (req) => {
       is_sandbox: isSandbox,
       status: "closed",
       closed_at: new Date().toISOString(),
+      execution_telemetry: telemetryTracker.getMetrics(tradeResult.pnl > 0),
     });
 
     // Update bot metrics
@@ -3231,6 +3275,7 @@ serve(async (req) => {
     const responseWithTelemetry = {
       ...tradeResult,
       telemetry: typeof telemetry !== 'undefined' ? telemetry : undefined,
+      executionTelemetry: telemetryTracker.getMetrics(tradeResult.pnl > 0),
     };
 
     return new Response(JSON.stringify(responseWithTelemetry), { 
