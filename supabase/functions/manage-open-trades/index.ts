@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { fetchPrice, fetchPriceOptimized, type RealtimePriceData } from "../_shared/priceUtils.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,45 +15,7 @@ const EXCHANGE_FEES: Record<string, number> = {
   kraken: 0.0032,
 };
 
-// Fetch current price from Binance (REST fallback)
-async function fetchPrice(symbol: string): Promise<number> {
-  try {
-    const normalizedSymbol = symbol.replace('/', '');
-    const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${normalizedSymbol}`);
-    if (!response.ok) return 0;
-    const data = await response.json();
-    return parseFloat(data.price) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-// WebSocket price data interface (from frontend)
-interface RealtimePriceData {
-  price: number;
-  priceChangePercent: number;
-  volume: number;
-  lastUpdated: number;
-}
-
-// Optimized price fetcher - uses WebSocket prices when available (0ms vs 50-200ms)
-async function fetchPriceOptimized(
-  symbol: string, 
-  realtimePrices?: Record<string, RealtimePriceData>
-): Promise<number> {
-  const normalizedSymbol = symbol.replace('/', '').toUpperCase();
-  
-  // Try WebSocket price first (0ms latency)
-  if (realtimePrices) {
-    const wsData = realtimePrices[normalizedSymbol];
-    if (wsData && wsData.price > 0 && Date.now() - wsData.lastUpdated < 5000) {
-      return wsData.price;
-    }
-  }
-  
-  // Fallback to REST (50-200ms latency)
-  return await fetchPrice(symbol);
-}
+// Note: fetchPrice, fetchPriceOptimized, RealtimePriceData imported from priceUtils.ts
 
 // Calculate net P&L after fees
 function calculateNetPnL(
