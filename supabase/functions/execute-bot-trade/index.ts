@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createTelemetryTracker, type TelemetryTracker } from "../_shared/executionTelemetry.ts";
+import { fetchPrice, fetchPriceOptimized, getMomentumFromWS, type RealtimePriceData } from "../_shared/priceUtils.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -27,61 +29,17 @@ async function decryptSecret(encrypted: string, iv: string, encryptionKey: strin
   return new TextDecoder().decode(decrypted);
 }
 
-// Fetch real-time price from Binance (REST fallback)
-async function fetchPrice(symbol: string): Promise<number> {
-  try {
-    const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol.replace('/', '')}`);
-    const data = await response.json();
-    return parseFloat(data.price);
-  } catch {
-    return 0;
-  }
-}
-
-// WebSocket price data interface (from frontend)
-interface RealtimePriceData {
-  price: number;
-  priceChangePercent: number;
-  volume: number;
-  lastUpdated: number;
-  bidPrice?: number;
-  askPrice?: number;
-  spread?: number;
-}
-
-// Optimized price fetcher - uses WebSocket prices when available (0ms vs 50-200ms)
-async function fetchPriceOptimized(
-  symbol: string, 
-  realtimePrices?: Record<string, RealtimePriceData>
-): Promise<number> {
-  const normalizedSymbol = symbol.replace('/', '').toUpperCase();
-  
-  // Try WebSocket price first (0ms latency)
-  if (realtimePrices) {
-    const wsData = realtimePrices[normalizedSymbol];
-    if (wsData && wsData.price > 0 && Date.now() - wsData.lastUpdated < 5000) {
-      console.log(`⚡ WS price for ${normalizedSymbol}: $${wsData.price.toFixed(2)} (${Date.now() - wsData.lastUpdated}ms old)`);
-      return wsData.price;
-    }
-  }
-  
-  // Fallback to REST (50-200ms latency)
-  console.log(`🔄 REST fallback for ${normalizedSymbol}`);
-  return await fetchPrice(symbol);
-}
+// Note: fetchPrice, fetchPriceOptimized, RealtimePriceData imported from priceUtils.ts
 
 // Get momentum from WebSocket data or calculate from REST
 async function getMomentumOptimized(
   pair: string,
   realtimePrices?: Record<string, RealtimePriceData>
 ): Promise<number> {
-  const normalizedSymbol = pair.replace('/', '').toUpperCase();
-  
-  if (realtimePrices) {
-    const wsData = realtimePrices[normalizedSymbol];
-    if (wsData && wsData.priceChangePercent !== undefined && Date.now() - wsData.lastUpdated < 5000) {
-      return wsData.priceChangePercent / 100; // Convert percent to decimal
-    }
+  // Try WebSocket momentum first
+  const wsMomentum = getMomentumFromWS(pair, realtimePrices);
+  if (wsMomentum !== null) {
+    return wsMomentum;
   }
   
   // Fallback to REST-based momentum calculation

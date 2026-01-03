@@ -1296,20 +1296,18 @@ export default function Bots() {
           {/* See useEffect hooks below for notification triggers */}
 
           {/* Multi-Exchange Balance Aggregation */}
-          <div className="mb-2">
+          <div className="mb-4">
             <MultiExchangeBalanceWidget />
           </div>
 
-          {/* P&L Bar removed per user request */}
-
-          {/* Market Regime + Session Controls Row - Compact */}
-          <div className="flex flex-wrap items-center gap-2 mb-2">
+          {/* Market Status Bar - Compact, horizontal */}
+          <div className="flex flex-wrap items-center gap-3 mb-4 p-3 rounded-xl bg-card/50 border border-border/30">
             <MarketRegimeIndicator />
             <SessionDashboard />
           </div>
           
-          {/* Live Profit Counter + Trading Loop Monitor + Position Sizing */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2">
+          {/* Core Metrics - Always visible */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
             <LiveProfitCounter />
             <TradingLoopMonitor
               botRunning={!!(spotBot || leverageBot)}
@@ -1321,20 +1319,33 @@ export default function Bots() {
             />
           </div>
           
-          {/* Volatility Scanner & Trade Timing Advisor & Profit Extraction - Side by Side */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2">
-            <VolatilityScanner />
-            <TradeTimingAdvisor />
-            <ProfitExtractionHistoryLog />
-          </div>
-
-          {/* Micro-cards grid removed per user request */}
+          {/* Trading Analytics - Collapsible Section */}
+          <Collapsible defaultOpen={true} className="mb-4">
+            <div className="flex items-center justify-between py-2 mb-3 border-b border-border/30">
+              <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" />
+                Trading Analytics
+              </h3>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 px-2">
+                  <ChevronDown className="w-4 h-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+            <CollapsibleContent>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <VolatilityScanner />
+                <TradeTimingAdvisor />
+                <ProfitExtractionHistoryLog />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
 
         {/* Bot Cards at TOP: Fixed height with internal scroll - page should NOT scroll */}
         <section className="flex-1 min-h-0 overflow-hidden" data-testid="bot-grid">
           <ScrollArea className="h-full">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 pb-3 pr-2">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pb-4 pr-2">
             {/* Left Column - Bot Cards */}
             <ErrorBoundary
               fallback={
@@ -1413,7 +1424,7 @@ export default function Bots() {
             </ErrorBoundary>
 
             {/* Middle Column - Unified Trading Dashboard */}
-            <div className="lg:col-span-7 flex flex-col gap-1.5 max-h-[calc(100vh-280px)] overflow-hidden">
+            <div className="lg:col-span-7 flex flex-col gap-3 max-h-[calc(100vh-280px)] overflow-hidden">
               {/* Unified Trading Dashboard - Merged positions + trades */}
               <UnifiedTradingDashboard className="flex-1 min-h-0" />
               
