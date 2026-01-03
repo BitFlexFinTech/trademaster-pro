@@ -83,11 +83,12 @@ import { DashboardEditMode } from '@/components/bots/DashboardEditMode';
 import { useDashboardLayout } from '@/hooks/useDashboardLayout';
 import { ResizableCard } from '@/components/bots/ResizableCard';
 import { TradingLoopMonitor } from '@/components/bots/TradingLoopMonitor';
-import { PositionSizingHistoryChart } from '@/components/bots/PositionSizingHistoryChart';
+// PositionSizingHistoryChart moved to BotAnalytics
 import { PositionSizingPreviewWidget } from '@/components/bots/PositionSizingPreviewWidget';
 import { EnhancedPositionMonitor } from '@/components/bots/EnhancedPositionMonitor';
 import { SmartPositionSizingAdvisor } from '@/components/bots/SmartPositionSizingAdvisor';
 import { ProfitExtractionHistoryLog } from '@/components/bots/ProfitExtractionHistoryLog';
+import { MultiExchangeBalanceWidget } from '@/components/bots/MultiExchangeBalanceWidget';
 
 interface UsdtFloat {
   exchange: string;
@@ -1295,76 +1296,21 @@ export default function Bots() {
           {/* Notification-based warnings are now handled via useNotificationStack hook */}
           {/* See useEffect hooks below for notification triggers */}
 
-          {/* Portfolio Value Card - Simplified, no AI cards per user request */}
-          <TooltipProvider delayDuration={300}>
-          <div className="mb-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="card-terminal p-2 cursor-help inline-flex">
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="w-4 h-4 text-primary shrink-0" />
-                    <span className="text-xs font-semibold text-foreground whitespace-nowrap">
-                      {tradingMode === 'demo' ? 'VIRTUAL' : 'PORTFOLIO'}
-                    </span>
-                    <span className="text-sm font-mono font-bold text-primary">
-                      ${usdtFloat.reduce((sum, f) => sum + f.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                    </span>
-                    {(tradingMode === 'demo' ? activeExchanges.slice(0, 3) : usdtFloat.slice(0, 3)).map((item) => {
-                      const exchange = tradingMode === 'demo' ? (item as typeof activeExchanges[0]).name : (item as UsdtFloat).exchange;
-                      const amount = tradingMode === 'demo' 
-                        ? Math.round(suggestedUSDT * EXCHANGE_ALLOCATION_PERCENTAGES[(item as typeof activeExchanges[0]).confidence])
-                        : (item as UsdtFloat).amount;
-                      return (
-                        <Badge key={exchange} variant="outline" className="text-[9px] px-1 py-0 h-4 font-mono">
-                          {exchange.slice(0, 3).toUpperCase()} ${amount >= 1000 ? `${(amount/1000).toFixed(1)}K` : amount.toFixed(0)}
-                        </Badge>
-                      );
-                    })}
-                    {tradingMode === 'live' && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-5 w-5 p-0"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          fetchExchangeBalances();
-                          toast.success('Refreshing portfolio...');
-                        }}
-                      >
-                        <RefreshCw className="w-3 h-3" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs">
-                <p className="font-semibold mb-1">Exchange Breakdown</p>
-                {(tradingMode === 'demo' ? activeExchanges : usdtFloat).map((item) => {
-                  const exchange = tradingMode === 'demo' ? (item as typeof activeExchanges[0]).name : (item as UsdtFloat).exchange;
-                  const amount = tradingMode === 'demo' 
-                    ? Math.round(suggestedUSDT * EXCHANGE_ALLOCATION_PERCENTAGES[(item as typeof activeExchanges[0]).confidence])
-                    : (item as UsdtFloat).amount;
-                  return (
-                    <p key={exchange} className="text-xs font-mono">
-                      {exchange}: ${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </p>
-                  );
-                })}
-              </TooltipContent>
-            </Tooltip>
+          {/* Multi-Exchange Balance Aggregation */}
+          <div className="mb-2">
+            <MultiExchangeBalanceWidget />
           </div>
-          </TooltipProvider>
 
           {/* P&L Bar removed per user request */}
 
           {/* Market Regime + Session Controls Row - Compact */}
-          <div className="flex flex-wrap items-center gap-2 mb-3">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
             <MarketRegimeIndicator />
             <SessionDashboard />
           </div>
           
           {/* Live Profit Counter + Trading Loop Monitor + Position Sizing */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-3">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2">
             <LiveProfitCounter />
             <TradingLoopMonitor
               botRunning={!!(spotBot || leverageBot)}
@@ -1377,7 +1323,7 @@ export default function Bots() {
           </div>
           
           {/* Volatility Scanner & Trade Timing Advisor & Profit Extraction - Side by Side */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-3">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2">
             <VolatilityScanner />
             <TradeTimingAdvisor />
             <ProfitExtractionHistoryLog />
@@ -1482,7 +1428,7 @@ export default function Bots() {
         {/* Bot Cards at TOP: Fixed height with internal scroll - page should NOT scroll */}
         <section className="flex-1 min-h-0 overflow-hidden" data-testid="bot-grid">
           <ScrollArea className="h-full">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-3 pr-2">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 pb-3 pr-2">
             {/* Left Column - Bot Cards */}
             <ErrorBoundary
               fallback={
@@ -1495,7 +1441,7 @@ export default function Bots() {
                 </div>
               }
             >
-              <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-3 auto-rows-min">
+              <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-2 auto-rows-min">
                 {loading ? (
                   <>
                     <BotCardSkeleton />
@@ -1561,7 +1507,7 @@ export default function Bots() {
             </ErrorBoundary>
 
             {/* Middle Column - Unified Trading Dashboard */}
-            <div className="lg:col-span-7 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
+            <div className="lg:col-span-7 flex flex-col gap-1.5 max-h-[calc(100vh-280px)] overflow-hidden">
               {/* Unified Trading Dashboard - Merged positions + trades */}
               <UnifiedTradingDashboard className="flex-1 min-h-0" />
               
