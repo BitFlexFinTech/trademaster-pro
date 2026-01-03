@@ -14,7 +14,9 @@ import type {
   Order,
   ScannerOpportunity,
   CapitalMetrics,
-  ExecutionMetrics 
+  ExecutionMetrics,
+  CapitalHistoryPoint,
+  IdleCapitalAlertConfig
 } from './types';
 
 // Initial state values
@@ -43,6 +45,13 @@ const initialExecutionMetrics: ExecutionMetrics = {
   recentExecutions: [],
 };
 
+const initialIdleAlertConfig: IdleCapitalAlertConfig = {
+  enabled: true,
+  thresholdAmount: 100,
+  thresholdPercent: 30,
+  maxIdleDurationMs: 300000, // 5 minutes
+};
+
 export const useBotStore = create<BotState>()(
   subscribeWithSelector((set, get) => ({
     // ===== Initial State =====
@@ -59,6 +68,13 @@ export const useBotStore = create<BotState>()(
     deploymentQueue: [],
     isLoading: true,
     error: null,
+    
+    // Capital History
+    capitalHistory: [],
+    
+    // Idle Capital Alerts
+    idleCapitalAlert: initialIdleAlertConfig,
+    idleStartTime: null,
 
     // ===== Bot Management Actions =====
     updateBot: (id, data) => set(state => ({
@@ -283,6 +299,62 @@ export const useBotStore = create<BotState>()(
           utilization,
         }
       });
+    },
+
+    // ===== Capital History Actions =====
+    addCapitalHistoryPoint: () => {
+      const { capitalMetrics, capitalHistory } = get();
+      const point: CapitalHistoryPoint = {
+        timestamp: Date.now(),
+        deployed: capitalMetrics.deployedCapital,
+        idle: capitalMetrics.idleFunds,
+        total: capitalMetrics.totalCapital,
+        utilization: capitalMetrics.utilization,
+      };
+      
+      // Keep last 60 points (1 hour at 1-min intervals)
+      const updated = [...capitalHistory, point].slice(-60);
+      set({ capitalHistory: updated });
+    },
+
+    // ===== Idle Capital Alert Actions =====
+    setIdleAlertConfig: (config) => set(state => ({
+      idleCapitalAlert: { ...state.idleCapitalAlert, ...config }
+    })),
+
+    checkIdleCapitalAlert: async () => {
+      const { capitalMetrics, idleCapitalAlert, idleStartTime, isTrading } = get();
+      
+      if (!isTrading || !idleCapitalAlert.enabled) return;
+      
+      const idleExceedsThreshold = 
+        capitalMetrics.idleFunds > idleCapitalAlert.thresholdAmount ||
+        (capitalMetrics.utilization < (100 - idleCapitalAlert.thresholdPercent));
+      
+      if (idleExceedsThreshold) {
+        if (!idleStartTime) {
+          set({ idleStartTime: Date.now() });
+        } else if (Date.now() - idleStartTime > idleCapitalAlert.maxIdleDurationMs) {
+          // Trigger alert
+          const { data: session } = await supabase.auth.getSession();
+          if (session?.session?.user?.id) {
+            await supabase.from('alerts').insert({
+              user_id: session.session.user.id,
+              alert_type: 'idle_capital',
+              title: 'Idle Capital Alert',
+              message: `$${capitalMetrics.idleFunds.toFixed(2)} has been idle for over 5 minutes`,
+              data: { 
+                idleFunds: capitalMetrics.idleFunds,
+                utilization: capitalMetrics.utilization,
+              }
+            });
+          }
+          // Reset timer to prevent spam
+          set({ idleStartTime: null });
+        }
+      } else {
+        set({ idleStartTime: null });
+      }
     },
 
     // ===== Execution Metrics Actions =====
