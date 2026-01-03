@@ -36,6 +36,7 @@ import PairPerformance from "./pages/PairPerformance";
 import BugsDashboardPage from "./pages/BugsDashboard";
 import Debugger from "./pages/Debugger";
 import TradesHistory from "./pages/TradesHistory";
+import RejectionAnalytics from "./pages/RejectionAnalytics";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -83,6 +84,7 @@ const App = () => (
                     <Route path="/bugs-dashboard" element={<BugsDashboardPage />} />
                     <Route path="/debugger" element={<Debugger />} />
                     <Route path="/trades-history" element={<TradesHistory />} />
+                    <Route path="/rejection-analytics" element={<RejectionAnalytics />} />
                     <Route path="/admin" element={<Admin />} />
                   </Route>
                     <Route path="*" element={<NotFound />} />

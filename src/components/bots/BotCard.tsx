@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw, CheckCircle2, XCircle, Radio, SlidersHorizontal, Check, Gauge, Wifi, WifiOff, Lock } from 'lucide-react';
+import { Zap, Play, Square, Target, Activity, DollarSign, Clock, AlertTriangle, Banknote, Loader2, Brain, Timer, Radar, OctagonX, Volume2, VolumeX, TrendingUp, TrendingDown, History, RefreshCw, CheckCircle2, XCircle, Radio, SlidersHorizontal, Check, Gauge, Wifi, WifiOff, Lock, Shield, Info } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -3255,6 +3255,42 @@ export function BotCard({
               className="scale-75"
             />
           </div>
+        </div>
+        
+        {/* Smart Trade Filter Toggle */}
+        <div className="mb-2 p-2 bg-muted/30 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Shield className="w-3 h-3 text-primary" />
+              <span className="text-[10px] text-muted-foreground">Smart Trade Filter</span>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Info className="w-3 h-3 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs">
+                    <p>When enabled, only trades predicted to close within 5 minutes will be entered. Disable for manual control.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant={qualificationEnabled ? "default" : "outline"} className="text-[8px] h-4 px-1">
+                {qualificationEnabled ? "Selective" : "All Trades"}
+              </Badge>
+              <Switch
+                checked={qualificationEnabled}
+                onCheckedChange={setQualificationEnabled}
+                disabled={isRunning}
+                className="scale-75"
+              />
+            </div>
+          </div>
+          {lastRejection && qualificationEnabled && (
+            <div className="mt-1.5 text-[9px] text-muted-foreground bg-destructive/10 rounded px-2 py-1 border border-destructive/20">
+              <span className="text-destructive font-medium">Last rejected:</span> {lastRejection.symbol} - {lastRejection.reason}
+            </div>
+          )}
         </div>
         
         {useDynamicSizing && (

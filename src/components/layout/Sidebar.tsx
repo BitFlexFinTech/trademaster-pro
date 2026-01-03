@@ -21,6 +21,7 @@ import {
   Wallet,
   Bell,
   ArrowRightLeft,
+  Filter,
 } from 'lucide-react';
 import { UsageBanner } from '@/components/subscription/UsageBanner';
 import { useAuth } from '@/hooks/useAuth';
@@ -35,6 +36,7 @@ const navItems = [
   { to: '/bot-analytics', icon: Brain, label: 'Bot Analytics' },
   { to: '/trades-history', icon: BarChart3, label: 'Trades History' },
   { to: '/pair-performance', icon: BarChart3, label: 'Pair Analytics' },
+  { to: '/rejection-analytics', icon: Filter, label: 'Rejections' },
   { to: '/arbitrage', icon: ArrowRightLeft, label: 'Arbitrage' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/risk', icon: Shield, label: 'Risk' },
