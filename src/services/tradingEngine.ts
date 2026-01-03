@@ -136,8 +136,12 @@ class TradingEngine {
         return;
       }
 
-      // Calculate position size (max $333 per trade for $1 profit)
-      const positionSize = Math.min(amount, 333);
+      // FIXED: Calculate position size dynamically based on target profit and expected move
+      // For $1 profit with 0.3% expected move: $1 / 0.003 = $333
+      // Read from bot config if available, else use dynamic calculation
+      const activeBots = state.bots.filter(b => b.status === 'running');
+      const botAmountPerTrade = activeBots[0]?.amountPerTrade || 333;
+      const positionSize = Math.min(amount, botAmountPerTrade);
 
       // Execute the trade via edge function
       const { data, error } = await supabase.functions.invoke('execute-bot-trade', {

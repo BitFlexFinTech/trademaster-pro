@@ -98,6 +98,10 @@ import { useContinuousScanner } from '@/hooks/useContinuousScanner';
 import { useCapitalDeployment } from '@/hooks/useCapitalDeployment';
 // NEW: Import Zustand store for centralized state
 import { useBotStore } from '@/stores/botStore';
+// NEW: Import new components
+import { TradeFlowDiagram } from '@/components/bots/TradeFlowDiagram';
+import { BacktestPanel } from '@/components/bots/BacktestPanel';
+import { useProfitTargetAlerts } from '@/hooks/useProfitTargetAlerts';
 import { selectRunningBots, selectTotalPnL } from '@/stores/selectors';
 import { CARD_SIZES, LAYOUT_STYLES } from '@/lib/cardSizes';
 // NEW: Import new feature components
@@ -588,7 +592,8 @@ export default function Bots() {
     removeFromHistory,
   } = useRecommendationHistory();
 
-  // Emergency Kill Switch integration
+  // Profit Target Alerts - notify when positions are within 10% of target
+  useProfitTargetAlerts();
   const {
     config: killConfig,
     updateConfig: updateKillConfig,
@@ -1362,27 +1367,28 @@ export default function Bots() {
               </CollapsibleTrigger>
             </div>
             <CollapsibleContent>
-              {/* FIXED: Use flex-wrap, NO horizontal scrolling */}
-              <div className="flex flex-wrap items-start gap-3 pt-3 p-3 rounded-xl bg-card/50 border border-border/30 mt-2" style={{ overflow: 'visible' }}>
-                <MarketRegimeIndicator />
+              {/* FIXED: Compact side-by-side layout using grid */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 pt-3 p-3 rounded-xl bg-card/50 border border-border/30 mt-2">
+                <MarketRegimeIndicator className="col-span-1" />
                 <SessionDashboard />
+                <TradingLoopMonitor
+                  botRunning={!!(spotBot || leverageBot)}
+                  tradeIntervalMs={botConfig.tradeIntervalMs}
+                />
+                <PositionSizingPreviewWidget 
+                  basePositionSize={botConfig.amountPerTrade}
+                  targetProfit={botConfig.profitPerTrade}
+                />
               </div>
             </CollapsibleContent>
           </Collapsible>
           
-          {/* Core Metrics - Fixed sizes, NO horizontal scroll */}
-          <div className="flex flex-wrap gap-4 mb-6" style={{ overflow: 'visible' }}>
+          {/* Core Metrics Row */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <LiveProfitCounter />
-            <div style={CARD_SIZES.loop}>
-              <TradingLoopMonitor
-                botRunning={!!(spotBot || leverageBot)}
-                tradeIntervalMs={botConfig.tradeIntervalMs}
-              />
-            </div>
-            <PositionSizingPreviewWidget 
-              basePositionSize={botConfig.amountPerTrade}
-              targetProfit={botConfig.profitPerTrade}
-            />
+            <CapitalUtilizationChart />
+            <ScannerStatsWidget />
+            <TradeFlowDiagram />
           </div>
           
           {/* Trading Analytics - Collapsible Section */}
@@ -1399,12 +1405,9 @@ export default function Bots() {
               </CollapsibleTrigger>
             </div>
             <CollapsibleContent>
-              {/* FIXED: Use flex-wrap for responsive layout, NO horizontal scrolling */}
-              <div className="flex flex-wrap gap-4" style={{ overflow: 'visible' }}>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 <VolatilityScanner />
                 <TradeTimingAdvisor />
-                <CapitalUtilizationChart />
-                <ScannerStatsWidget />
                 <CapitalEfficiencyGauge />
                 <SpeedMetricsDashboard />
               </div>
