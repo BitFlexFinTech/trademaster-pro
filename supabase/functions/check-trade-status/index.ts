@@ -1320,6 +1320,10 @@ serve(async (req) => {
         try {
           const apiKey = await decryptSecret(connection.encrypted_api_key!, connection.encryption_iv!, encryptionKey);
           const apiSecret = await decryptSecret(connection.encrypted_api_secret!, connection.encryption_iv!, encryptionKey);
+          // Decrypt passphrase for OKX (required for profit extraction)
+          const passphrase = connection.encrypted_passphrase 
+            ? await decryptSecret(connection.encrypted_passphrase, connection.encryption_iv!, encryptionKey)
+            : undefined;
           
           // Get the trading symbol (e.g., "ETHUSDT")
           const tradingSymbol = alertSymbol || trade.pair?.replace('/', '') || 'BTCUSDT';
@@ -1869,7 +1873,7 @@ serve(async (req) => {
                       actualNetPnL,
                       apiKey,
                       apiSecret,
-                      undefined // passphrase not needed for Binance
+                      passphrase // Pass OKX passphrase for transfer (undefined for Binance/Bybit is fine)
                     );
                     
                     if (extractResult.success) {
