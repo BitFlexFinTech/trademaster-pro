@@ -148,6 +148,7 @@ export type Database = {
           amount_per_trade: number
           auto_apply_ai: boolean | null
           auto_compound_enabled: boolean | null
+          auto_extract_profits: boolean | null
           compound_max_multiplier: number | null
           compound_percentage: number | null
           compound_threshold: number | null
@@ -166,12 +167,14 @@ export type Database = {
           target_profit_usd: number | null
           trade_interval_ms: number
           updated_at: string | null
+          use_dynamic_sizing: boolean | null
           user_id: string
         }
         Insert: {
           amount_per_trade?: number
           auto_apply_ai?: boolean | null
           auto_compound_enabled?: boolean | null
+          auto_extract_profits?: boolean | null
           compound_max_multiplier?: number | null
           compound_percentage?: number | null
           compound_threshold?: number | null
@@ -190,12 +193,14 @@ export type Database = {
           target_profit_usd?: number | null
           trade_interval_ms?: number
           updated_at?: string | null
+          use_dynamic_sizing?: boolean | null
           user_id: string
         }
         Update: {
           amount_per_trade?: number
           auto_apply_ai?: boolean | null
           auto_compound_enabled?: boolean | null
+          auto_extract_profits?: boolean | null
           compound_max_multiplier?: number | null
           compound_percentage?: number | null
           compound_threshold?: number | null
@@ -214,6 +219,7 @@ export type Database = {
           target_profit_usd?: number | null
           trade_interval_ms?: number
           updated_at?: string | null
+          use_dynamic_sizing?: boolean | null
           user_id?: string
         }
         Relationships: []

@@ -26,7 +26,8 @@ import { TradeReplayHistory } from '@/components/bots/TradeReplayHistory';
 import { MultiExchangePositionDashboard } from '@/components/bots/MultiExchangePositionDashboard';
 import { TradingDataProvider } from '@/contexts/TradingDataContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity, Clock, List, Zap, PlayCircle, Layers } from 'lucide-react';
+import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity, Clock, List, Zap, PlayCircle, Layers, LineChart } from 'lucide-react';
+import { CumulativeProfitChart } from '@/components/bots/CumulativeProfitChart';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -141,7 +142,7 @@ export default function BotAnalytics() {
 
       {/* Tabs */}
       <Tabs defaultValue="strategy" className="flex-1 min-h-0 flex flex-col">
-        <TabsList className="grid w-full grid-cols-11 flex-shrink-0">
+        <TabsList className="grid w-full grid-cols-12 flex-shrink-0">
           <TabsTrigger value="strategy" className="text-xs gap-1">
             <Brain className="w-3 h-3" />
             Strategy
@@ -157,6 +158,10 @@ export default function BotAnalytics() {
           <TabsTrigger value="profits" className="text-xs gap-1">
             <Wallet className="w-3 h-3" />
             Profits
+          </TabsTrigger>
+          <TabsTrigger value="cumulative" className="text-xs gap-1">
+            <LineChart className="w-3 h-3" />
+            Cumulative
           </TabsTrigger>
           <TabsTrigger value="execution" className="text-xs gap-1">
             <Zap className="w-3 h-3" />
@@ -232,6 +237,12 @@ export default function BotAnalytics() {
           <TabsContent value="profits" className="m-0 space-y-4">
             <div className="grid grid-cols-1 gap-4">
               <LivePnLDashboard />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="cumulative" className="m-0 space-y-4">
+            <div className="grid grid-cols-1 gap-4">
+              <CumulativeProfitChart />
             </div>
           </TabsContent>
 
