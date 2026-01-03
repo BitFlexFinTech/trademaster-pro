@@ -105,6 +105,8 @@ import { IdleCapitalAlertSettings } from '@/components/bots/IdleCapitalAlertSett
 import { StoreDebugPanel } from '@/components/bots/StoreDebugPanel';
 import { AutoDeploySettings } from '@/components/bots/AutoDeploySettings';
 import { CapitalEfficiencyGauge } from '@/components/bots/CapitalEfficiencyGauge';
+// WebSocket Bridge for real-time price sync to store
+import { useWebSocketBridge } from '@/hooks/useWebSocketBridge';
 
 interface UsdtFloat {
   exchange: string;
@@ -209,6 +211,23 @@ export default function Bots() {
     fetchRecommendation: fetchAITargetRecommendation,
     applyRecommendation: applyAITargetRecommendation,
   } = useDailyTargetRecommendation();
+  
+  // WebSocket Bridge - syncs real-time prices to Zustand store
+  const { isConnected: wsStoreConnected, pairsCount } = useWebSocketBridge();
+  
+  // Sync exchange balances to Zustand store
+  const setExchangeBalances = useBotStore(state => state.setExchangeBalances);
+  useEffect(() => {
+    if (exchangeBalances && exchangeBalances.length > 0) {
+      const balances = exchangeBalances.map(b => ({
+        exchange: b.exchange,
+        total: b.totalValue || 0,
+        available: b.usdtBalance || 0,
+        inPositions: (b.totalValue || 0) - (b.usdtBalance || 0),
+      }));
+      setExchangeBalances(balances);
+    }
+  }, [exchangeBalances, setExchangeBalances]);
 
   // Base balance edit handlers
   const handleEditBaseBalance = useCallback((exchange: string) => {

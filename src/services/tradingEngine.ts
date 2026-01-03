@@ -1,10 +1,12 @@
 // ============================================
 // Trading Execution Engine
 // Fast execution loop running every 50ms
+// Uses AI pair analyzer for real market analysis
 // ============================================
 
 import { useBotStore } from '@/stores/botStore';
 import { supabase } from '@/integrations/supabase/client';
+import { findBestOpportunity, getTopOpportunities } from '@/lib/pairAnalyzer';
 import type { ScannerOpportunity } from '@/stores/types';
 
 class TradingEngine {
@@ -26,7 +28,14 @@ class TradingEngine {
 
     console.log('[TradingEngine] Starting execution loop');
     this.isRunning = true;
-    useBotStore.setState({ isTrading: true });
+    
+    // Update store and auto-enable deployment
+    const state = useBotStore.getState();
+    useBotStore.setState({ 
+      isTrading: true,
+      autoDeployConfig: { ...state.autoDeployConfig, enabled: true }
+    });
+    console.log('[TradingEngine] Auto-enabled capital deployment');
 
     // Start the execution loop
     this.executionIntervalId = setInterval(() => {
@@ -117,7 +126,8 @@ class TradingEngine {
       return;
     }
 
-    console.log('[TradingEngine] Deploying $', amount.toFixed(2), 'to', opportunity.symbol);
+    console.log('[TradingEngine] Deploying $', amount.toFixed(2), 'to', opportunity.symbol, 
+      'direction:', opportunity.direction, 'confidence:', opportunity.confidence.toFixed(2));
 
     try {
       const { data: session } = await supabase.auth.getSession();
@@ -135,7 +145,7 @@ class TradingEngine {
           userId: session.session.user.id,
           symbol: opportunity.symbol,
           exchange: opportunity.exchange,
-          direction: opportunity.direction,
+          direction: opportunity.direction, // Now properly long or short based on momentum
           amount: positionSize,
           leverage: 1, // Spot trading
           targetProfit: 1.00, // $1 target
@@ -170,61 +180,53 @@ class TradingEngine {
   }
 
   /**
-   * Scan markets for opportunities
+   * Scan markets for opportunities using AI pair analyzer
    */
   private async scanMarkets() {
     if (!this.isRunning) return;
 
     const state = useBotStore.getState();
+    const { marketData, autoDeployConfig } = state;
     
     // Update scanning status
     state.updateMarketData({ isScanning: true });
 
     try {
-      // Simulate market scanning with top pairs
-      const topPairs = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT'];
+      const { prices, changes24h, volumes } = marketData;
       
+      // Skip if no market data from WebSocket
+      if (Object.keys(prices).length === 0) {
+        // Fallback to basic pairs for initial scanning
+        const fallbackPairs = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT'];
+        state.updateMarketData({ 
+          pairsScanned: fallbackPairs.length,
+          isScanning: true,
+        });
+        return;
+      }
+
+      // Use AI pair analyzer for real analysis
+      const topOpportunities = getTopOpportunities(
+        prices,
+        changes24h,
+        volumes,
+        5, // Get top 5 opportunities
+        autoDeployConfig.excludePairs
+      );
+
       state.updateMarketData({ 
-        pairsScanned: topPairs.length,
+        pairsScanned: Object.keys(prices).length,
         isScanning: true,
       });
 
-      // Generate sample opportunities based on market conditions
-      // In production, this would use real market data
-      const opportunity = this.findBestOpportunity(topPairs);
-      
-      if (opportunity) {
-        state.addOpportunity(opportunity);
-      }
+      // Add opportunities to store
+      topOpportunities.forEach(opp => {
+        state.addOpportunity(opp);
+      });
 
     } catch (error) {
       console.error('[TradingEngine] Market scan error:', error);
     }
-  }
-
-  /**
-   * Find the best trading opportunity
-   */
-  private findBestOpportunity(pairs: string[]): ScannerOpportunity | null {
-    // This is a simplified implementation
-    // In production, this would analyze real market data
-    const randomPair = pairs[Math.floor(Math.random() * pairs.length)];
-    const confidence = 0.7 + Math.random() * 0.25; // 70-95% confidence
-    
-    // Only return opportunity if confidence is high enough
-    if (confidence < 0.75) return null;
-
-    return {
-      symbol: randomPair,
-      exchange: 'Binance',
-      timeframe: '1m',
-      direction: Math.random() > 0.5 ? 'long' : 'short',
-      confidence,
-      volatility: 0.1 + Math.random() * 0.5,
-      expectedDurationMs: 30000 + Math.random() * 60000,
-      priority: confidence * 100,
-      timestamp: Date.now(),
-    };
   }
 
   /**
@@ -255,3 +257,27 @@ class TradingEngine {
 
 // Export singleton instance
 export const tradingEngine = new TradingEngine();
+
+// ===== Auto-Start Subscription =====
+// Watch bot status and auto-start/stop trading engine
+let autoStartSubscribed = false;
+
+if (!autoStartSubscribed) {
+  autoStartSubscribed = true;
+  
+  useBotStore.subscribe(
+    state => state.bots,
+    (bots) => {
+      const hasRunningBot = bots.some(b => b.status === 'running');
+      const { isTrading } = useBotStore.getState();
+      
+      if (hasRunningBot && !isTrading) {
+        console.log('[TradingEngine] Auto-starting: bot is running');
+        tradingEngine.start();
+      } else if (!hasRunningBot && isTrading) {
+        console.log('[TradingEngine] Auto-stopping: no bots running');
+        tradingEngine.stop();
+      }
+    }
+  );
+}

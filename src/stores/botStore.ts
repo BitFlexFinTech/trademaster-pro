@@ -18,7 +18,8 @@ import type {
   CapitalHistoryPoint,
   IdleCapitalAlertConfig,
   AutoDeployConfig,
-  CapitalEfficiencyMetrics
+  CapitalEfficiencyMetrics,
+  ExchangeBalance
 } from './types';
 
 // Initial state values
@@ -101,6 +102,9 @@ export const useBotStore = create<BotState>()(
     
     // Capital Efficiency
     capitalEfficiency: initialCapitalEfficiency,
+    
+    // Exchange Balances (real data from exchanges)
+    exchangeBalances: [],
 
     // ===== Bot Management Actions =====
     updateBot: (id, data) => set(state => ({
@@ -300,12 +304,48 @@ export const useBotStore = create<BotState>()(
       capitalMetrics: { ...state.capitalMetrics, ...metrics }
     })),
 
+    // ===== Exchange Balances Actions =====
+    setExchangeBalances: (balances) => {
+      set({ exchangeBalances: balances });
+      // Recalculate capital utilization with real balances
+      get().calculateCapitalUtilization();
+    },
+
+    // ===== Position Price Updates (from WebSocket) =====
+    updatePositionPrices: (prices) => set(state => ({
+      positions: state.positions.map(pos => {
+        // Convert symbol format: BTC/USDT -> BTCUSDT
+        const symbol = pos.symbol.replace('/', '').toUpperCase();
+        const currentPrice = prices[symbol] || pos.currentPrice;
+        
+        // Calculate unrealized P&L based on direction
+        const priceDiff = pos.side === 'long' 
+          ? currentPrice - pos.entryPrice 
+          : pos.entryPrice - currentPrice;
+        const unrealizedPnL = (priceDiff / pos.entryPrice) * pos.entryValue;
+        const unrealizedPnLPercent = (priceDiff / pos.entryPrice) * 100;
+        
+        return { 
+          ...pos, 
+          currentPrice, 
+          unrealizedPnL, 
+          unrealizedPnLPercent 
+        };
+      })
+    })),
+
     calculateCapitalUtilization: () => {
-      const { bots, positions } = get();
+      const { bots, positions, exchangeBalances } = get();
       
-      const totalCapital = bots.reduce((sum, bot) => 
-        sum + (bot.status === 'running' ? bot.allocatedCapital : 0), 0
-      );
+      // Use real exchange balances if available, otherwise fall back to bot allocatedCapital
+      let totalCapital = 0;
+      if (exchangeBalances.length > 0) {
+        totalCapital = exchangeBalances.reduce((sum, bal) => sum + bal.total, 0);
+      } else {
+        totalCapital = bots.reduce((sum, bot) => 
+          sum + (bot.status === 'running' ? bot.allocatedCapital : 0), 0
+        );
+      }
       
       const deployedCapital = positions.reduce((sum, pos) => 
         sum + pos.entryValue, 0
@@ -316,13 +356,26 @@ export const useBotStore = create<BotState>()(
         ? (deployedCapital / totalCapital) * 100 
         : 0;
 
+      // Build byExchange breakdown
+      const byExchange: Record<string, { total: number; deployed: number; available: number }> = {};
+      exchangeBalances.forEach(bal => {
+        const deployed = positions
+          .filter(p => p.exchange === bal.exchange)
+          .reduce((sum, p) => sum + p.entryValue, 0);
+        byExchange[bal.exchange] = {
+          total: bal.total,
+          deployed,
+          available: bal.available,
+        };
+      });
+
       set({
         capitalMetrics: {
-          ...get().capitalMetrics,
           totalCapital,
           deployedCapital,
           idleFunds,
           utilization,
+          byExchange,
         }
       });
     },
