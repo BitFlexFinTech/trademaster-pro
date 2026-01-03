@@ -47,12 +47,20 @@ export interface WebSocketState {
   latencyMs: number;
 }
 
-// Top trading pairs to stream - expanded for better coverage
+// Top trading pairs to stream - expanded to 40+ for maximum opportunity detection
 const STREAM_SYMBOLS = [
+  // Tier 1: Highest liquidity (always available)
   'btcusdt', 'ethusdt', 'bnbusdt', 'solusdt', 'xrpusdt',
+  // Tier 2: Major alts
   'dogeusdt', 'adausdt', 'avaxusdt', 'dotusdt', 'maticusdt',
   'linkusdt', 'uniusdt', 'ltcusdt', 'atomusdt', 'nearusdt',
-  'aptusdt', 'arbusdt', 'opusdt', 'shibusdt', 'xlmusdt'
+  // Tier 3: L2s and new chains
+  'aptusdt', 'arbusdt', 'opusdt', 'shibusdt', 'xlmusdt',
+  // Tier 4: Additional coverage for opportunity scanning
+  'trxusdt', 'bchusdt', 'filusdt', 'vetusdt', 'hbarusdt',
+  'aaveusdt', 'mkrusdt', 'algousdt', 'sandusdt', 'axsusdt',
+  'egldusdt', 'ftmusdt', 'runeusdt', 'grtusdt', 'ldousdt',
+  'injusdt', 'pendleusdt', 'suiusdt', 'seiusdt', 'tiausdt',
 ];
 
 const BINANCE_WS_URL = 'wss://stream.binance.com:9443/ws';

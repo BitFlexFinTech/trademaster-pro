@@ -31,7 +31,7 @@ const EXCHANGE_CONFIGS = [
   { name: 'OKX', maxLeverage: 20, confidence: 'High' },
   { name: 'Bybit', maxLeverage: 25, confidence: 'Medium' },
   { name: 'Kraken', maxLeverage: 5, confidence: 'Medium' },
-  { name: 'Nexo', maxLeverage: 3, confidence: 'Low' },
+  // Nexo API not fully supported - removed from active trading
 ];
 
 const TOP_PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'DOT', 'LINK'];
@@ -595,9 +595,47 @@ export function useBotTrading({
 
                     if (slHit) {
                       console.log(`🛑 STOP LOSS HIT during polling @ ${livePrice}`);
-                      // TODO: Cancel limit order and market exit
-                      exitPrice = livePrice;
-                      tradePnl = calculateNetProfit(data.entryPrice, exitPrice, positionSize, currentExchange) * leverage;
+                      
+                      // Cancel OCO/limit order before market exit
+                      if (data.ocoOrderListId) {
+                        try {
+                          console.log(`📛 Cancelling OCO order ${data.ocoOrderListId} before SL exit...`);
+                          await supabase.functions.invoke('check-trade-status', {
+                            body: {
+                              exchange: data.exchange,
+                              cancelOcoOrderListId: data.ocoOrderListId,
+                              symbol: data.symbol,
+                            }
+                          });
+                          console.log(`✅ OCO cancelled, proceeding with market exit`);
+                        } catch (cancelErr) {
+                          console.warn(`⚠️ OCO cancellation failed, proceeding anyway:`, cancelErr);
+                        }
+                      }
+                      
+                      // Force close the position at market price
+                      try {
+                        const { data: closeData } = await supabase.functions.invoke('check-trade-status', {
+                          body: {
+                            forceCloseTradeId: data.tradeId,
+                            exchange: data.exchange,
+                            symbol: data.symbol,
+                          }
+                        });
+                        
+                        if (closeData?.success) {
+                          exitPrice = closeData.exitPrice || livePrice;
+                          tradePnl = closeData.pnl || calculateNetProfit(data.entryPrice, exitPrice, positionSize, currentExchange) * leverage;
+                        } else {
+                          exitPrice = livePrice;
+                          tradePnl = calculateNetProfit(data.entryPrice, exitPrice, positionSize, currentExchange) * leverage;
+                        }
+                      } catch (closeErr) {
+                        console.error(`Failed to force close on SL:`, closeErr);
+                        exitPrice = livePrice;
+                        tradePnl = calculateNetProfit(data.entryPrice, exitPrice, positionSize, currentExchange) * leverage;
+                      }
+                      
                       isWin = false;
                       exitReason = 'STOP_LOSS';
                       tradeCompleted = true;
