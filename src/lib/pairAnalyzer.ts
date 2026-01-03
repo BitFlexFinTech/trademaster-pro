@@ -235,6 +235,7 @@ export function findBestOpportunity(
   const {
     minConfidence = 0.70,
     excludePairs = [],
+    preferredExchanges = ['Binance'],
   } = options;
   
   const ranked = rankPairs(prices, changes24h, volumes, excludePairs);
@@ -246,9 +247,12 @@ export function findBestOpportunity(
     return null;
   }
   
+  // Use preferred exchange if available
+  const exchange = preferredExchanges[0] || 'Binance';
+  
   return {
     symbol: best.symbol,
-    exchange: 'Binance',
+    exchange,
     timeframe: '1m',
     direction: best.direction,
     confidence: best.confidence,
@@ -279,13 +283,14 @@ export function getTopOpportunities(
   changes24h: Record<string, number>,
   volumes: Record<string, number>,
   count: number = 5,
-  excludePairs: string[] = []
+  excludePairs: string[] = [],
+  preferredExchange: string = 'Binance'
 ): ScannerOpportunity[] {
   const ranked = rankPairs(prices, changes24h, volumes, excludePairs);
   
   return ranked.slice(0, count).map(score => ({
     symbol: score.symbol,
-    exchange: 'Binance',
+    exchange: preferredExchange,
     timeframe: '1m',
     direction: score.direction,
     confidence: score.confidence,

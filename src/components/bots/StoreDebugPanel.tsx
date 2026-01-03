@@ -46,7 +46,7 @@ export function StoreDebugPanel() {
   const msSinceRender = Date.now() - lastRenderTime;
   
   // Only render in development
-  if (process.env.NODE_ENV !== 'development') {
+  if (!import.meta.env.DEV) {
     return null;
   }
 

@@ -1,6 +1,6 @@
 // ============================================
 // Real-Time Sync Engine
-// Syncs data from Supabase every 100ms
+// Consolidated sync intervals for efficiency
 // ============================================
 
 import { useBotStore } from '@/stores/botStore';
@@ -9,11 +9,10 @@ import { supabase } from '@/integrations/supabase/client';
 class RealtimeSyncEngine {
   private syncIntervalId: NodeJS.Timeout | null = null;
   private metricsIntervalId: NodeJS.Timeout | null = null;
-  private marketIntervalId: NodeJS.Timeout | null = null;
   private historyIntervalId: NodeJS.Timeout | null = null;
+  private tradeCleanupIntervalId: NodeJS.Timeout | null = null;
   private isRunning = false;
-  private syncIntervalMs = 100; // 100ms for real-time feel
-  private marketSyncIntervalMs = 200; // 200ms for market data
+  private metricsIntervalMs = 100; // 100ms for metrics recalculation
 
   /**
    * Start the real-time sync engine
@@ -30,17 +29,13 @@ class RealtimeSyncEngine {
     // Initial data load
     this.initialSync();
 
-    // Sync metrics every 100ms (positions, capital)
+    // Sync metrics every 100ms (capital calculations, efficiency)
+    // Note: WebSocket bridge handles real-time prices, not this engine
     this.metricsIntervalId = setInterval(() => {
       this.syncMetrics();
-    }, this.syncIntervalMs);
+    }, this.metricsIntervalMs);
 
-    // Sync market data every 200ms
-    this.marketIntervalId = setInterval(() => {
-      this.syncMarketData();
-    }, this.marketSyncIntervalMs);
-
-    // Full data sync every 5 seconds
+    // Full data sync every 5 seconds (database sync)
     this.syncIntervalId = setInterval(() => {
       this.fullSync();
     }, 5000);
@@ -49,6 +44,11 @@ class RealtimeSyncEngine {
     this.historyIntervalId = setInterval(() => {
       useBotStore.getState().addCapitalHistoryPoint();
     }, 60000);
+    
+    // Clean up stuck trades every 30 seconds
+    this.tradeCleanupIntervalId = setInterval(() => {
+      this.cleanupStuckTrades();
+    }, 30000);
 
     // Set up Supabase realtime subscriptions
     this.setupRealtimeSubscriptions();
@@ -71,14 +71,14 @@ class RealtimeSyncEngine {
       this.metricsIntervalId = null;
     }
 
-    if (this.marketIntervalId) {
-      clearInterval(this.marketIntervalId);
-      this.marketIntervalId = null;
-    }
-
     if (this.historyIntervalId) {
       clearInterval(this.historyIntervalId);
       this.historyIntervalId = null;
+    }
+    
+    if (this.tradeCleanupIntervalId) {
+      clearInterval(this.tradeCleanupIntervalId);
+      this.tradeCleanupIntervalId = null;
     }
   }
 
@@ -126,23 +126,30 @@ class RealtimeSyncEngine {
   }
 
   /**
-   * Sync market data - prices, volumes
+   * Clean up stuck trades that are open too long
    */
-  private async syncMarketData() {
+  private async cleanupStuckTrades() {
     if (!this.isRunning) return;
-
-    const store = useBotStore.getState();
-    const positions = store.positions;
-
-    if (positions.length === 0) return;
-
-    // Update position prices from market data
-    // This would typically come from a WebSocket connection
-    // For now, we'll just mark the scan as active
-    store.updateMarketData({
-      isScanning: true,
-      pairsScanned: positions.length,
-    });
+    
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      if (!session?.session?.user?.id) return;
+      
+      // Call edge function to manage open trades
+      const { error } = await supabase.functions.invoke('manage-open-trades', {
+        body: { 
+          userId: session.session.user.id,
+          maxAgeHours: 24,
+          forceClose: false 
+        }
+      });
+      
+      if (error && import.meta.env.DEV) {
+        console.log('[RealtimeSync] Manage open trades (may not exist):', error.message);
+      }
+    } catch (err) {
+      // Silent fail - edge function may not exist
+    }
   }
 
   /**
@@ -185,8 +192,7 @@ class RealtimeSyncEngine {
   getStatus() {
     return {
       isRunning: this.isRunning,
-      syncInterval: this.syncIntervalMs,
-      marketSyncInterval: this.marketSyncIntervalMs,
+      metricsInterval: this.metricsIntervalMs,
     };
   }
 }

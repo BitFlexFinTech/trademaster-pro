@@ -12,54 +12,25 @@ import { useBotStore } from '@/stores/botStore';
 import { useMemo } from 'react';
 
 export function CapitalEfficiencyGauge() {
+  // Use store's calculated efficiency instead of recalculating
+  const capitalEfficiency = useBotStore(state => state.capitalEfficiency);
   const capitalMetrics = useBotStore(state => state.capitalMetrics);
-  const capitalHistory = useBotStore(state => state.capitalHistory);
-  const executionMetrics = useBotStore(state => state.executionMetrics);
   const idleStartTime = useBotStore(state => state.idleStartTime);
   
-  // Calculate efficiency metrics
+  // Derive display data from store state
   const efficiencyData = useMemo(() => {
-    // Utilization rate (40% weight)
-    const utilizationScore = Math.min(100, capitalMetrics.utilization);
-    
-    // Deployment speed (30% weight) - based on avg execution time
-    // Target: < 500ms = 100, > 2000ms = 0
-    const speedScore = Math.max(0, Math.min(100, 
-      100 - ((executionMetrics.avgExecutionTimeMs - 500) / 15)
-    ));
-    
-    // Idle time score (30% weight) - based on current idle duration
-    // Target: 0 idle = 100, > 5 min = 0
     const idleDurationMs = idleStartTime ? Date.now() - idleStartTime : 0;
     const idleMinutes = idleDurationMs / 60000;
-    const idleScore = Math.max(0, Math.min(100, 100 - (idleMinutes * 20)));
-    
-    // Combined score
-    const score = Math.round(
-      (utilizationScore * 0.4) + 
-      (speedScore * 0.3) + 
-      (idleScore * 0.3)
-    );
-    
-    // Calculate trend from history
-    let trend: 'improving' | 'stable' | 'declining' = 'stable';
-    if (capitalHistory.length >= 5) {
-      const recentAvg = capitalHistory.slice(-3).reduce((s, h) => s + h.utilization, 0) / 3;
-      const olderAvg = capitalHistory.slice(-6, -3).reduce((s, h) => s + h.utilization, 0) / 3;
-      const diff = recentAvg - olderAvg;
-      if (diff > 5) trend = 'improving';
-      else if (diff < -5) trend = 'declining';
-    }
     
     return {
-      score,
-      utilizationScore: Math.round(utilizationScore),
-      speedScore: Math.round(speedScore),
-      idleScore: Math.round(idleScore),
-      trend,
+      score: capitalEfficiency.score,
+      utilizationScore: Math.round(capitalEfficiency.utilizationRate),
+      speedScore: Math.round(capitalEfficiency.deploymentSpeed),
+      idleScore: Math.max(0, Math.min(100, 100 - (idleMinutes * 20))),
+      trend: capitalEfficiency.trend,
       idleMinutes: Math.round(idleMinutes),
     };
-  }, [capitalMetrics, executionMetrics, idleStartTime, capitalHistory]);
+  }, [capitalEfficiency, idleStartTime]);
   
   // Score color and label
   const getScoreColor = (score: number) => {
