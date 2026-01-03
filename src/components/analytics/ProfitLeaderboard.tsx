@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Trophy, TrendingUp, TrendingDown, Medal, Award, Crown } from 'lucide-react';
+import { Trophy, TrendingUp, TrendingDown, Medal, Award, Crown, Minus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useProfitLeaderboard, LeaderboardPeriod, PairRanking } from '@/hooks/useProfitLeaderboard';
 
@@ -20,6 +21,53 @@ function RankIcon({ rank }: { rank: number }) {
   if (rank === 2) return <Medal className="w-4 h-4 text-slate-400" />;
   if (rank === 3) return <Award className="w-4 h-4 text-amber-600" />;
   return <span className="text-xs text-muted-foreground w-4 text-center">{rank}</span>;
+}
+
+function TrendIndicator({ trend, trendValue }: { trend: 'up' | 'down' | 'stable'; trendValue: number }) {
+  const absValue = Math.abs(trendValue);
+  
+  if (trend === 'up') {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-0.5 text-emerald-400">
+              <TrendingUp className="w-3 h-3" />
+              <span className="text-[9px] font-mono">+{absValue.toFixed(0)}%</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="left" className="text-xs">
+            <p>Up {absValue.toFixed(1)}% vs previous period</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+  
+  if (trend === 'down') {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-0.5 text-red-400">
+              <TrendingDown className="w-3 h-3" />
+              <span className="text-[9px] font-mono">-{absValue.toFixed(0)}%</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="left" className="text-xs">
+            <p>Down {absValue.toFixed(1)}% vs previous period</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+  
+  return (
+    <div className="flex items-center gap-0.5 text-muted-foreground">
+      <Minus className="w-3 h-3" />
+      <span className="text-[9px]">~</span>
+    </div>
+  );
 }
 
 function PairRow({ ranking, isExpanded, onToggle }: { ranking: PairRanking; isExpanded: boolean; onToggle: () => void }) {
@@ -59,14 +107,21 @@ function PairRow({ ranking, isExpanded, onToggle }: { ranking: PairRanking; isEx
             </span>
           </div>
           
-          <div className="text-right w-16">
-            <span className="text-muted-foreground block">Profit</span>
-            <span className={cn(
-              'font-mono font-medium',
-              ranking.totalProfit >= 0 ? 'text-emerald-400' : 'text-red-400'
-            )}>
-              {ranking.totalProfit >= 0 ? '+' : ''}{ranking.totalProfit.toFixed(2)}
-            </span>
+          <div className="text-right w-16 flex items-center gap-2">
+            <div>
+              <span className="text-muted-foreground block">Profit</span>
+              <span className={cn(
+                'font-mono font-medium',
+                ranking.totalProfit >= 0 ? 'text-emerald-400' : 'text-red-400'
+              )}>
+                {ranking.totalProfit >= 0 ? '+' : ''}{ranking.totalProfit.toFixed(2)}
+              </span>
+            </div>
+          </div>
+          
+          {/* Trend Indicator */}
+          <div className="w-12 flex justify-end">
+            <TrendIndicator trend={ranking.trend} trendValue={ranking.trendValue} />
           </div>
         </div>
       </button>

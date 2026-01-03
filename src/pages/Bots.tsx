@@ -89,6 +89,9 @@ import { SmartPositionSizingAdvisor } from '@/components/bots/SmartPositionSizin
 import { ProfitExtractionHistoryLog } from '@/components/bots/ProfitExtractionHistoryLog';
 import { MultiExchangeBalanceWidget } from '@/components/bots/MultiExchangeBalanceWidget';
 import { SpeedMetricsDashboard } from '@/components/bots/SpeedMetricsDashboard';
+import { MobileBotsPage } from '@/components/bots/MobileBotsPage';
+import { ExecutionBenchmarkDashboard } from '@/components/bots/ExecutionBenchmarkDashboard';
+import { ErrorRecoveryLog } from '@/components/bots/ErrorRecoveryLog';
 
 interface UsdtFloat {
   exchange: string;
@@ -1063,6 +1066,23 @@ export default function Bots() {
       setClosingPositions(false);
     }
   };
+
+  // Render mobile version on small screens
+  if (isMobile) {
+    return (
+      <TradingDataProvider>
+        <MobileBotsPage
+          bots={bots}
+          stats={stats}
+          loading={loading}
+          startBot={startBot}
+          stopBot={stopBot}
+          wsConnected={wsConnected}
+          connectedExchangeNames={connectedExchangeNames}
+        />
+      </TradingDataProvider>
+    );
+  }
 
   return (
     <TradingDataProvider>
