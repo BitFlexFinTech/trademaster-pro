@@ -205,13 +205,17 @@ class TradingEngine {
         return;
       }
 
+      // Use preferred exchange from config (multi-exchange support)
+      const preferredExchange = autoDeployConfig.preferredExchanges[0] || 'Binance';
+
       // Use AI pair analyzer for real analysis
       const topOpportunities = getTopOpportunities(
         prices,
         changes24h,
         volumes,
         5, // Get top 5 opportunities
-        autoDeployConfig.excludePairs
+        autoDeployConfig.excludePairs,
+        preferredExchange
       );
 
       state.updateMarketData({ 

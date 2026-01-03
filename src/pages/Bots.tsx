@@ -251,25 +251,8 @@ export default function Bots() {
     setEditingBaseBalance(null);
   }, []);
 
-  // Debounced prices for stable USDT calculation (prevent flashing)
-  const [debouncedPrices, setDebouncedPrices] = useState(prices);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Debounce price updates - only update every 5 seconds
-  useEffect(() => {
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    debounceTimerRef.current = setTimeout(() => {
-      setDebouncedPrices(prices);
-    }, 5000);
-
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-    };
-  }, [prices]);
+  // WebSocket bridge now handles price updates via Zustand store
+  // No need for debounced prices - store provides stable state
 
   // ============ NOTIFICATION TRIGGERS FOR WARNING BANNERS ============
   
@@ -379,7 +362,7 @@ export default function Bots() {
         .single();
       
       if (data && !error) {
-        if (process.env.NODE_ENV === 'development') {
+        if (import.meta.env.DEV) {
           console.log('[BOT CONFIG] Loaded from database:', data);
         }
         setBotConfig(prev => {
@@ -714,14 +697,14 @@ export default function Bots() {
     }
   }, [user, usdtFloat.length, spotBot, leverageBot]);
 
-  // Debounced USDT calculation to prevent flashing
+  // USDT calculation using prices directly (WebSocket bridge keeps store updated)
   const suggestedUSDT = useMemo(() => {
     const dailyTarget = 40;
     const profitPerTrade = 1;
 
-    // Use DEBOUNCED prices to prevent flashing
-    const avgVolatility = debouncedPrices.length > 0
-      ? debouncedPrices.slice(0, 10).reduce((sum, p) => sum + Math.abs(p.change_24h || 0), 0) / Math.min(debouncedPrices.length, 10) / 24
+    // Use prices directly - WebSocket bridge provides stable updates
+    const avgVolatility = prices.length > 0
+      ? prices.slice(0, 10).reduce((sum, p) => sum + Math.abs(p.change_24h || 0), 0) / Math.min(prices.length, 10) / 24
       : 0.5;
 
     const avgMovePercent = Math.max(avgVolatility / 100, 0.001);
@@ -731,7 +714,7 @@ export default function Bots() {
     const rawValue = Math.ceil(avgPositionSize * buffer);
     // Cap at MAX_USDT_ALLOCATION ($5000)
     return Math.min(rawValue, MAX_USDT_ALLOCATION);
-  }, [debouncedPrices, tradingMode]);
+  }, [prices, tradingMode]);
 
   // CRITICAL: Fetch USDT float using SINGLE SOURCE OF TRUTH (exchangeBalances)
   // Uses TOTAL VALUE (all assets × prices), not just USDT

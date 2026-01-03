@@ -20,40 +20,62 @@ export function useWebSocketBridge() {
   const updateMarketData = useBotStore(state => state.updateMarketData);
   const updatePositionPrices = useBotStore(state => state.updatePositionPrices);
   const lastUpdateRef = useRef<number>(0);
+  const pendingUpdateRef = useRef<NodeJS.Timeout | null>(null);
   
   useEffect(() => {
-    // Throttle updates to every 100ms for performance
-    const now = Date.now();
-    if (now - lastUpdateRef.current < 100) return;
-    lastUpdateRef.current = now;
-    
     if (!isConnected || tickersMap.size === 0) {
       return;
     }
     
-    // Convert ticker map to prices object
-    const prices: Record<string, number> = {};
-    const changes24h: Record<string, number> = {};
-    const volumes: Record<string, number> = {};
+    // Clear any pending update to avoid stacking
+    if (pendingUpdateRef.current) {
+      clearTimeout(pendingUpdateRef.current);
+    }
     
-    tickersMap.forEach((ticker, symbol) => {
-      prices[symbol] = ticker.price;
-      changes24h[symbol] = ticker.priceChangePercent;
-      volumes[symbol] = ticker.volume * ticker.price; // Convert to USD volume
-    });
+    // Throttle updates to every 100ms for performance
+    const now = Date.now();
+    const timeSinceLastUpdate = now - lastUpdateRef.current;
     
-    // Update market data in store
-    updateMarketData({ 
-      prices, 
-      changes24h, 
-      volumes, 
-      pairsScanned: tickersMap.size,
-      isScanning: true,
-    });
+    const doUpdate = () => {
+      lastUpdateRef.current = Date.now();
+      
+      // Convert ticker map to prices object
+      const prices: Record<string, number> = {};
+      const changes24h: Record<string, number> = {};
+      const volumes: Record<string, number> = {};
+      
+      tickersMap.forEach((ticker, symbol) => {
+        prices[symbol] = ticker.price;
+        changes24h[symbol] = ticker.priceChangePercent;
+        volumes[symbol] = ticker.volume * ticker.price; // Convert to USD volume
+      });
+      
+      // Update market data in store
+      updateMarketData({ 
+        prices, 
+        changes24h, 
+        volumes, 
+        pairsScanned: tickersMap.size,
+        isScanning: true,
+      });
+      
+      // Update position prices for real-time P&L
+      updatePositionPrices(prices);
+    };
     
-    // Update position prices for real-time P&L
-    updatePositionPrices(prices);
+    if (timeSinceLastUpdate >= 100) {
+      // Immediate update if enough time has passed
+      doUpdate();
+    } else {
+      // Schedule update to respect throttle
+      pendingUpdateRef.current = setTimeout(doUpdate, 100 - timeSinceLastUpdate);
+    }
     
+    return () => {
+      if (pendingUpdateRef.current) {
+        clearTimeout(pendingUpdateRef.current);
+      }
+    };
   }, [tickersMap, isConnected, updateMarketData, updatePositionPrices]);
   
   return {
