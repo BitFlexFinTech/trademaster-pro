@@ -35,6 +35,7 @@ import { useAdaptiveTradingEngine } from '@/hooks/useAdaptiveTradingEngine';
 import { usePositionAutoScaling } from '@/hooks/usePositionAutoScaling';
 import { useAutoCompound } from '@/hooks/useAutoCompound';
 import { useBotStrategyAI } from '@/hooks/useBotStrategyAI';
+import { useCapitalDeployment } from '@/hooks/useCapitalDeployment';
 import { toast } from 'sonner';
 import { LivePositionProfitTracker } from './LivePositionProfitTracker';
 import { ExecutionBenchmarkDashboard } from './ExecutionBenchmarkDashboard';
@@ -404,6 +405,16 @@ export function BotCard({
 
   // AI Strategy recommendations for auto-fill indicators
   const { recommendation: aiRecommendation } = useBotStrategyAI();
+  
+  // Capital deployment for auto-deploy idle capital
+  const {
+    totalIdle,
+    overallUtilization,
+    autoDeployEnabled,
+    enableAutoDeploy,
+    disableAutoDeploy,
+    syncOpenTrades,
+  } = useCapitalDeployment(usdtFloat);
   
   // Track which fields have AI suggestions applied
   const [aiSuggestedFields, setAiSuggestedFields] = useState<Set<string>>(new Set());
@@ -2042,6 +2053,8 @@ export function BotCard({
         toast.info('Syncing exchange balances...');
         try {
           await supabase.functions.invoke('sync-exchange-balances');
+          // Sync open trades with capital manager
+          await syncOpenTrades();
         } catch (err) {
           console.error('Pre-start sync failed:', err);
         }
@@ -3293,6 +3306,58 @@ export function BotCard({
           )}
         </div>
         
+        {/* Auto-Deploy Idle Capital Toggle */}
+        <div className="mb-2 p-2 bg-muted/30 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Banknote className="w-3 h-3 text-primary" />
+              <span className="text-[10px] text-muted-foreground">Auto-Deploy Idle</span>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Info className="w-3 h-3 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs">
+                    <p>When enabled, idle capital is automatically deployed to qualified trading opportunities. No funds left sitting.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant={autoDeployEnabled ? "default" : "outline"} className="text-[8px] h-4 px-1">
+                {autoDeployEnabled ? "Active" : "Manual"}
+              </Badge>
+              <Switch
+                checked={autoDeployEnabled}
+                onCheckedChange={(enabled) => {
+                  if (enabled && existingBot?.id) {
+                    enableAutoDeploy({
+                      botId: existingBot.id,
+                      mode: botType,
+                      leverages,
+                      profitTarget: profitPerTrade,
+                      maxPositionSize: localAmountPerTrade,
+                    });
+                  } else {
+                    disableAutoDeploy();
+                  }
+                }}
+                disabled={!isRunning}
+                className="scale-75"
+              />
+            </div>
+          </div>
+          {totalIdle > 50 && isRunning && !autoDeployEnabled && (
+            <div className="mt-1.5 text-[9px] text-muted-foreground bg-warning/10 rounded px-2 py-1 border border-warning/20">
+              <span className="text-warning font-medium">⚠️ ${totalIdle.toFixed(2)} idle</span> - Enable auto-deploy to utilize
+            </div>
+          )}
+          {autoDeployEnabled && (
+            <div className="mt-1.5 text-[9px] text-muted-foreground bg-primary/10 rounded px-2 py-1 border border-primary/20">
+              <span className="text-primary font-medium">✓ {overallUtilization.toFixed(0)}% deployed</span> - Idle capital: ${totalIdle.toFixed(2)}
+            </div>
+          )}
+        </div>
         {useDynamicSizing && (
           <div className="mb-2 p-1.5 bg-primary/5 border border-primary/20 rounded text-[10px] text-muted-foreground">
             📐 Next size: <span className="font-mono text-primary font-bold">${scaledPositionSize.toFixed(0)}</span>
