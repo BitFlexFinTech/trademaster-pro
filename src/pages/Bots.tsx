@@ -1396,19 +1396,8 @@ export default function Bots() {
               <div className="flex flex-wrap gap-4" style={{ overflow: 'visible' }}>
                 <VolatilityScanner />
                 <TradeTimingAdvisor />
-                <div style={CARD_SIZES.capitalUtilization}>
-                  <CapitalUtilizationChart exchanges={capitalState.exchangesForChart} />
-                </div>
-                <div style={CARD_SIZES.marketScanner}>
-                  <ScannerStatsWidget
-                    isScanning={scannerState.isScanning}
-                    opportunityCount={scannerState.stats.opportunityCount}
-                    rejectionsLast5Min={scannerState.stats.rejectionsLast5Min}
-                    symbolsActive={scannerState.stats.symbolsActive}
-                    rejectionBreakdown={scannerState.detailedStats.rejectionBreakdown}
-                    topOpportunities={scannerState.detailedStats.topOpportunities}
-                  />
-                </div>
+                <CapitalUtilizationChart />
+                <ScannerStatsWidget />
               </div>
             </CollapsibleContent>
           </Collapsible>

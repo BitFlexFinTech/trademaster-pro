@@ -104,6 +104,21 @@ export interface CapitalMetrics {
   }>;
 }
 
+export interface CapitalHistoryPoint {
+  timestamp: number;
+  deployed: number;
+  idle: number;
+  total: number;
+  utilization: number;
+}
+
+export interface IdleCapitalAlertConfig {
+  enabled: boolean;
+  thresholdAmount: number;
+  thresholdPercent: number;
+  maxIdleDurationMs: number;
+}
+
 export interface BotState {
   // ===== Bot Data =====
   bots: Bot[];
@@ -156,6 +171,16 @@ export interface BotState {
   // Capital Metrics
   updateCapitalMetrics: (metrics: Partial<CapitalMetrics>) => void;
   calculateCapitalUtilization: () => void;
+  
+  // Capital History
+  capitalHistory: CapitalHistoryPoint[];
+  addCapitalHistoryPoint: () => void;
+  
+  // Idle Capital Alerts
+  idleCapitalAlert: IdleCapitalAlertConfig;
+  idleStartTime: number | null;
+  setIdleAlertConfig: (config: Partial<IdleCapitalAlertConfig>) => void;
+  checkIdleCapitalAlert: () => void;
   
   // Execution Metrics
   recordExecution: (tradeId: string, durationMs: number, success: boolean) => void;

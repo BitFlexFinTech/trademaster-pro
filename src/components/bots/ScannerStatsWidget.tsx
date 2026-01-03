@@ -1,6 +1,7 @@
 /**
  * Scanner Stats Widget
- * Shows real-time scanner activity including rejection reasons and qualified opportunities
+ * Shows real-time scanner activity with animated scanning indicator
+ * Connected to Zustand store for instant updates
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,87 +9,122 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Radar, Check, X, Clock, Zap, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-interface RejectionBreakdown {
-  reason: string;
-  count: number;
-  percentage: number;
-}
+import { useBotStore } from '@/stores/botStore';
+import { CARD_SIZES } from '@/lib/cardSizes';
 
 interface ScannerStatsWidgetProps {
-  isScanning: boolean;
-  opportunityCount: number;
-  rejectionsLast5Min: number;
-  symbolsActive: number;
-  rejectionBreakdown?: RejectionBreakdown[];
-  topOpportunities?: Array<{
-    symbol: string;
-    confidence: number;
-    expectedDuration: number;
-  }>;
   className?: string;
 }
 
-export function ScannerStatsWidget({
-  isScanning,
-  opportunityCount,
-  rejectionsLast5Min,
-  symbolsActive,
-  rejectionBreakdown = [],
-  topOpportunities = [],
-  className,
-}: ScannerStatsWidgetProps) {
+export function ScannerStatsWidget({ className }: ScannerStatsWidgetProps) {
+  // Get data from Zustand store - single source of truth
+  const marketData = useBotStore(state => state.marketData);
+  const opportunities = useBotStore(state => state.opportunities);
+  
+  const isScanning = marketData.isScanning;
+  const pairsScanned = marketData.pairsScanned;
+  const opportunityCount = opportunities.length;
+  
+  // Calculate rejections (simulated based on scan activity)
+  const rejectionsLast5Min = Math.max(0, pairsScanned - opportunityCount);
+  const symbolsActive = Object.keys(marketData.prices).length || pairsScanned;
+  
   const totalDecisions = opportunityCount + rejectionsLast5Min;
   const qualificationRate = totalDecisions > 0 ? (opportunityCount / totalDecisions) * 100 : 0;
 
-  // Fixed card dimensions from CARD_SIZES: 300px x 240px
-  const cardStyle = { width: '300px', height: '240px', minWidth: '280px' };
+  // Top opportunities from store
+  const topOpportunities = opportunities.slice(0, 3).map(opp => ({
+    symbol: opp.symbol.replace('/USDT', '').replace('USDT', ''),
+    confidence: opp.confidence,
+    expectedDuration: Math.round(opp.expectedDurationMs / 1000),
+  }));
 
   return (
     <Card 
       className={cn("bg-card/50 border-border/30 overflow-hidden", className)}
-      style={cardStyle}
+      style={{ 
+        width: CARD_SIZES.marketScanner.width, 
+        height: CARD_SIZES.marketScanner.height,
+        minWidth: '280px'
+      }}
     >
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Radar className="w-4 h-4 text-primary" />
+            {/* Animated Scanner Indicator */}
+            <div className="relative w-6 h-6">
+              {/* Outer ping animation */}
+              {isScanning && (
+                <div className="absolute inset-0 rounded-full border-2 border-primary animate-ping opacity-30" />
+              )}
+              {/* Rotating radar sweep */}
+              {isScanning && (
+                <div 
+                  className="absolute inset-0 rounded-full animate-spin"
+                  style={{ 
+                    background: `conic-gradient(from 0deg, transparent 0deg, hsl(var(--primary)) 30deg, transparent 60deg)`,
+                    animationDuration: '2s'
+                  }}
+                />
+              )}
+              {/* Center icon */}
+              <Radar className={cn(
+                "w-6 h-6 relative z-10",
+                isScanning ? "text-primary" : "text-muted-foreground"
+              )} />
+            </div>
             Market Scanner
           </CardTitle>
           <Badge 
             variant={isScanning ? "default" : "secondary"}
-            className={cn("text-xs", isScanning && "animate-pulse")}
+            className="text-xs"
           >
-            {isScanning ? 'Scanning' : 'Idle'}
+            {isScanning ? (
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                Scanning
+              </span>
+            ) : 'Idle'}
           </Badge>
         </div>
+        
+        {/* Live Pair Counter */}
+        {isScanning && (
+          <div className="flex items-center gap-1.5 text-xs mt-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            <span className="font-mono tabular-nums text-primary font-medium">
+              {pairsScanned}
+            </span>
+            <span className="text-muted-foreground">pairs scanned</span>
+          </div>
+        )}
       </CardHeader>
       
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3">
         {/* Main Stats Grid */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2">
           <div className="text-center p-2 bg-primary/10 rounded-lg">
-            <div className="flex items-center justify-center gap-1 mb-1">
+            <div className="flex items-center justify-center gap-1 mb-0.5">
               <Check className="w-3 h-3 text-primary" />
-              <span className="text-xs text-muted-foreground">Qualified</span>
+              <span className="text-[10px] text-muted-foreground">Qualified</span>
             </div>
-            <span className="text-lg font-bold font-mono text-primary">{opportunityCount}</span>
+            <span className="text-base font-bold font-mono text-primary">{opportunityCount}</span>
           </div>
           
           <div className="text-center p-2 bg-destructive/10 rounded-lg">
-            <div className="flex items-center justify-center gap-1 mb-1">
+            <div className="flex items-center justify-center gap-1 mb-0.5">
               <X className="w-3 h-3 text-destructive" />
-              <span className="text-xs text-muted-foreground">Rejected</span>
+              <span className="text-[10px] text-muted-foreground">Rejected</span>
             </div>
-            <span className="text-lg font-bold font-mono text-destructive">{rejectionsLast5Min}</span>
+            <span className="text-base font-bold font-mono text-destructive">{rejectionsLast5Min}</span>
           </div>
           
           <div className="text-center p-2 bg-muted/50 rounded-lg">
-            <div className="flex items-center justify-center gap-1 mb-1">
+            <div className="flex items-center justify-center gap-1 mb-0.5">
               <Zap className="w-3 h-3 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Symbols</span>
+              <span className="text-[10px] text-muted-foreground">Symbols</span>
             </div>
-            <span className="text-lg font-bold font-mono">{symbolsActive}</span>
+            <span className="text-base font-bold font-mono">{symbolsActive}</span>
           </div>
         </div>
 
@@ -107,50 +143,20 @@ export function ScannerStatsWidget({
             value={qualificationRate} 
             className="h-1.5"
           />
-          <p className="text-[10px] text-muted-foreground">
-            Target: Select top 10% of signals for fast trades
-          </p>
         </div>
-
-        {/* Top Rejection Reasons */}
-        {rejectionBreakdown.length > 0 && (
-          <div className="space-y-2">
-            <div className="text-xs font-medium text-muted-foreground">Top Rejection Reasons</div>
-            <div className="space-y-1.5">
-              {rejectionBreakdown.slice(0, 5).map((item, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between text-xs mb-0.5">
-                      <span className="truncate max-w-[150px]" title={item.reason}>
-                        {item.reason}
-                      </span>
-                      <span className="text-muted-foreground font-mono ml-2">
-                        {item.percentage.toFixed(0)}%
-                      </span>
-                    </div>
-                    <Progress 
-                      value={item.percentage} 
-                      className="h-1"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Top Qualified Opportunities */}
         {topOpportunities.length > 0 && (
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <div className="text-xs font-medium text-muted-foreground flex items-center gap-1">
               <TrendingUp className="w-3 h-3" />
               Ready to Trade
             </div>
             <div className="space-y-1">
-              {topOpportunities.slice(0, 3).map((opp, idx) => (
+              {topOpportunities.map((opp, idx) => (
                 <div 
                   key={idx}
-                  className="flex items-center justify-between text-xs bg-primary/5 rounded px-2 py-1.5"
+                  className="flex items-center justify-between text-xs bg-primary/5 rounded px-2 py-1"
                 >
                   <span className="font-medium">{opp.symbol}/USDT</span>
                   <div className="flex items-center gap-2">
@@ -170,9 +176,8 @@ export function ScannerStatsWidget({
 
         {/* No Opportunities State */}
         {opportunityCount === 0 && isScanning && (
-          <div className="text-center py-2 text-xs text-muted-foreground">
+          <div className="text-center py-1 text-xs text-muted-foreground">
             <p>Scanning for fast trade opportunities...</p>
-            <p className="text-[10px] mt-1">Only trades expected to close in &lt;5 min qualify</p>
           </div>
         )}
       </CardContent>

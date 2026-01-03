@@ -10,6 +10,7 @@ class RealtimeSyncEngine {
   private syncIntervalId: NodeJS.Timeout | null = null;
   private metricsIntervalId: NodeJS.Timeout | null = null;
   private marketIntervalId: NodeJS.Timeout | null = null;
+  private historyIntervalId: NodeJS.Timeout | null = null;
   private isRunning = false;
   private syncIntervalMs = 100; // 100ms for real-time feel
   private marketSyncIntervalMs = 200; // 200ms for market data
@@ -44,6 +45,11 @@ class RealtimeSyncEngine {
       this.fullSync();
     }, 5000);
 
+    // Record capital history every minute
+    this.historyIntervalId = setInterval(() => {
+      useBotStore.getState().addCapitalHistoryPoint();
+    }, 60000);
+
     // Set up Supabase realtime subscriptions
     this.setupRealtimeSubscriptions();
   }
@@ -68,6 +74,11 @@ class RealtimeSyncEngine {
     if (this.marketIntervalId) {
       clearInterval(this.marketIntervalId);
       this.marketIntervalId = null;
+    }
+
+    if (this.historyIntervalId) {
+      clearInterval(this.historyIntervalId);
+      this.historyIntervalId = null;
     }
   }
 
@@ -97,7 +108,7 @@ class RealtimeSyncEngine {
   }
 
   /**
-   * Sync metrics - capital utilization, execution speed
+   * Sync metrics - capital utilization, execution speed, alerts
    */
   private syncMetrics() {
     if (!this.isRunning) return;
@@ -106,6 +117,9 @@ class RealtimeSyncEngine {
     
     // Recalculate capital utilization
     store.calculateCapitalUtilization();
+    
+    // Check idle capital alerts
+    store.checkIdleCapitalAlert();
   }
 
   /**
