@@ -180,18 +180,57 @@ export function useBotRuns() {
     if (!user) return;
 
     try {
-      // FIXED: Auto-recalculate P&L from actual trades before stopping
-      // This ensures final P&L matches the database
-      console.log(`[stopBot] Recalculating P&L before stopping bot ${botId}...`);
+      console.log(`[stopBot] 🛑 Stopping bot ${botId} - closing open positions first...`);
+      
+      // STEP 1: Close all open positions for this bot
+      const { data: openTrades, error: tradesError } = await supabase
+        .from('trades')
+        .select('id, pair, exchange_name')
+        .eq('user_id', user.id)
+        .eq('status', 'open')
+        .eq('bot_run_id', botId);
+      
+      if (openTrades && openTrades.length > 0) {
+        console.log(`[stopBot] Found ${openTrades.length} open trades to close`);
+        
+        // Force close all open trades via edge function
+        const { data: closeResult, error: closeError } = await supabase.functions.invoke('manage-open-trades', {
+          body: {
+            profitTarget: 0, // Close immediately regardless of profit
+            forceCloseAll: true,
+          }
+        });
+        
+        if (closeError) {
+          console.warn('[stopBot] ⚠️ Error closing trades:', closeError);
+        } else {
+          console.log('[stopBot] ✅ Closed trades:', closeResult);
+        }
+        
+        // Mark remaining trades as cancelled in DB
+        await supabase
+          .from('trades')
+          .update({ 
+            status: 'cancelled', 
+            closed_at: new Date().toISOString(),
+            notes: 'Auto-closed when bot stopped'
+          })
+          .eq('user_id', user.id)
+          .eq('status', 'open')
+          .eq('bot_run_id', botId);
+      }
+      
+      // STEP 2: Recalculate P&L from actual trades
+      console.log(`[stopBot] Recalculating P&L before stopping...`);
       const recalcResult = await recalculateBotPnl(botId);
       console.log(`[stopBot] Recalculated: $${recalcResult.newPnl.toFixed(2)} from ${recalcResult.tradeCount} trades`);
       
+      // STEP 3: Update bot status to stopped
       const { error } = await supabase
         .from('bot_runs')
         .update({ 
           status: 'stopped',
           stopped_at: new Date().toISOString(),
-          // Use recalculated P&L for accurate final value
           current_pnl: recalcResult.newPnl,
           trades_executed: recalcResult.tradeCount,
         })
@@ -199,6 +238,10 @@ export function useBotRuns() {
         .eq('user_id', user.id);
 
       if (error) throw error;
+      
+      // STEP 4: Clear positions from Zustand store
+      const { useBotStore } = await import('@/stores/botStore');
+      useBotStore.getState().forceCloseAllPositions();
       
       toast.success(`Bot stopped | Final P&L: $${recalcResult.newPnl.toFixed(2)}`);
       fetchBots();

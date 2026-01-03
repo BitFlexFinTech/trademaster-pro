@@ -42,7 +42,20 @@ export function TradeFlowDiagram({ className }: TradeFlowDiagramProps) {
   const profitablePositions = openPositions.filter(p => (p.unrealizedPnL || 0) > 0);
   
   // Determine step statuses based on current state
+  // CRITICAL: When isTrading is false, ALL steps should be 'pending'
   const getSteps = (): TradeFlowStep[] => {
+    // If bot is not trading, show all pending
+    if (!isTrading) {
+      return [
+        { id: 'scan', label: 'Scan', icon: <Search className="w-3 h-3" />, status: 'pending' },
+        { id: 'analyze', label: 'Analyze', icon: <Brain className="w-3 h-3" />, status: 'pending' },
+        { id: 'decide', label: 'Decide', icon: <TrendingUp className="w-3 h-3" />, status: 'pending' },
+        { id: 'execute', label: 'Execute', icon: <Play className="w-3 h-3" />, status: 'pending' },
+        { id: 'monitor', label: 'Monitor', icon: <Eye className="w-3 h-3" />, status: 'pending' },
+        { id: 'close', label: 'Close', icon: <CheckCircle className="w-3 h-3" />, status: 'pending' },
+      ];
+    }
+
     const isScanning = marketData.isScanning;
     const hasOpportunities = opportunities.length > 0;
     const hasPositions = openPositions.length > 0;
@@ -53,7 +66,7 @@ export function TradeFlowDiagram({ className }: TradeFlowDiagramProps) {
         id: 'scan',
         label: 'Scan',
         icon: <Search className="w-3 h-3" />,
-        status: isScanning ? 'active' : (isTrading ? 'complete' : 'pending'),
+        status: isScanning ? 'active' : 'complete',
         detail: isScanning ? `${marketData.pairsScanned} pairs` : undefined,
       },
       {

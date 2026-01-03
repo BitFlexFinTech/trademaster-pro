@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTradingLoopMonitor, LoopState } from '@/hooks/useTradingLoopMonitor';
+import { useBotStore } from '@/stores/botStore';
 import { formatDistanceToNow } from 'date-fns';
 
 interface TradingLoopMonitorProps {
@@ -41,6 +42,10 @@ export function TradingLoopMonitor({
   onTriggerTrade,
   className 
 }: TradingLoopMonitorProps) {
+  // FIXED: Use Zustand store's isTrading as source of truth
+  const storeIsTrading = useBotStore(state => state.isTrading);
+  const actualBotRunning = storeIsTrading || botRunning;
+  
   const {
     loopState,
     idleReason,
@@ -57,12 +62,14 @@ export function TradingLoopMonitor({
     toggleAutoTrigger,
     triggerNextTrade,
   } = useTradingLoopMonitor({
-    botRunning,
+    botRunning: actualBotRunning,
     tradeIntervalMs,
     onAutoTrigger: onTriggerTrade,
   });
 
-  const config = stateConfig[loopState];
+  // Override loop state to IDLE if store says not trading
+  const effectiveLoopState = storeIsTrading ? loopState : 'idle';
+  const config = stateConfig[effectiveLoopState];
   const Icon = config.icon;
   const scanProgress = (pairsScanned / totalPairs) * 100;
   const positionProgress = (openPositionsCount / maxPositions) * 100;
@@ -100,17 +107,19 @@ export function TradingLoopMonitor({
           <div className="flex items-center gap-1.5">
             <div className={cn(
               'w-2 h-2 rounded-full',
-              loopState === 'idle' ? 'bg-muted-foreground' :
-              loopState === 'scanning' ? 'bg-blue-500 animate-pulse' :
-              loopState === 'executing' ? 'bg-yellow-500 animate-pulse' :
-              loopState === 'monitoring' ? 'bg-green-500' :
+              effectiveLoopState === 'idle' ? 'bg-muted-foreground' :
+              effectiveLoopState === 'scanning' ? 'bg-blue-500 animate-pulse' :
+              effectiveLoopState === 'executing' ? 'bg-yellow-500 animate-pulse' :
+              effectiveLoopState === 'monitoring' ? 'bg-green-500' :
               'bg-cyan-500'
             )} />
-            <span className="text-[9px] text-muted-foreground truncate max-w-[80px]">{idleReason}</span>
+            <span className="text-[9px] text-muted-foreground truncate max-w-[80px]">
+              {!storeIsTrading ? 'Bot stopped' : idleReason}
+            </span>
           </div>
           
           {/* Timer */}
-          {nextScanIn > 0 && (
+          {nextScanIn > 0 && storeIsTrading && (
             <Badge variant="secondary" className="text-[8px] h-4 px-1 font-mono">
               {nextScanIn}s
             </Badge>
@@ -143,7 +152,7 @@ export function TradingLoopMonitor({
             checked={autoTriggerEnabled}
             onCheckedChange={toggleAutoTrigger}
             className="h-4 w-7 scale-90"
-            disabled={!botRunning}
+            disabled={!actualBotRunning}
           />
         </div>
 

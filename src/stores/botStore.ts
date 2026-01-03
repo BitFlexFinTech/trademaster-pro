@@ -231,13 +231,32 @@ export const useBotStore = create<BotState>()(
 
     // ===== Trading Engine Actions =====
     startTradingEngine: () => {
-      console.log('[BotStore] Starting trading engine');
+      console.log('[BotStore] 🚀 Starting trading engine');
       set({ isTrading: true });
     },
 
     stopTradingEngine: () => {
-      console.log('[BotStore] Stopping trading engine');
-      set({ isTrading: false });
+      console.log('[BotStore] 🛑 Stopping trading engine');
+      set({ isTrading: false, deploymentQueue: [], opportunities: [] });
+    },
+
+    // Force close all positions and clear state (used when bot stops)
+    forceCloseAllPositions: () => {
+      console.log('[BotStore] 🧹 Force closing all positions and clearing state');
+      set({ 
+        positions: [], 
+        opportunities: [], 
+        deploymentQueue: [],
+        isTrading: false,
+        marketData: {
+          prices: {},
+          volumes: {},
+          changes24h: {},
+          pairsScanned: 0,
+          lastUpdate: Date.now(),
+          isScanning: false,
+        }
+      });
     },
 
     deployIdleFunds: async () => {
