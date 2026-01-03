@@ -83,8 +83,11 @@ export function CapitalUtilizationChart({ exchanges, className }: CapitalUtiliza
     );
   }
 
+  // Fixed card dimensions: 300px x 240px
+  const cardStyle = { width: '300px', height: '240px', minWidth: '280px' };
+
   return (
-    <Card className={cn("bg-card/50 border-border/30", className)}>
+    <Card className={cn("bg-card/50 border-border/30 overflow-hidden", className)} style={cardStyle}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-2">

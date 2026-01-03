@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -10,6 +11,8 @@ import { NotificationProvider } from "./contexts/NotificationContext";
 import { ProtectedRoute } from "./components/layout/ProtectedRoute";
 import { MainLayout } from "./components/layout/MainLayout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { syncEngine } from "./services/realtimeSync";
+import { useBotStore } from "./stores/botStore";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Signals from "./pages/Signals";
@@ -41,6 +44,25 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+// Component to initialize services after auth context is available
+function AppInitializer({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    // Start the real-time sync engine (100ms intervals)
+    console.log('[App] Starting real-time sync engine');
+    syncEngine.start();
+    
+    // Initial data sync
+    useBotStore.getState().syncAllData();
+    
+    return () => {
+      console.log('[App] Stopping real-time sync engine');
+      syncEngine.stop();
+    };
+  }, []);
+
+  return <>{children}</>;
+}
+
 const App = () => (
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
@@ -49,47 +71,49 @@ const App = () => (
           <TradingModeProvider>
             <NotificationProvider>
               <TooltipProvider>
-                <Toaster />
-                <Sonner />
-                <BrowserRouter>
-                  <Routes>
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/auth" element={<Auth />} />
-                  <Route path="/terms" element={<Terms />} />
-                  <Route path="/privacy" element={<Privacy />} />
-                  <Route path="/risk-disclaimer" element={<RiskDisclaimer />} />
-                  <Route element={
-                    <ProtectedRoute>
-                      <MainLayout />
-                    </ProtectedRoute>
-                  }>
-                    <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/portfolio" element={<Portfolio />} />
-                    <Route path="/signals" element={<Signals />} />
-                    <Route path="/auto-earn" element={<AutoEarn />} />
-                    <Route path="/bots" element={<Bots />} />
-                    <Route path="/bot-analytics" element={<BotAnalytics />} />
-                    <Route path="/airdrops" element={<Airdrops />} />
-                    <Route path="/analytics" element={<Analytics />} />
-                    <Route path="/risk" element={<Risk />} />
-                    <Route path="/sandbox" element={<Sandbox />} />
-                    <Route path="/charts" element={<Charts />} />
-                    <Route path="/arbitrage" element={<Arbitrage />} />
-                    <Route path="/pair-performance" element={<PairPerformance />} />
-                    <Route path="/news" element={<News />} />
-                    <Route path="/research" element={<Research />} />
-                    <Route path="/notifications" element={<Notifications />} />
-                    <Route path="/settings" element={<Settings />} />
-                    <Route path="/demo-account" element={<DemoAccount />} />
-                    <Route path="/bugs-dashboard" element={<BugsDashboardPage />} />
-                    <Route path="/debugger" element={<Debugger />} />
-                    <Route path="/trades-history" element={<TradesHistory />} />
-                    <Route path="/rejection-analytics" element={<RejectionAnalytics />} />
-                    <Route path="/admin" element={<Admin />} />
-                  </Route>
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
-                </BrowserRouter>
+                <AppInitializer>
+                  <Toaster />
+                  <Sonner />
+                  <BrowserRouter>
+                    <Routes>
+                    <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                    <Route path="/auth" element={<Auth />} />
+                    <Route path="/terms" element={<Terms />} />
+                    <Route path="/privacy" element={<Privacy />} />
+                    <Route path="/risk-disclaimer" element={<RiskDisclaimer />} />
+                    <Route element={
+                      <ProtectedRoute>
+                        <MainLayout />
+                      </ProtectedRoute>
+                    }>
+                      <Route path="/dashboard" element={<Dashboard />} />
+                      <Route path="/portfolio" element={<Portfolio />} />
+                      <Route path="/signals" element={<Signals />} />
+                      <Route path="/auto-earn" element={<AutoEarn />} />
+                      <Route path="/bots" element={<Bots />} />
+                      <Route path="/bot-analytics" element={<BotAnalytics />} />
+                      <Route path="/airdrops" element={<Airdrops />} />
+                      <Route path="/analytics" element={<Analytics />} />
+                      <Route path="/risk" element={<Risk />} />
+                      <Route path="/sandbox" element={<Sandbox />} />
+                      <Route path="/charts" element={<Charts />} />
+                      <Route path="/arbitrage" element={<Arbitrage />} />
+                      <Route path="/pair-performance" element={<PairPerformance />} />
+                      <Route path="/news" element={<News />} />
+                      <Route path="/research" element={<Research />} />
+                      <Route path="/notifications" element={<Notifications />} />
+                      <Route path="/settings" element={<Settings />} />
+                      <Route path="/demo-account" element={<DemoAccount />} />
+                      <Route path="/bugs-dashboard" element={<BugsDashboardPage />} />
+                      <Route path="/debugger" element={<Debugger />} />
+                      <Route path="/trades-history" element={<TradesHistory />} />
+                      <Route path="/rejection-analytics" element={<RejectionAnalytics />} />
+                      <Route path="/admin" element={<Admin />} />
+                    </Route>
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </BrowserRouter>
+                </AppInitializer>
               </TooltipProvider>
             </NotificationProvider>
           </TradingModeProvider>
