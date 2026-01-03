@@ -83,14 +83,7 @@ export function ScannerStatsWidget({ className }: ScannerStatsWidgetProps) {
     }));
 
   return (
-    <Card 
-      className={cn("bg-card/50 border-border/30 overflow-hidden", className)}
-      style={{ 
-        width: CARD_SIZES.marketScanner.width, 
-        height: CARD_SIZES.marketScanner.height,
-        minWidth: '280px'
-      }}
-    >
+    <Card className={cn("bg-card/50 border-border/30 overflow-hidden h-full", className)}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-2">

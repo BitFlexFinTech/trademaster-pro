@@ -5,6 +5,19 @@
 // ============================================
 
 export const CARD_SIZES = {
+  // Compact cards for side-by-side layout
+  compact: {
+    width: '160px',
+    height: '100px',
+    minWidth: '140px',
+  },
+  
+  // Small cards for dashboard widgets
+  small: {
+    width: '180px',
+    height: '120px',
+    minWidth: '160px',
+  },
   // Small compact cards (session, loop status)
   session: { 
     width: '200px', 

@@ -56,7 +56,7 @@ const initialIdleAlertConfig: IdleCapitalAlertConfig = {
 };
 
 const initialAutoDeployConfig: AutoDeployConfig = {
-  enabled: false,
+  enabled: true, // FIXED: Enable auto-deploy by default so bot loop works
   minIdleFunds: 50,
   maxPositions: 5,
   minConfidence: 0.75,
@@ -176,9 +176,11 @@ export const useBotStore = create<BotState>()(
         mode: run.is_sandbox ? 'demo' : 'live',
         dailyTarget: run.daily_target || 20,
         profitPerTrade: run.profit_per_trade || 1,
-        amountPerTrade: 333,
+        // FIXED: Read from config or calculate dynamically based on profit target
+        amountPerTrade: run.profit_per_trade ? Math.round((run.profit_per_trade / 0.003) || 333) : 333,
         tradeIntervalMs: 60000,
-        allocatedCapital: 1000,
+        // Capital will be set from exchange balances via setExchangeBalances
+        allocatedCapital: 0,
         currentPnL: run.current_pnl || 0,
         tradesExecuted: run.trades_executed || 0,
         hitRate: run.hit_rate || 0,

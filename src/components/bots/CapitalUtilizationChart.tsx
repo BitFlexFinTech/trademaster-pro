@@ -44,14 +44,7 @@ export function CapitalUtilizationChart({ className }: CapitalUtilizationChartPr
   // If no capital data, show placeholder
   if (totalCapital === 0) {
     return (
-      <Card 
-        className={cn("bg-card/50 border-border/30", className)}
-        style={{ 
-          width: CARD_SIZES.capitalUtilization.width, 
-          height: CARD_SIZES.capitalUtilization.height,
-          minWidth: '280px'
-        }}
-      >
+      <Card className={cn("bg-card/50 border-border/30 h-full", className)}>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-primary" />
@@ -59,7 +52,7 @@ export function CapitalUtilizationChart({ className }: CapitalUtilizationChartPr
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-[140px] flex items-center justify-center text-muted-foreground text-sm">
+          <div className="h-[100px] flex items-center justify-center text-muted-foreground text-sm">
             No capital data available
           </div>
         </CardContent>
@@ -68,15 +61,8 @@ export function CapitalUtilizationChart({ className }: CapitalUtilizationChartPr
   }
 
   return (
-    <Card 
-      className={cn("bg-card/50 border-border/30 overflow-hidden", className)} 
-      style={{ 
-        width: CARD_SIZES.capitalUtilization.width, 
-        height: CARD_SIZES.capitalUtilization.height,
-        minWidth: '280px'
-      }}
-    >
-      <CardHeader className="pb-1">
+    <Card className={cn("bg-card/50 border-border/30 overflow-hidden h-full", className)}>
+      <CardHeader className="pb-1 px-3 pt-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-primary" />
@@ -122,8 +108,8 @@ export function CapitalUtilizationChart({ className }: CapitalUtilizationChartPr
         </div>
       </CardHeader>
       
-      <CardContent className="pt-0">
-        <div className="h-[140px]">
+      <CardContent className="pt-0 px-3">
+        <div className="h-[100px]">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <defs>
