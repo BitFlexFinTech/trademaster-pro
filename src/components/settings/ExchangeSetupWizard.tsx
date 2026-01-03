@@ -96,6 +96,7 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
   const [isTransferring, setIsTransferring] = useState(false);
   const [isLoadingBalances, setIsLoadingBalances] = useState(false);
   const [canTransfer, setCanTransfer] = useState(false);
+  const [transferExchange, setTransferExchange] = useState<ExchangeType>('binance');
 
   const handleSelectExchange = async (exchange: ExchangeType) => {
     setSelectedExchange(exchange);
@@ -475,21 +476,23 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
   );
 
   const renderStep5_VerifyBalance = () => {
-    // Fetch wallet balances on mount
+    // Fetch wallet balances on mount - supports all exchanges
     const fetchBalances = async () => {
-      if (selectedExchange !== 'binance' || isLoadingBalances) return;
+      if (isLoadingBalances) return;
       
       setIsLoadingBalances(true);
       try {
+        const exchangeToFetch = selectedExchange || transferExchange;
+        
         // Check transfer permission
         const { data: permData } = await supabase.functions.invoke('binance-wallet-transfer', {
-          body: { action: 'checkTransferPermission' }
+          body: { action: 'checkTransferPermission', exchange: exchangeToFetch }
         });
         setCanTransfer(permData?.canTransfer ?? false);
         
         // Get all wallet balances
         const { data, error } = await supabase.functions.invoke('binance-wallet-transfer', {
-          body: { action: 'getBalances' }
+          body: { action: 'getBalances', exchange: exchangeToFetch }
         });
         
         if (data?.success) {
@@ -503,7 +506,7 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
     };
     
     // Fetch on step load
-    if (!walletBalances && !isLoadingBalances && selectedExchange === 'binance') {
+    if (!walletBalances && !isLoadingBalances) {
       fetchBalances();
     }
     
@@ -515,22 +518,39 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
       
       setIsTransferring(true);
       try {
-        const transferType = sourceWallet === 'funding' ? 'FUNDING_UMFUTURE' : 'MAIN_UMFUTURE';
+        const exchangeToUse = selectedExchange || transferExchange;
+        
+        // Map source wallet to transfer type based on exchange
+        let fromType = '';
+        let toType = '';
+        
+        if (exchangeToUse === 'binance') {
+          fromType = sourceWallet === 'funding' ? 'FUNDING_UMFUTURE' : 'MAIN_UMFUTURE';
+        } else if (exchangeToUse === 'bybit') {
+          fromType = sourceWallet === 'funding' ? 'FUND' : 'SPOT';
+          toType = 'UNIFIED';
+        } else if (exchangeToUse === 'okx') {
+          fromType = sourceWallet === 'funding' ? '6' : '18';
+          toType = '18';
+        }
+        
         const { data, error } = await supabase.functions.invoke('binance-wallet-transfer', {
           body: {
             action: 'transfer',
-            fromType: transferType,
+            exchange: exchangeToUse,
+            fromType,
+            toType,
             asset: 'USDT',
             amount: parseFloat(transferAmount),
           }
         });
         
         if (data?.success) {
-          toast.success(`Transferred $${transferAmount} to Futures wallet`);
+          toast.success(`Transferred $${transferAmount} to Trading wallet on ${exchangeToUse.toUpperCase()}`);
           setTransferAmount('');
           // Refresh balances
           const { data: newBalances } = await supabase.functions.invoke('binance-wallet-transfer', {
-            body: { action: 'getBalances' }
+            body: { action: 'getBalances', exchange: exchangeToUse }
           });
           if (newBalances?.success) {
             setWalletBalances(newBalances.balances);
@@ -590,11 +610,32 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
           </CardContent>
         </Card>
         
-        {/* Transfer Form - Only for Binance */}
-        {selectedExchange === 'binance' && canTransfer && (
+        {/* Transfer Form - Supports all exchanges */}
+        {canTransfer && (
           <Card>
             <CardContent className="pt-4 space-y-3">
-              <h4 className="font-medium">Transfer to Futures</h4>
+              <h4 className="font-medium">Transfer to Trading Wallet</h4>
+              
+              {/* Exchange Selector */}
+              <div className="space-y-2">
+                <Label className="text-xs">Exchange</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['binance', 'okx', 'bybit'] as ExchangeType[]).map((ex) => (
+                    <Button
+                      key={ex}
+                      variant={(selectedExchange || transferExchange) === ex ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        setTransferExchange(ex);
+                        setWalletBalances(null); // Reset to refetch
+                      }}
+                      className="text-xs"
+                    >
+                      {EXCHANGE_INFO[ex].logo} {EXCHANGE_INFO[ex].name}
+                    </Button>
+                  ))}
+                </div>
+              </div>
               
               <div className="grid grid-cols-2 gap-2">
                 <Button

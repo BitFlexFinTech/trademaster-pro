@@ -1,7 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { TrendingUp, TrendingDown, Minus, Scale, Zap, Target, Calculator, Clock, ArrowRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Calculator, Clock, DollarSign } from 'lucide-react';
 import { useJarvisRegime } from '@/hooks/useJarvisRegime';
 import { usePositionAutoScaling } from '@/hooks/usePositionAutoScaling';
 import { useJarvisSettings } from '@/hooks/useJarvisSettings';
@@ -12,6 +12,11 @@ interface PositionSizingPreviewWidgetProps {
   basePositionSize?: number;
   targetProfit?: number;
 }
+
+// Fee rates (configurable)
+const MAKER_FEE = 0.0002; // 0.02%
+const TAKER_FEE = 0.0004; // 0.04%
+const FUNDING_FEE = 0.0001; // 0.01% for futures
 
 export function PositionSizingPreviewWidget({ 
   basePositionSize = 100,
@@ -24,6 +29,7 @@ export function PositionSizingPreviewWidget({
   // Get top volatility pair for calculation display
   const topPair = pairs?.[0];
   const volatilityPct = topPair?.volatilityPercent || 0.5;
+  const currentPrice = topPair?.currentPrice || 95000;
   
   const {
     scaledPositionSize,
@@ -41,7 +47,6 @@ export function PositionSizingPreviewWidget({
   // Calculate the dynamic position size breakdown
   const targetProfitUsd = adaptiveTarget || targetProfit;
   const baseCalcSize = (targetProfitUsd / (volatilityPct / 100));
-  const clampedSize = Math.max(200, Math.min(500, baseCalcSize));
   
   // Risk adjustments simulation
   const drawdownMultiplier = recentPerformance === 'losing' ? 0.9 : 1.0;
@@ -50,8 +55,27 @@ export function PositionSizingPreviewWidget({
   const afterWinRate = afterDrawdown * winRateMultiplier;
   const finalSize = Math.max(200, Math.min(500, afterWinRate));
   
-  // Estimated time to profit
-  const estTimeMinutes = volatilityPct > 0 ? (targetProfitUsd / (finalSize * volatilityPct / 100)) * 60 : 5;
+  // Calculate LONG position breakdown
+  const longTargetPct = volatilityPct / 100;
+  const longExitPrice = currentPrice * (1 + longTargetPct);
+  const longGrossProfit = finalSize * longTargetPct;
+  const longTakerFees = finalSize * TAKER_FEE * 2; // Entry + exit
+  const longNetProfit = longGrossProfit - longTakerFees;
+  
+  // Calculate SHORT position breakdown
+  const shortTargetPct = volatilityPct / 100;
+  const shortExitPrice = currentPrice * (1 - shortTargetPct);
+  const shortGrossProfit = finalSize * shortTargetPct;
+  const shortTakerFees = finalSize * TAKER_FEE * 2;
+  const shortNetProfit = shortGrossProfit - shortTakerFees;
+  
+  // Leverage calculations (for futures)
+  const leverage = 4;
+  const leveragedSize = finalSize * leverage;
+  const leverageGrossProfit = leveragedSize * longTargetPct;
+  const leverageTakerFees = leveragedSize * TAKER_FEE * 2;
+  const leverageFundingFee = leveragedSize * FUNDING_FEE;
+  const leverageNetProfit = leverageGrossProfit - leverageTakerFees - leverageFundingFee;
 
   const getRegimeIcon = () => {
     switch (regime) {
@@ -70,132 +94,129 @@ export function PositionSizingPreviewWidget({
   };
 
   return (
-    <Card className="bg-slate-950 border-slate-800 font-mono">
-      <CardContent className="p-4">
+    <Card className="bg-card border-border font-mono">
+      <CardContent className="p-3">
         {/* Header */}
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <Calculator className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold text-slate-300">Position Size Calculator</span>
+            <span className="text-xs font-semibold">Position Calculator</span>
           </div>
-          <div className="text-lg font-bold text-cyan-400">
+          <div className="text-base font-bold text-cyan-400">
             ${finalSize.toFixed(0)}
           </div>
         </div>
 
-        {/* Calculation Breakdown */}
-        <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800 mb-3">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">Calculation Breakdown</div>
-          
-          {/* Formula */}
-          <div className="space-y-1.5 text-xs">
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Target Profit</span>
-              <span className="text-emerald-400 font-semibold">${targetProfitUsd.toFixed(2)}</span>
+        {/* Long/Short Comparison Grid */}
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          {/* LONG Position */}
+          <div className="bg-emerald-500/5 border border-emerald-500/20 rounded p-2">
+            <div className="flex items-center gap-1 mb-1.5">
+              <TrendingUp className="h-3 w-3 text-emerald-500" />
+              <span className="text-[10px] font-bold text-emerald-400">LONG</span>
             </div>
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Current Volatility ({topPair?.symbol || 'BTC'})</span>
-              <span className="text-amber-400 font-semibold">{volatilityPct.toFixed(2)}%</span>
-            </div>
-            
-            <div className="border-t border-slate-700 my-2" />
-            
-            <div className="flex items-center gap-2 text-slate-300 bg-slate-800/50 rounded px-2 py-1.5">
-              <span className="text-[10px] text-slate-500">Base Size =</span>
-              <span>${targetProfitUsd.toFixed(2)}</span>
-              <span className="text-slate-500">÷</span>
-              <span>{volatilityPct.toFixed(2)}%</span>
-              <span className="text-slate-500">=</span>
-              <span className="text-cyan-400 font-bold">${baseCalcSize.toFixed(0)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Risk Adjustments */}
-        <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800 mb-3">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">Risk Adjustments</div>
-          
-          <div className="space-y-1.5 text-xs">
-            {recentPerformance === 'losing' && (
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 flex items-center gap-1">
-                  <TrendingDown className="h-3 w-3 text-red-400" />
-                  Drawdown Protection
-                </span>
-                <span className="text-red-400">×0.90</span>
+            <div className="space-y-1 text-[9px]">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Entry</span>
+                <span>${currentPrice.toFixed(0)}</span>
               </div>
-            )}
-            {recentPerformance === 'winning' && (
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 flex items-center gap-1">
-                  <TrendingUp className="h-3 w-3 text-emerald-400" />
-                  Win Streak Boost
-                </span>
-                <span className="text-emerald-400">×1.10</span>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Exit (+{(volatilityPct).toFixed(2)}%)</span>
+                <span>${longExitPrice.toFixed(0)}</span>
               </div>
-            )}
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 flex items-center gap-1">
-                {getRegimeIcon()}
-                {regime} Regime
-              </span>
-              <span className={cn(
-                regimeMultiplier > 1 ? "text-emerald-400" :
-                regimeMultiplier < 1 ? "text-red-400" : "text-slate-300"
-              )}>×{regimeMultiplier.toFixed(2)}</span>
+              <div className="border-t border-emerald-500/20 pt-1 mt-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Gross</span>
+                  <span className="text-emerald-400">+${longGrossProfit.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Fees (2×0.04%)</span>
+                  <span className="text-red-400">-${longTakerFees.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between font-bold">
+                  <span>NET</span>
+                  <span className="text-emerald-400">+${longNetProfit.toFixed(2)}</span>
+                </div>
+              </div>
             </div>
-            
-            <div className="border-t border-slate-700 my-2" />
-            
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">Clamped to range</span>
-              <span className="text-slate-500">$200 - $500</span>
+          </div>
+
+          {/* SHORT Position */}
+          <div className="bg-red-500/5 border border-red-500/20 rounded p-2">
+            <div className="flex items-center gap-1 mb-1.5">
+              <TrendingDown className="h-3 w-3 text-red-500" />
+              <span className="text-[10px] font-bold text-red-400">SHORT</span>
+            </div>
+            <div className="space-y-1 text-[9px]">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Entry</span>
+                <span>${currentPrice.toFixed(0)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Exit (-{(volatilityPct).toFixed(2)}%)</span>
+                <span>${shortExitPrice.toFixed(0)}</span>
+              </div>
+              <div className="border-t border-red-500/20 pt-1 mt-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Gross</span>
+                  <span className="text-emerald-400">+${shortGrossProfit.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Fees (2×0.04%)</span>
+                  <span className="text-red-400">-${shortTakerFees.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between font-bold">
+                  <span>NET</span>
+                  <span className="text-emerald-400">+${shortNetProfit.toFixed(2)}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Final Result */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div className="bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-lg p-3 border border-cyan-500/30">
-            <div className="text-[10px] text-slate-500 mb-1">NEXT TRADE SIZE</div>
-            <div className="text-2xl font-bold text-cyan-400">
-              ${finalSize.toFixed(0)}
-            </div>
+        {/* Leverage Section */}
+        <div className="bg-muted/30 rounded p-2 mb-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] text-muted-foreground">FUTURES ({leverage}× Leverage)</span>
+            <span className="text-[10px] font-mono">${leveragedSize.toFixed(0)} effective</span>
           </div>
-          <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-800">
-            <div className="text-[10px] text-slate-500 mb-1 flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              EST. TIME TO PROFIT
+          <div className="grid grid-cols-3 gap-2 text-[9px]">
+            <div>
+              <div className="text-muted-foreground">Gross</div>
+              <div className="text-emerald-400 font-bold">+${leverageGrossProfit.toFixed(2)}</div>
             </div>
-            <div className="text-lg font-bold text-slate-300">
-              ~{estTimeMinutes.toFixed(1)}m
+            <div>
+              <div className="text-muted-foreground">Fees + Fund</div>
+              <div className="text-red-400">-${(leverageTakerFees + leverageFundingFee).toFixed(2)}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">NET</div>
+              <div className="text-cyan-400 font-bold">+${leverageNetProfit.toFixed(2)}</div>
             </div>
           </div>
         </div>
 
-        {/* Regime Confidence */}
-        <div className="flex items-center gap-2 text-xs">
-          <Badge variant="outline" className={cn("text-[10px]", getRegimeColor())}>
+        {/* Fee Breakdown */}
+        <div className="flex items-center gap-3 text-[9px] text-muted-foreground mb-2">
+          <span>Maker: {(MAKER_FEE * 100).toFixed(2)}%</span>
+          <span>Taker: {(TAKER_FEE * 100).toFixed(2)}%</span>
+          <span>Funding: {(FUNDING_FEE * 100).toFixed(2)}%</span>
+        </div>
+
+        {/* Regime Indicator */}
+        <div className="flex items-center gap-2 text-[10px]">
+          <Badge variant="outline" className={cn("text-[9px] h-5", getRegimeColor())}>
             {getRegimeIcon()}
             <span className="ml-1">{regime}</span>
           </Badge>
-          <div className="flex-1">
-            <Progress 
-              value={Math.min(100, regimeConfidence)} 
-              className="h-1 bg-slate-800"
-            />
-          </div>
-          <span className="text-slate-500 font-mono text-[10px]">
+          <Progress 
+            value={Math.min(100, regimeConfidence)} 
+            className="h-1 flex-1 bg-muted"
+          />
+          <span className="text-muted-foreground font-mono">
             {regimeConfidence.toFixed(0)}%
           </span>
         </div>
-
-        {/* Scaling Reason */}
-        {combinedScalingReason && (
-          <div className="mt-2 text-[10px] text-slate-500 italic">
-            {combinedScalingReason}
-          </div>
-        )}
       </CardContent>
     </Card>
   );

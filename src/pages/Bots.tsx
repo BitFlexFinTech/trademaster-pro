@@ -85,6 +85,7 @@ import { ResizableCard } from '@/components/bots/ResizableCard';
 import { TradingLoopMonitor } from '@/components/bots/TradingLoopMonitor';
 import { PositionSizingHistoryChart } from '@/components/bots/PositionSizingHistoryChart';
 import { PositionSizingPreviewWidget } from '@/components/bots/PositionSizingPreviewWidget';
+import { ProfitExtractionHistoryLog } from '@/components/bots/ProfitExtractionHistoryLog';
 
 interface UsdtFloat {
   exchange: string;
@@ -1373,10 +1374,11 @@ export default function Bots() {
             />
           </div>
           
-          {/* Volatility Scanner & Trade Timing Advisor - Side by Side */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
+          {/* Volatility Scanner & Trade Timing Advisor & Profit Extraction - Side by Side */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-3">
             <VolatilityScanner />
             <TradeTimingAdvisor />
+            <ProfitExtractionHistoryLog />
           </div>
 
           {/* ============================================

@@ -76,10 +76,32 @@ export function useTradingLoopMonitor({
     return count || 0;
   }, [user?.id]);
 
-  // Fetch last trade time
+  // Fetch last trade time - prioritize closed_at for accurate "last trade" timing
   const fetchLastTrade = useCallback(async () => {
     if (!user?.id) return null;
     
+    // First try to get the most recently CLOSED trade
+    const { data: closedTrade } = await supabase
+      .from('trades')
+      .select('closed_at, created_at, pair, profit_loss, status')
+      .eq('user_id', user.id)
+      .eq('status', 'closed')
+      .not('closed_at', 'is', null)
+      .order('closed_at', { ascending: false })
+      .limit(1)
+      .single();
+    
+    if (closedTrade?.closed_at) {
+      const lastTime = new Date(closedTrade.closed_at);
+      lastTradeTimeRef.current = lastTime;
+      return {
+        time: lastTime,
+        pair: closedTrade.pair,
+        pnl: closedTrade.profit_loss,
+      };
+    }
+    
+    // Fallback to most recent trade by created_at (for open trades)
     const { data } = await supabase
       .from('trades')
       .select('closed_at, created_at, pair, profit_loss')

@@ -282,7 +282,55 @@ export function BotCard({
     loadSettings();
   }, [user?.id]);
 
-  // Handler for dynamic sizing toggle
+  // CRITICAL: Fetch real metrics from trades table on mount based on bot mode
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    const fetchRealMetrics = async () => {
+      // Get all closed trades for this user filtered by whether we're in leverage mode or spot mode
+      // For leverage bot: look for trades with leverage > 1 or mode = 'leverage'
+      // For spot bot: trades with leverage = 1 or mode = 'spot' or no leverage specified
+      const { data: trades, error } = await supabase
+        .from('trades')
+        .select('profit_loss, status, leverage, is_sandbox')
+        .eq('user_id', user.id)
+        .eq('status', 'closed')
+        .eq('is_sandbox', false);
+      
+      if (error || !trades) return;
+      
+      // Filter by bot type: leverage trades have leverage > 1
+      const relevantTrades = trades.filter(t => {
+        const isLeverageTrade = (t.leverage || 1) > 1;
+        return botType === 'leverage' ? isLeverageTrade : !isLeverageTrade;
+      });
+      
+      if (relevantTrades.length === 0) return;
+      
+      const totalPnl = relevantTrades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
+      const tradesCount = relevantTrades.length;
+      const wins = relevantTrades.filter(t => (t.profit_loss || 0) > 0).length;
+      const hitRate = tradesCount > 0 ? (wins / tradesCount) * 100 : 0;
+      
+      // Update metrics with real data
+      setMetrics(prev => ({
+        ...prev,
+        currentPnL: existingBot?.currentPnl ?? totalPnl,
+        tradesExecuted: existingBot?.tradesExecuted ?? tradesCount,
+        hitRate: existingBot?.hitRate ?? hitRate,
+      }));
+      
+      metricsRef.current = {
+        currentPnL: existingBot?.currentPnl ?? totalPnl,
+        tradesExecuted: existingBot?.tradesExecuted ?? tradesCount,
+        hitRate: existingBot?.hitRate ?? hitRate,
+        winsCount: wins,
+      };
+    };
+    
+    fetchRealMetrics();
+  }, [user?.id, botType, existingBot?.currentPnl, existingBot?.tradesExecuted, existingBot?.hitRate]);
+
   const handleDynamicSizingToggle = useCallback(async (enabled: boolean) => {
     setUseDynamicSizing(enabled);
     
