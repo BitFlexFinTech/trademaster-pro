@@ -22,8 +22,11 @@ import { RecentBotTrades } from '@/components/bots/RecentBotTrades';
 import { BotHistory } from '@/components/bots/BotHistory';
 import { TradeExecutionStatus } from '@/components/bots/TradeExecutionStatus';
 import { ProfitEnginePanel } from '@/components/bots/ProfitEnginePanel';
+import { TradeReplayHistory } from '@/components/bots/TradeReplayHistory';
+import { MultiExchangePositionDashboard } from '@/components/bots/MultiExchangePositionDashboard';
+import { TradingDataProvider } from '@/contexts/TradingDataContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity, Clock, List, Zap } from 'lucide-react';
+import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity, Clock, List, Zap, PlayCircle, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -138,7 +141,7 @@ export default function BotAnalytics() {
 
       {/* Tabs */}
       <Tabs defaultValue="strategy" className="flex-1 min-h-0 flex flex-col">
-        <TabsList className="grid w-full grid-cols-9 flex-shrink-0">
+        <TabsList className="grid w-full grid-cols-11 flex-shrink-0">
           <TabsTrigger value="strategy" className="text-xs gap-1">
             <Brain className="w-3 h-3" />
             Strategy
@@ -166,6 +169,14 @@ export default function BotAnalytics() {
           <TabsTrigger value="history" className="text-xs gap-1">
             <Clock className="w-3 h-3" />
             History
+          </TabsTrigger>
+          <TabsTrigger value="replay" className="text-xs gap-1">
+            <PlayCircle className="w-3 h-3" />
+            Replay
+          </TabsTrigger>
+          <TabsTrigger value="exchanges" className="text-xs gap-1">
+            <Layers className="w-3 h-3" />
+            Exchanges
           </TabsTrigger>
           <TabsTrigger value="regime" className="text-xs gap-1">
             <Activity className="w-3 h-3" />
@@ -247,6 +258,18 @@ export default function BotAnalytics() {
                 <BotHistory bots={bots} onViewAnalysis={analyzeBot} />
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="replay" className="m-0 h-full">
+            <TradingDataProvider>
+              <TradeReplayHistory className="h-full" />
+            </TradingDataProvider>
+          </TabsContent>
+
+          <TabsContent value="exchanges" className="m-0 h-full">
+            <TradingDataProvider>
+              <MultiExchangePositionDashboard />
+            </TradingDataProvider>
           </TabsContent>
 
           <TabsContent value="regime" className="m-0 space-y-4">

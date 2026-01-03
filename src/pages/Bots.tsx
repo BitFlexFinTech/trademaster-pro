@@ -21,7 +21,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn, exportToCSV } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { StickyPnLBar, BotFilter } from '@/components/bots/StickyPnLBar';
+// StickyPnLBar removed per user request
+export type BotFilter = 'all' | 'running' | 'stopped' | 'profitable' | 'losing';
 import { BotCard } from '@/components/bots/BotCard';
 import { BotCardSkeleton } from '@/components/bots/BotCardSkeleton';
 import { BotMicroCard } from '@/components/bots/BotMicroCard';
@@ -75,8 +76,12 @@ import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
 // NEW: Unified trading components
 import { TradingDataProvider } from '@/contexts/TradingDataContext';
 import { UnifiedTradingDashboard } from '@/components/bots/UnifiedTradingDashboard';
-import { MultiExchangePositionDashboard } from '@/components/bots/MultiExchangePositionDashboard';
-import { TradeReplayHistory } from '@/components/bots/TradeReplayHistory';
+// TradeReplayHistory and MultiExchangePositionDashboard moved to BotAnalytics
+import { VolatilityScanner } from '@/components/bots/VolatilityScanner';
+import { TradeTimingAdvisor } from '@/components/bots/TradeTimingAdvisor';
+import { DashboardEditMode } from '@/components/bots/DashboardEditMode';
+import { useDashboardLayout } from '@/hooks/useDashboardLayout';
+import { ResizableCard } from '@/components/bots/ResizableCard';
 
 interface UsdtFloat {
   exchange: string;
@@ -1099,6 +1104,8 @@ export default function Bots() {
                 <BarChart3 className="w-3 h-3" />
                 Compare Bots
               </Button>
+              {/* Dashboard Edit Mode */}
+              <DashboardEditMode />
               {/* Export Trades CSV */}
               <Button
                 size="sm"
@@ -1342,13 +1349,7 @@ export default function Bots() {
           </div>
           </TooltipProvider>
 
-          {/* Sticky P&L Bar with Filter Chips */}
-          <StickyPnLBar
-            totalPnL={currentPnL}
-            runningBotCount={runningBotCount}
-            activeFilter={activeFilter}
-            onFilterChange={setActiveFilter}
-          />
+          {/* P&L Bar removed per user request */}
 
           {/* Market Regime Indicator */}
           <div className="mb-3">
@@ -1360,9 +1361,11 @@ export default function Bots() {
             <LiveProfitCounter />
           </div>
           
-          {/* Trade Analytics Dashboard removed per strict rule */}
-
-          {/* AI Strategy Dashboard removed per user request */}
+          {/* Volatility Scanner & Trade Timing Advisor - Side by Side */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
+            <VolatilityScanner />
+            <TradeTimingAdvisor />
+          </div>
 
           {/* ============================================
              MICRO-CARDS GRID - High-density bot overview
@@ -1542,12 +1545,12 @@ export default function Bots() {
             </ErrorBoundary>
 
             {/* Middle Column - Unified Trading Dashboard */}
-            <div className="lg:col-span-4 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
+            <div className="lg:col-span-7 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
               {/* Unified Trading Dashboard - Merged positions + trades */}
               <UnifiedTradingDashboard className="flex-1 min-h-0" />
               
-              {/* Multi-Exchange Position View */}
-              <MultiExchangePositionDashboard />
+              {/* Cumulative Profit Chart */}
+              <CumulativeProfitChart />
 
               {/* Link to full analytics page */}
               <Button asChild variant="outline" className="h-8 gap-2">
@@ -1556,15 +1559,6 @@ export default function Bots() {
                   View Full Analytics
                 </Link>
               </Button>
-            </div>
-
-            {/* Right Column - Trade Replay History + Charts */}
-            <div className="lg:col-span-3 flex flex-col gap-2 max-h-[calc(100vh-280px)] overflow-hidden">
-              {/* Trade Replay History */}
-              <TradeReplayHistory className="flex-1 min-h-0" />
-              
-              {/* Cumulative Profit Chart */}
-              <CumulativeProfitChart />
             </div>
             </div>
 
