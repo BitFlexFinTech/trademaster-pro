@@ -501,6 +501,18 @@ export function useBotTrading({
           } else {
             // ===== PHASE 2: LIVE MODE - REAL TRADE WITH POLLING =====
             try {
+              // Build realtime prices map from prices array for WebSocket optimization
+              const realtimePricesMap: Record<string, { price: number; priceChangePercent: number; volume: number; lastUpdated: number }> = {};
+              pricesRef.current.forEach(p => {
+                const normalizedSymbol = p.symbol.toUpperCase().replace('/', '');
+                realtimePricesMap[normalizedSymbol] = {
+                  price: p.price,
+                  priceChangePercent: p.change_24h || 0,
+                  volume: p.volume || 0,
+                  lastUpdated: Date.now(),
+                };
+              });
+              
               const { data, error } = await supabase.functions.invoke('execute-bot-trade', {
                 body: {
                   botId,
@@ -513,6 +525,9 @@ export function useBotTrading({
                   isSandbox: false,
                   maxPositionSize: amountPerTrade,
                   stopLossPercent: STOP_LOSS_PERCENT,
+                  // Pass WebSocket prices to edge function for faster execution
+                  realtimePrices: realtimePricesMap,
+                  wsConnected: Object.keys(realtimePricesMap).length > 0,
                 }
               });
 
