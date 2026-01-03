@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { TrendingUp, TrendingDown, Minus, Activity, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface AssetTrend {
   symbol: string;
@@ -26,7 +26,6 @@ export function MarketRegimeIndicator({ className }: MarketRegimeIndicatorProps)
   const [assetTrends, setAssetTrends] = useState<AssetTrend[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
-  const [isExpanded, setIsExpanded] = useState(false);
 
   // Fetch price data and calculate trends
   const fetchTrends = async () => {
@@ -74,13 +73,14 @@ export function MarketRegimeIndicator({ className }: MarketRegimeIndicatorProps)
 
   useEffect(() => {
     fetchTrends();
-    const interval = setInterval(fetchTrends, 30000); // Update every 30 seconds
+    // Real-time updates every 10 seconds
+    const interval = setInterval(fetchTrends, 10000);
     return () => clearInterval(interval);
   }, []);
 
   // Calculate overall market regime
   const marketRegime = useMemo(() => {
-    if (assetTrends.length === 0) return { regime: 'neutral' as const, confidence: 0, bullishCount: 0, bearishCount: 0 };
+    if (assetTrends.length === 0) return { regime: 'neutral' as const, confidence: 0, bullishCount: 0, bearishCount: 0, neutralCount: 0 };
     
     const bullishCount = assetTrends.filter(a => a.trend === 'bullish').length;
     const bearishCount = assetTrends.filter(a => a.trend === 'bearish').length;
@@ -111,21 +111,21 @@ export function MarketRegimeIndicator({ className }: MarketRegimeIndicatorProps)
   const regimeConfig = {
     bullish: {
       icon: TrendingUp,
-      label: 'BULLISH',
+      label: 'BULL',
       color: 'text-green-500',
-      bg: 'bg-green-500/10',
+      bg: 'bg-green-500/10 border-green-500/30',
     },
     bearish: {
       icon: TrendingDown,
-      label: 'BEARISH',
+      label: 'BEAR',
       color: 'text-red-500',
-      bg: 'bg-red-500/10',
+      bg: 'bg-red-500/10 border-red-500/30',
     },
     neutral: {
       icon: Minus,
-      label: 'NEUTRAL',
+      label: 'CHOP',
       color: 'text-yellow-500',
-      bg: 'bg-yellow-500/10',
+      bg: 'bg-yellow-500/10 border-yellow-500/30',
     },
   };
 
@@ -133,84 +133,47 @@ export function MarketRegimeIndicator({ className }: MarketRegimeIndicatorProps)
   const Icon = config.icon;
 
   return (
-    <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
-      <div className={cn('rounded-lg border bg-card overflow-hidden', className)}>
-        {/* Compact Banner - Always Visible */}
-        <CollapsibleTrigger className="w-full">
-          <div className={cn('flex items-center justify-between px-3 py-1.5 cursor-pointer hover:bg-muted/50 transition-colors', config.bg)}>
-            <div className="flex items-center gap-2">
-              <Activity className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium text-muted-foreground">Market Regime</span>
-              <div className="flex items-center gap-1.5">
-                <Icon className={cn('h-4 w-4', config.color)} />
-                <span className={cn('font-bold text-sm', config.color)}>{config.label}</span>
-                <Badge variant="outline" className={cn('text-[9px] h-4 px-1', config.color)}>
-                  {marketRegime.confidence}%
-                </Badge>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              {/* Summary Stats */}
-              <div className="flex items-center gap-2 text-[10px]">
-                <span className="text-green-500">↑{marketRegime.bullishCount}</span>
-                <span className="text-yellow-500">↔{marketRegime.neutralCount}</span>
-                <span className="text-red-500">↓{marketRegime.bearishCount}</span>
-              </div>
-              
-              <div className="flex items-center gap-1">
-                <span className="text-[9px] text-muted-foreground">
-                  {lastUpdate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className={cn(
+          'flex items-center gap-2 px-2 py-1 rounded border cursor-help transition-colors hover:bg-muted/50',
+          config.bg,
+          className
+        )}>
+          <Icon className={cn('h-3.5 w-3.5', config.color)} />
+          <span className={cn('text-xs font-bold', config.color)}>{config.label}</span>
+          <Badge variant="outline" className={cn('text-[8px] h-3.5 px-1', config.color)}>
+            {marketRegime.confidence}%
+          </Badge>
+          <div className="flex items-center gap-1 text-[9px]">
+            <span className="text-green-500">↑{marketRegime.bullishCount}</span>
+            <span className="text-yellow-500">•{marketRegime.neutralCount}</span>
+            <span className="text-red-500">↓{marketRegime.bearishCount}</span>
+          </div>
+          <RefreshCw 
+            className={cn('h-2.5 w-2.5 text-muted-foreground', loading && 'animate-spin')}
+            onClick={(e) => { e.stopPropagation(); setLoading(true); fetchTrends(); }}
+          />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="text-[10px] max-w-[250px]">
+        <div className="space-y-1">
+          <p className="font-medium">Market Regime: {config.label} ({marketRegime.confidence}% confidence)</p>
+          <div className="grid grid-cols-5 gap-1">
+            {assetTrends.slice(0, 10).map((asset) => (
+              <div key={asset.symbol} className="text-center">
+                <span className={cn(
+                  'text-[9px]',
+                  asset.change24h > 0 ? 'text-green-500' : asset.change24h < 0 ? 'text-red-500' : 'text-muted-foreground'
+                )}>
+                  {asset.symbol} {asset.change24h > 0 ? '+' : ''}{asset.change24h.toFixed(1)}%
                 </span>
-                <RefreshCw 
-                  className={cn('h-3 w-3 text-muted-foreground', loading && 'animate-spin')}
-                  onClick={(e) => { e.stopPropagation(); setLoading(true); fetchTrends(); }}
-                />
-                {isExpanded ? (
-                  <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                )}
               </div>
-            </div>
+            ))}
           </div>
-        </CollapsibleTrigger>
-
-        {/* Expandable Details */}
-        <CollapsibleContent>
-          <div className="px-3 py-2 border-t">
-            {/* Asset Grid */}
-            <div className="grid grid-cols-5 gap-1">
-              {assetTrends.slice(0, 10).map((asset) => (
-                <div
-                  key={asset.symbol}
-                  className={cn(
-                    'flex flex-col items-center p-1 rounded text-center',
-                    asset.trend === 'bullish' && 'bg-green-500/10',
-                    asset.trend === 'bearish' && 'bg-red-500/10',
-                    asset.trend === 'neutral' && 'bg-muted/50'
-                  )}
-                >
-                  <span className="text-[9px] font-medium text-muted-foreground">
-                    {asset.symbol}
-                  </span>
-                  <div className="flex items-center gap-0.5">
-                    {asset.trend === 'bullish' && <TrendingUp className="h-2.5 w-2.5 text-green-500" />}
-                    {asset.trend === 'bearish' && <TrendingDown className="h-2.5 w-2.5 text-red-500" />}
-                    {asset.trend === 'neutral' && <Minus className="h-2.5 w-2.5 text-yellow-500" />}
-                    <span className={cn(
-                      'text-[10px] font-medium',
-                      asset.change24h > 0 ? 'text-green-500' : asset.change24h < 0 ? 'text-red-500' : 'text-muted-foreground'
-                    )}>
-                      {asset.change24h > 0 ? '+' : ''}{asset.change24h.toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </CollapsibleContent>
-      </div>
-    </Collapsible>
+          <p className="text-muted-foreground">Updated: {lastUpdate.toLocaleTimeString()}</p>
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }

@@ -82,6 +82,7 @@ import { TradeTimingAdvisor } from '@/components/bots/TradeTimingAdvisor';
 import { DashboardEditMode } from '@/components/bots/DashboardEditMode';
 import { useDashboardLayout } from '@/hooks/useDashboardLayout';
 import { ResizableCard } from '@/components/bots/ResizableCard';
+import { TradingLoopMonitor } from '@/components/bots/TradingLoopMonitor';
 
 interface UsdtFloat {
   exchange: string;
@@ -1351,14 +1352,19 @@ export default function Bots() {
 
           {/* P&L Bar removed per user request */}
 
-          {/* Market Regime Indicator */}
-          <div className="mb-3">
+          {/* Market Regime + Session Controls Row - Compact */}
+          <div className="flex flex-wrap items-center gap-2 mb-3">
             <MarketRegimeIndicator />
+            <SessionDashboard />
           </div>
           
-          {/* Live Profit Counter */}
-          <div className="mb-3">
+          {/* Live Profit Counter + Trading Loop Monitor */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
             <LiveProfitCounter />
+            <TradingLoopMonitor
+              botRunning={!!(spotBot || leverageBot)}
+              tradeIntervalMs={botConfig.tradeIntervalMs}
+            />
           </div>
           
           {/* Volatility Scanner & Trade Timing Advisor - Side by Side */}
