@@ -9,6 +9,7 @@ import {
   Activity, TrendingUp, TrendingDown, Target, Clock, X, Loader2, 
   Wifi, WifiOff, Radio, CheckCircle2, XCircle, Zap 
 } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTradingData } from '@/contexts/TradingDataContext';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -184,20 +185,27 @@ export function UnifiedTradingDashboard({ className }: UnifiedTradingDashboardPr
                       {(pos.unrealizedPnL || 0) >= 0 ? '+' : ''}${(pos.unrealizedPnL || 0).toFixed(2)}
                     </span>
                     
-                    {/* Close Button */}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => handleManualClose(pos.id, pos.pair)}
-                      disabled={closingTradeId === pos.id}
-                    >
-                      {closingTradeId === pos.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <X className="h-3 w-3" />
-                      )}
-                    </Button>
+                    {/* Close Button with Tooltip */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
+                          onClick={() => handleManualClose(pos.id, pos.pair)}
+                          disabled={closingTradeId === pos.id}
+                        >
+                          {closingTradeId === pos.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <X className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="text-[10px]">
+                        Close Position
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 );
               })}

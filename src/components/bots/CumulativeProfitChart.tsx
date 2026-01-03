@@ -51,7 +51,8 @@ export function CumulativeProfitChart() {
         const current = dailyMap.get(day) || { profit: 0, wins: 0 };
         const pnl = trade.profit_loss || 0;
         current.profit += pnl;
-        if (pnl >= 1) current.wins++;
+        // FIX: Count any positive trade as a win, not just >= $1
+        if (pnl > 0) current.wins++;
         dailyMap.set(day, current);
       });
 

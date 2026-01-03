@@ -380,12 +380,32 @@ const EXCLUDED_COMBOS = new Set([
 // Spot-safe pairs for LONG trades (>50% win rate historically)
 const SPOT_SAFE_PAIRS = new Set(['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'MATIC/USDT']);
 
-// GREENBACK Safety limits - DYNAMIC based on balance
-// UPDATED: Reduced position size to allow more concurrent trades (6 instead of 2)
-const FIXED_POSITION_SIZE = 150;       // REDUCED: $150 per trade for faster $1 profit with more slots
-const DEFAULT_POSITION_SIZE = 150;     // REDUCED: $150 for more concurrent positions
-const MIN_POSITION_SIZE = 100;         // REDUCED: $100 minimum to allow more trades
-const MAX_POSITION_SIZE_CAP = 500;     // REDUCED: Cap at $500 per trade
+// GREENBACK Safety limits - DYNAMIC based on balance and volatility
+// Uses VolatilityScanner recommendations when available
+const FIXED_POSITION_SIZE = 150;       // Default: $150 per trade
+const DEFAULT_POSITION_SIZE = 150;     // Default for calculations
+const MIN_POSITION_SIZE = 100;         // Minimum: $100
+const MAX_POSITION_SIZE_CAP = 500;     // Maximum: $500 per trade
+
+// Calculate dynamic position size based on volatility
+// Higher volatility = smaller position needed for $1 profit
+function calculateDynamicPositionSize(
+  volatilityPercent: number,
+  targetProfitUsd: number = 1.00,
+  feeRate: number = 0.001
+): number {
+  // Expected price move per hour based on 24h volatility
+  const expectedMovePercent = Math.max(0.1, Math.abs(volatilityPercent)) / 24;
+  
+  // Calculate position size: profit = positionSize * priceMove - fees
+  // positionSize = (targetProfit + fees) / priceMove
+  const grossTarget = targetProfitUsd * 1.3; // Add 30% buffer for fees
+  const requiredSize = grossTarget / (expectedMovePercent / 100);
+  
+  // Clamp to min/max
+  return Math.max(MIN_POSITION_SIZE, Math.min(MAX_POSITION_SIZE_CAP, requiredSize));
+}
+
 // Dynamic max positions - calculated based on balance
 function calculateMaxPositions(balance: number, positionSize: number = FIXED_POSITION_SIZE): number {
   const safetyMargin = 0.8; // Use 80% of balance
@@ -1919,10 +1939,35 @@ serve(async (req) => {
       });
     }
 
-    const { botId, mode, profitTarget, exchanges, leverages, isSandbox, maxPositionSize, realtimePrices, wsConnected }: BotTradeRequest = await req.json();
+    const { 
+      botId, 
+      mode, 
+      profitTarget, 
+      exchanges, 
+      leverages, 
+      isSandbox, 
+      maxPositionSize, 
+      realtimePrices, 
+      wsConnected,
+      useDynamicSizing,
+      volatilityData,
+    }: BotTradeRequest & { 
+      useDynamicSizing?: boolean; 
+      volatilityData?: { volatility: number; pair: string } 
+    } = await req.json();
     
-    // Apply user-configured position size with hard cap
-    const userPositionSize = Math.min(maxPositionSize || DEFAULT_POSITION_SIZE, MAX_POSITION_SIZE_CAP);
+    // Calculate position size based on volatility if dynamic sizing is enabled
+    let userPositionSize = Math.min(maxPositionSize || DEFAULT_POSITION_SIZE, MAX_POSITION_SIZE_CAP);
+    
+    if (useDynamicSizing && volatilityData?.volatility) {
+      const dynamicSize = calculateDynamicPositionSize(
+        volatilityData.volatility,
+        profitTarget || 1.00,
+        0.001 // Default fee rate
+      );
+      userPositionSize = Math.min(dynamicSize, MAX_POSITION_SIZE_CAP);
+      console.log(`🎯 Dynamic sizing: volatility=${volatilityData.volatility.toFixed(2)}% → position=$${userPositionSize.toFixed(0)}`);
+    }
     
     // Log WebSocket status
     const priceSource = wsConnected && realtimePrices && Object.keys(realtimePrices).length > 0 
