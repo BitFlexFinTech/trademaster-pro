@@ -492,6 +492,129 @@ async function checkOKXOrderStatus(
   };
 }
 
+// ============ PROFIT EXTRACTION TO FUNDING WALLET ============
+// Transfers profit from trading/futures wallet to funding wallet
+async function extractProfitToFunding(
+  exchange: string,
+  amount: number,
+  apiKey: string,
+  apiSecret: string,
+  passphrase?: string
+): Promise<{ success: boolean; error?: string }> {
+  // Round to 2 decimal places for USDT
+  const transferAmount = Math.floor(amount * 100) / 100;
+  if (transferAmount < 0.01) {
+    return { success: false, error: 'Amount too small to transfer' };
+  }
+  
+  const exchangeLower = exchange.toLowerCase();
+  
+  try {
+    if (exchangeLower === 'binance') {
+      // UMFUTURE_FUNDING: Futures → Funding
+      const timestamp = Date.now();
+      const params = `type=UMFUTURE_FUNDING&asset=USDT&amount=${transferAmount}&timestamp=${timestamp}`;
+      const signature = await hmacSha256(apiSecret, params);
+      
+      const response = await fetch(
+        `https://api.binance.com/sapi/v1/asset/transfer?${params}&signature=${signature}`,
+        { method: 'POST', headers: { "X-MBX-APIKEY": apiKey } }
+      );
+      
+      if (!response.ok) {
+        const data = await response.json();
+        return { success: false, error: data.msg || 'Binance transfer failed' };
+      }
+      
+      return { success: true };
+    }
+    
+    if (exchangeLower === 'bybit') {
+      // UNIFIED → FUND
+      const timestamp = Date.now().toString();
+      const recvWindow = '5000';
+      const transferId = crypto.randomUUID();
+      
+      const body = JSON.stringify({
+        transferId,
+        coin: 'USDT',
+        amount: transferAmount.toString(),
+        fromAccountType: 'UNIFIED',
+        toAccountType: 'FUND',
+      });
+      
+      const signPayload = `${timestamp}${apiKey}${recvWindow}${body}`;
+      const signature = await hmacSha256(apiSecret, signPayload);
+      
+      const response = await fetch('https://api.bybit.com/v5/asset/transfer/inter-transfer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-BAPI-API-KEY': apiKey,
+          'X-BAPI-SIGN': signature,
+          'X-BAPI-TIMESTAMP': timestamp,
+          'X-BAPI-RECV-WINDOW': recvWindow,
+        },
+        body,
+      });
+      
+      const data = await response.json();
+      if (data.retCode !== 0) {
+        return { success: false, error: data.retMsg || 'Bybit transfer failed' };
+      }
+      
+      return { success: true };
+    }
+    
+    if (exchangeLower === 'okx' && passphrase) {
+      // 18 (Trading) → 6 (Funding)
+      const timestamp = new Date().toISOString();
+      const path = '/api/v5/asset/transfer';
+      
+      const body = JSON.stringify({
+        ccy: 'USDT',
+        amt: transferAmount.toString(),
+        from: '18', // Trading
+        to: '6',    // Funding
+        type: '0',
+      });
+      
+      const prehash = timestamp + 'POST' + path + body;
+      const encoder = new TextEncoder();
+      const keyData = encoder.encode(apiSecret);
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+      );
+      const signature = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(prehash));
+      const sign = btoa(String.fromCharCode(...new Uint8Array(signature)));
+      
+      const response = await fetch(`https://www.okx.com${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'OK-ACCESS-KEY': apiKey,
+          'OK-ACCESS-SIGN': sign,
+          'OK-ACCESS-TIMESTAMP': timestamp,
+          'OK-ACCESS-PASSPHRASE': passphrase,
+        },
+        body,
+      });
+      
+      const data = await response.json();
+      if (data.code !== '0') {
+        return { success: false, error: data.msg || 'OKX transfer failed' };
+      }
+      
+      return { success: true };
+    }
+    
+    return { success: false, error: `Exchange ${exchange} not supported for profit extraction` };
+  } catch (error) {
+    console.error(`[extractProfitToFunding] Error:`, error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -1719,6 +1842,50 @@ serve(async (req) => {
               
               // Update bot run P&L - use trade's bot_run_id for accurate linking
               await updateBotRunPnL(supabase, user.id, actualNetPnL, trade.bot_run_id);
+              
+              // ============ PROFIT EXTRACTION TO FUNDING WALLET ============
+              // If auto_extract_profits is enabled, transfer profit to funding wallet
+              if (actualNetPnL > 0) {
+                try {
+                  const { data: botConfig } = await supabase
+                    .from('bot_config')
+                    .select('auto_extract_profits')
+                    .eq('user_id', user.id)
+                    .single();
+                  
+                  if (botConfig?.auto_extract_profits) {
+                    console.log(`💰 Auto-extracting profit of $${actualNetPnL.toFixed(2)} to funding wallet...`);
+                    
+                    // Extract profit to funding wallet based on exchange
+                    const extractResult = await extractProfitToFunding(
+                      exchangeName,
+                      actualNetPnL,
+                      apiKey,
+                      apiSecret,
+                      undefined // passphrase not needed for Binance
+                    );
+                    
+                    if (extractResult.success) {
+                      console.log(`✅ Profit extracted to funding wallet: $${actualNetPnL.toFixed(2)}`);
+                      
+                      await logProfitAudit(supabase, {
+                        user_id: user.id,
+                        trade_id: trade.id,
+                        action: 'profit_extraction',
+                        symbol: tradingSymbol,
+                        exchange: exchangeName,
+                        net_pnl: actualNetPnL,
+                        success: true,
+                        error_message: `Extracted $${actualNetPnL.toFixed(2)} to funding wallet`,
+                      });
+                    } else {
+                      console.warn(`⚠️ Profit extraction failed: ${extractResult.error}`);
+                    }
+                  }
+                } catch (extractError) {
+                  console.error('Profit extraction error:', extractError);
+                }
+              }
             } else {
               console.error(`Failed to execute market sell for trade ${trade.id}`);
               

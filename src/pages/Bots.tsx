@@ -84,6 +84,7 @@ import { useDashboardLayout } from '@/hooks/useDashboardLayout';
 import { ResizableCard } from '@/components/bots/ResizableCard';
 import { TradingLoopMonitor } from '@/components/bots/TradingLoopMonitor';
 import { PositionSizingHistoryChart } from '@/components/bots/PositionSizingHistoryChart';
+import { PositionSizingPreviewWidget } from '@/components/bots/PositionSizingPreviewWidget';
 
 interface UsdtFloat {
   exchange: string;
@@ -1359,12 +1360,16 @@ export default function Bots() {
             <SessionDashboard />
           </div>
           
-          {/* Live Profit Counter + Trading Loop Monitor */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
+          {/* Live Profit Counter + Trading Loop Monitor + Position Sizing */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-3">
             <LiveProfitCounter />
             <TradingLoopMonitor
               botRunning={!!(spotBot || leverageBot)}
               tradeIntervalMs={botConfig.tradeIntervalMs}
+            />
+            <PositionSizingPreviewWidget 
+              basePositionSize={botConfig.amountPerTrade}
+              targetProfit={botConfig.profitPerTrade}
             />
           </div>
           
