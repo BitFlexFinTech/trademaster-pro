@@ -92,6 +92,10 @@ import { SpeedMetricsDashboard } from '@/components/bots/SpeedMetricsDashboard';
 import { MobileBotsPage } from '@/components/bots/MobileBotsPage';
 import { ExecutionBenchmarkDashboard } from '@/components/bots/ExecutionBenchmarkDashboard';
 import { ErrorRecoveryLog } from '@/components/bots/ErrorRecoveryLog';
+import { CapitalUtilizationChart } from '@/components/bots/CapitalUtilizationChart';
+import { ScannerStatsWidget } from '@/components/bots/ScannerStatsWidget';
+import { useContinuousScanner } from '@/hooks/useContinuousScanner';
+import { useCapitalDeployment } from '@/hooks/useCapitalDeployment';
 
 interface UsdtFloat {
   exchange: string;
@@ -174,6 +178,14 @@ export default function Bots() {
   
   // Pop-up notifications via useNotificationStack
   const { notifications, notify, dismiss } = useNotificationStack();
+  
+  // Continuous Scanner for trade qualification
+  const scannerState = useContinuousScanner(prices);
+  
+  // Capital Deployment tracking
+  const capitalState = useCapitalDeployment(
+    usdtFloat.map(f => ({ exchange: f.exchange, amount: f.amount }))
+  );
   
   // Profit Target Wizard state
   const [showProfitWizard, setShowProfitWizard] = useState(false);
@@ -1373,10 +1385,18 @@ export default function Bots() {
               </CollapsibleTrigger>
             </div>
             <CollapsibleContent>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
                 <VolatilityScanner />
                 <TradeTimingAdvisor />
-                <ProfitExtractionHistoryLog />
+                <CapitalUtilizationChart exchanges={capitalState.exchangesForChart} />
+                <ScannerStatsWidget
+                  isScanning={scannerState.isScanning}
+                  opportunityCount={scannerState.stats.opportunityCount}
+                  rejectionsLast5Min={scannerState.stats.rejectionsLast5Min}
+                  symbolsActive={scannerState.stats.symbolsActive}
+                  rejectionBreakdown={scannerState.detailedStats.rejectionBreakdown}
+                  topOpportunities={scannerState.detailedStats.topOpportunities}
+                />
               </div>
             </CollapsibleContent>
           </Collapsible>

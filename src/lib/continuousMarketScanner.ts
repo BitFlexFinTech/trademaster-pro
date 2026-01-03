@@ -100,6 +100,7 @@ class ContinuousMarketScanner {
   private timeframes = ['1m', '3m', '5m'] as const;
   private callbacks: ScanCallback[] = [];
   private rejectionCounts: Map<string, number> = new Map();
+  private rejectionsByReason: Map<string, number> = new Map(); // Track by reason
   private lastScanTime: Map<string, number> = new Map();
 
   /**
@@ -175,6 +176,77 @@ class ContinuousMarketScanner {
       rejectionsLast5Min: recentRejections,
       symbolsActive: this.symbolsToScan.length,
     };
+  }
+
+  /**
+   * Get detailed statistics with rejection breakdown
+   */
+  getDetailedStats(): {
+    isScanning: boolean;
+    opportunityCount: number;
+    rejectionsLast5Min: number;
+    symbolsActive: number;
+    rejectionBreakdown: Array<{ reason: string; count: number; percentage: number }>;
+    topOpportunities: Array<{ symbol: string; confidence: number; expectedDuration: number }>;
+  } {
+    const basicStats = this.getStats();
+    const totalRejections = basicStats.rejectionsLast5Min;
+    
+    // Build rejection breakdown sorted by count
+    const rejectionBreakdown = Array.from(this.rejectionsByReason.entries())
+      .map(([reason, count]) => ({
+        reason: this.formatRejectionReason(reason),
+        count,
+        percentage: totalRejections > 0 ? (count / totalRejections) * 100 : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    // Get top opportunities
+    const opportunities = this.opportunityQueue.getAll();
+    const topOpportunities = opportunities.slice(0, 5).map(opp => ({
+      symbol: opp.symbol,
+      confidence: opp.qualification.confidence,
+      expectedDuration: opp.qualification.expectedDuration || 300,
+    }));
+
+    return {
+      ...basicStats,
+      rejectionBreakdown,
+      topOpportunities,
+    };
+  }
+
+  /**
+   * Format rejection reason for display
+   */
+  private formatRejectionReason(reason: string): string {
+    const reasonMap: Record<string, string> = {
+      'momentum': 'Low momentum',
+      'volatility': 'Weak volatility',
+      'volume': 'Low volume',
+      'spread': 'Wide spread',
+      'timeOfDay': 'Poor trading hour',
+      'historical': 'Slow historical avg',
+      'duration': 'Expected >5min',
+    };
+    
+    // Check if reason matches any known pattern
+    for (const [key, label] of Object.entries(reasonMap)) {
+      if (reason.toLowerCase().includes(key)) {
+        return label;
+      }
+    }
+    
+    // Truncate long reasons
+    return reason.length > 20 ? reason.slice(0, 20) + '...' : reason;
+  }
+
+  /**
+   * Clear rejection stats (call periodically)
+   */
+  clearRejectionStats(): void {
+    this.rejectionCounts.clear();
+    this.rejectionsByReason.clear();
   }
 
   /**
@@ -269,9 +341,13 @@ class ContinuousMarketScanner {
     const result = await tradeQualificationFilter.shouldEnterTrade(signal, marketData, userId);
 
     if (!result.enter) {
-      // Track rejection
+      // Track rejection by symbol
       const rejectKey = `${symbol}:${result.reason.split(':')[0]}`;
       this.rejectionCounts.set(rejectKey, (this.rejectionCounts.get(rejectKey) || 0) + 1);
+      
+      // Track rejection by reason for breakdown display
+      const reasonKey = result.reason.split(':')[0].trim();
+      this.rejectionsByReason.set(reasonKey, (this.rejectionsByReason.get(reasonKey) || 0) + 1);
       
       // Log rejection if user provided
       if (userId) {
