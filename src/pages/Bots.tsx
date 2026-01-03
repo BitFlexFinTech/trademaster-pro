@@ -16,7 +16,7 @@ import { useOnboardingTips } from '@/hooks/useOnboardingTips';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff, Download, Power, Lock, Unlock, Edit2, Brain, Sparkles, Target, TrendingUp, ChevronDown, ChevronUp, Zap } from 'lucide-react';
+import { Bot, DollarSign, Loader2, RefreshCw, BarChart3, XCircle, AlertTriangle, Wifi, WifiOff, Download, Power, Lock, Unlock, Edit2, Brain, Sparkles, Target, TrendingUp, ChevronDown, ChevronUp, Zap, ListOrdered, Activity, LayoutDashboard } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn, exportToCSV } from '@/lib/utils';
@@ -88,6 +88,7 @@ import { EnhancedPositionMonitor } from '@/components/bots/EnhancedPositionMonit
 import { SmartPositionSizingAdvisor } from '@/components/bots/SmartPositionSizingAdvisor';
 import { ProfitExtractionHistoryLog } from '@/components/bots/ProfitExtractionHistoryLog';
 import { MultiExchangeBalanceWidget } from '@/components/bots/MultiExchangeBalanceWidget';
+import { SpeedMetricsDashboard } from '@/components/bots/SpeedMetricsDashboard';
 
 interface UsdtFloat {
   exchange: string;
@@ -151,9 +152,13 @@ export default function Bots() {
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
   const [dashboards, setDashboards] = useState<DashboardCharts | null>(null);
   
-  // Collapsible sections state - collapsed by default per user request
+  // Collapsible sections state
   const [usdtFloatOpen, setUsdtFloatOpen] = useState(false);
   const [regimeChartOpen, setRegimeChartOpen] = useState(false);
+  const [marketStatusOpen, setMarketStatusOpen] = useState(true);
+  const [botsOpen, setBotsOpen] = useState(true);
+  const [dashboardOpen, setDashboardOpen] = useState(true);
+  const [queueOpen, setQueueOpen] = useState(false); // Collapsed by default
   
   // Filter state for micro-cards grid
   const [activeFilter, setActiveFilter] = useState<BotFilter>('all');
@@ -1300,11 +1305,26 @@ export default function Bots() {
             <MultiExchangeBalanceWidget />
           </div>
 
-          {/* Market Status Bar - Compact, horizontal */}
-          <div className="flex flex-wrap items-center gap-3 mb-4 p-3 rounded-xl bg-card/50 border border-border/30">
-            <MarketRegimeIndicator />
-            <SessionDashboard />
-          </div>
+          {/* Market Status - Collapsible */}
+          <Collapsible open={marketStatusOpen} onOpenChange={setMarketStatusOpen} className="mb-4">
+            <div className="flex items-center justify-between py-2 border-b border-border/30">
+              <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Activity className="w-4 h-4" />
+                Market Status
+              </h3>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 px-2">
+                  <ChevronDown className="w-4 h-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+            <CollapsibleContent>
+              <div className="flex flex-wrap items-center gap-3 pt-3 p-3 rounded-xl bg-card/50 border border-border/30 mt-2">
+                <MarketRegimeIndicator />
+                <SessionDashboard />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
           
           {/* Core Metrics - Always visible */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
@@ -1347,110 +1367,163 @@ export default function Bots() {
           <ScrollArea className="h-full">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pb-4 pr-2">
             {/* Left Column - Bot Cards */}
-            <ErrorBoundary
-              fallback={
-                <div className="lg:col-span-5 card-terminal p-4 text-center">
-                  <AlertTriangle className="w-8 h-8 text-destructive mx-auto mb-2" />
-                  <p className="text-sm text-foreground mb-2">Bot cards failed to load</p>
-                  <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
-                    Reload Page
-                  </Button>
+            <div className="lg:col-span-5 space-y-3">
+              {/* Trading Bots - Collapsible */}
+              <Collapsible open={botsOpen} onOpenChange={setBotsOpen}>
+                <div className="flex items-center justify-between py-2 border-b border-border/30">
+                  <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Bot className="w-4 h-4" />
+                    Trading Bots
+                  </h3>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-7 px-2">
+                      <ChevronDown className="w-4 h-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
+                    </Button>
+                  </CollapsibleTrigger>
                 </div>
-              }
-            >
-              <div className="lg:col-span-5 grid grid-cols-1 md:grid-cols-2 gap-2 auto-rows-min">
-                {loading ? (
-                  <>
-                    <BotCardSkeleton />
-                    <BotCardSkeleton />
-                  </>
-                ) : (
-                  <>
-                    <BotCard
-                      botType="spot"
-                      existingBot={spotBot}
-                      prices={prices}
-                      onStartBot={startBot}
-                      onStopBot={(botId) => handleStopBot(botId, 'GreenBack Spot')}
-                      onUpdateBotPnl={updateBotPnl}
-                      suggestedUSDT={suggestedUSDT}
-                      usdtFloat={usdtFloat}
-                      dailyStopLoss={botConfig.dailyStopLoss}
-                      perTradeStopLoss={botConfig.perTradeStopLoss}
-                      amountPerTrade={botConfig.amountPerTrade}
-                      tradeIntervalMs={botConfig.tradeIntervalMs}
-                      autoSpeedAdjust={botConfig.autoSpeedAdjust}
-                      onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
-                      isAnyBotRunning={!!spotBot || !!leverageBot}
-                      onAuditGenerated={(report, charts) => {
-                        setAuditReport(report);
-                        setDashboards(charts);
-                      }}
-                      configDailyTarget={botConfig.dailyTarget}
-                      configProfitPerTrade={botConfig.profitPerTrade}
-                      configMinProfitThreshold={botConfig.minProfitThreshold}
-                      refetch={refetch}
-                      onRecalculatePnl={recalculateBotPnl}
+                <CollapsibleContent>
+                  <ErrorBoundary
+                    fallback={
+                      <div className="card-terminal p-4 text-center mt-2">
+                        <AlertTriangle className="w-8 h-8 text-destructive mx-auto mb-2" />
+                        <p className="text-sm text-foreground mb-2">Bot cards failed to load</p>
+                        <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+                          Reload Page
+                        </Button>
+                      </div>
+                    }
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 auto-rows-min mt-2">
+                      {loading ? (
+                        <>
+                          <BotCardSkeleton />
+                          <BotCardSkeleton />
+                        </>
+                      ) : (
+                        <>
+                          <BotCard
+                            botType="spot"
+                            existingBot={spotBot}
+                            prices={prices}
+                            onStartBot={startBot}
+                            onStopBot={(botId) => handleStopBot(botId, 'GreenBack Spot')}
+                            onUpdateBotPnl={updateBotPnl}
+                            suggestedUSDT={suggestedUSDT}
+                            usdtFloat={usdtFloat}
+                            dailyStopLoss={botConfig.dailyStopLoss}
+                            perTradeStopLoss={botConfig.perTradeStopLoss}
+                            amountPerTrade={botConfig.amountPerTrade}
+                            tradeIntervalMs={botConfig.tradeIntervalMs}
+                            autoSpeedAdjust={botConfig.autoSpeedAdjust}
+                            onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+                            isAnyBotRunning={!!spotBot || !!leverageBot}
+                            onAuditGenerated={(report, charts) => {
+                              setAuditReport(report);
+                              setDashboards(charts);
+                            }}
+                            configDailyTarget={botConfig.dailyTarget}
+                            configProfitPerTrade={botConfig.profitPerTrade}
+                            configMinProfitThreshold={botConfig.minProfitThreshold}
+                            refetch={refetch}
+                            onRecalculatePnl={recalculateBotPnl}
+                          />
+                          <BotCard
+                            botType="leverage"
+                            existingBot={leverageBot}
+                            prices={prices}
+                            onStartBot={startBot}
+                            onStopBot={(botId) => handleStopBot(botId, 'GreenBack Leverage')}
+                            onUpdateBotPnl={updateBotPnl}
+                            suggestedUSDT={suggestedUSDT}
+                            usdtFloat={usdtFloat}
+                            dailyStopLoss={botConfig.dailyStopLoss}
+                            perTradeStopLoss={botConfig.perTradeStopLoss}
+                            amountPerTrade={botConfig.amountPerTrade}
+                            tradeIntervalMs={botConfig.tradeIntervalMs}
+                            autoSpeedAdjust={botConfig.autoSpeedAdjust}
+                            onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
+                            isAnyBotRunning={!!spotBot || !!leverageBot}
+                            onAuditGenerated={(report, charts) => {
+                              setAuditReport(report);
+                              setDashboards(charts);
+                            }}
+                            configDailyTarget={botConfig.dailyTarget}
+                            configProfitPerTrade={botConfig.profitPerTrade}
+                            configMinProfitThreshold={botConfig.minProfitThreshold}
+                            refetch={refetch}
+                            onRecalculatePnl={recalculateBotPnl}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </ErrorBoundary>
+                </CollapsibleContent>
+              </Collapsible>
+              
+              {/* Speed Metrics Dashboard */}
+              <SpeedMetricsDashboard />
+            </div>
+
+            {/* Middle Column - Trading Dashboard - Collapsible */}
+            <div className="lg:col-span-7">
+              <Collapsible open={dashboardOpen} onOpenChange={setDashboardOpen}>
+                <div className="flex items-center justify-between py-2 border-b border-border/30">
+                  <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <LayoutDashboard className="w-4 h-4" />
+                    Live Trading Dashboard
+                  </h3>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-7 px-2">
+                      <ChevronDown className="w-4 h-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
+                    </Button>
+                  </CollapsibleTrigger>
+                </div>
+                <CollapsibleContent>
+                  <div className="flex flex-col gap-3 max-h-[calc(100vh-320px)] overflow-hidden mt-2">
+                    {/* Unified Trading Dashboard - Merged positions + trades */}
+                    <UnifiedTradingDashboard className="flex-1 min-h-0" />
+                    
+                    {/* Enhanced Position Monitor with Real-Time P&L */}
+                    <EnhancedPositionMonitor />
+                    
+                    {/* Smart Position Sizing Advisor */}
+                    <SmartPositionSizingAdvisor 
+                      mode={leverageBot ? 'leverage' : 'spot'} 
+                      accountBalance={tradingMode === 'demo' ? virtualBalance : exchangeBalances.reduce((sum, b) => sum + (b.totalValue || 0), 0)} 
                     />
-                    <BotCard
-                      botType="leverage"
-                      existingBot={leverageBot}
-                      prices={prices}
-                      onStartBot={startBot}
-                      onStopBot={(botId) => handleStopBot(botId, 'GreenBack Leverage')}
-                      onUpdateBotPnl={updateBotPnl}
-                      suggestedUSDT={suggestedUSDT}
-                      usdtFloat={usdtFloat}
-                      dailyStopLoss={botConfig.dailyStopLoss}
-                      perTradeStopLoss={botConfig.perTradeStopLoss}
-                      amountPerTrade={botConfig.amountPerTrade}
-                      tradeIntervalMs={botConfig.tradeIntervalMs}
-                      autoSpeedAdjust={botConfig.autoSpeedAdjust}
-                      onConfigChange={(key, value) => setBotConfig(prev => ({ ...prev, [key]: value }))}
-                      isAnyBotRunning={!!spotBot || !!leverageBot}
-                      onAuditGenerated={(report, charts) => {
-                        setAuditReport(report);
-                        setDashboards(charts);
-                      }}
-                      configDailyTarget={botConfig.dailyTarget}
-                      configProfitPerTrade={botConfig.profitPerTrade}
-                      configMinProfitThreshold={botConfig.minProfitThreshold}
-                      refetch={refetch}
-                      onRecalculatePnl={recalculateBotPnl}
-                    />
-                  </>
-                )}
+
+                    {/* Link to full analytics page */}
+                    <Button asChild variant="outline" className="h-8 gap-2">
+                      <Link to="/bot-analytics">
+                        <Brain className="w-4 h-4" />
+                        View Full Analytics
+                      </Link>
+                    </Button>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
+            </div>
+
+            {/* Trade Queue - Collapsible (Collapsed by default) */}
+            <Collapsible open={queueOpen} onOpenChange={setQueueOpen} className="mt-3 lg:col-span-12">
+              <div className="flex items-center justify-between py-2 border-b border-border/30">
+                <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <ListOrdered className="w-4 h-4" />
+                  Trade Queue
+                </h3>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 px-2">
+                    <ChevronDown className="w-4 h-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
+                  </Button>
+                </CollapsibleTrigger>
               </div>
-            </ErrorBoundary>
-
-            {/* Middle Column - Unified Trading Dashboard */}
-            <div className="lg:col-span-7 flex flex-col gap-3 max-h-[calc(100vh-280px)] overflow-hidden">
-              {/* Unified Trading Dashboard - Merged positions + trades */}
-              <UnifiedTradingDashboard className="flex-1 min-h-0" />
-              
-              {/* Enhanced Position Monitor with Real-Time P&L */}
-              <EnhancedPositionMonitor />
-              
-              {/* Smart Position Sizing Advisor */}
-              <SmartPositionSizingAdvisor 
-                mode={leverageBot ? 'leverage' : 'spot'} 
-                accountBalance={tradingMode === 'demo' ? virtualBalance : exchangeBalances.reduce((sum, b) => sum + (b.totalValue || 0), 0)} 
-              />
-
-              {/* Link to full analytics page */}
-              <Button asChild variant="outline" className="h-8 gap-2">
-                <Link to="/bot-analytics">
-                  <Brain className="w-4 h-4" />
-                  View Full Analytics
-                </Link>
-              </Button>
-            </div>
-            </div>
-
-            {/* Trade Queue Visualization */}
-            <div className="mt-3">
-              <TradeQueueVisualization />
-            </div>
+              <CollapsibleContent>
+                <div className="mt-2">
+                  <TradeQueueVisualization />
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           </ScrollArea>
         </section>
       </div>

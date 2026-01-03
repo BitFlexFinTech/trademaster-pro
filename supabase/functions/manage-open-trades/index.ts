@@ -1,18 +1,20 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { fetchPrice, fetchPriceOptimized, type RealtimePriceData } from "../_shared/priceUtils.ts";
+import { EXCHANGE_FEES } from "../_shared/exchangeUtils.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Fee rates per exchange (round-trip)
-const EXCHANGE_FEES: Record<string, number> = {
-  binance: 0.002,    // 0.1% × 2 = 0.2%
-  bybit: 0.002,
-  okx: 0.0016,
-  kraken: 0.0032,
+// Fee rates per exchange (round-trip) - imported from exchangeUtils
+// Note: Using doubled rates for round-trip calculation
+const ROUND_TRIP_FEES: Record<string, number> = {
+  binance: EXCHANGE_FEES.binance * 2,    // 0.1% × 2 = 0.2%
+  bybit: EXCHANGE_FEES.bybit * 2,
+  okx: EXCHANGE_FEES.okx * 2,
+  kraken: EXCHANGE_FEES.kraken * 2,
 };
 
 // Note: fetchPrice, fetchPriceOptimized, RealtimePriceData imported from priceUtils.ts
@@ -32,7 +34,7 @@ function calculateNetPnL(
   const percentChange = priceDiff / entryPrice;
   const grossPnl = positionSize * percentChange;
   
-  const feeRate = EXCHANGE_FEES[exchange.toLowerCase()] || 0.002;
+  const feeRate = ROUND_TRIP_FEES[exchange.toLowerCase()] || 0.002;
   const fees = positionSize * feeRate;
   
   const netPnl = grossPnl - fees;
