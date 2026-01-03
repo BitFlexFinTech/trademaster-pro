@@ -96,6 +96,10 @@ import { CapitalUtilizationChart } from '@/components/bots/CapitalUtilizationCha
 import { ScannerStatsWidget } from '@/components/bots/ScannerStatsWidget';
 import { useContinuousScanner } from '@/hooks/useContinuousScanner';
 import { useCapitalDeployment } from '@/hooks/useCapitalDeployment';
+// NEW: Import Zustand store for centralized state
+import { useBotStore } from '@/stores/botStore';
+import { selectRunningBots, selectTotalPnL } from '@/stores/selectors';
+import { CARD_SIZES, LAYOUT_STYLES } from '@/lib/cardSizes';
 
 interface UsdtFloat {
   exchange: string;
@@ -1351,20 +1355,23 @@ export default function Bots() {
               </CollapsibleTrigger>
             </div>
             <CollapsibleContent>
-              <div className="flex flex-wrap items-center gap-3 pt-3 p-3 rounded-xl bg-card/50 border border-border/30 mt-2">
+              {/* FIXED: Use flex-wrap, NO horizontal scrolling */}
+              <div className="flex flex-wrap items-start gap-3 pt-3 p-3 rounded-xl bg-card/50 border border-border/30 mt-2" style={{ overflow: 'visible' }}>
                 <MarketRegimeIndicator />
                 <SessionDashboard />
               </div>
             </CollapsibleContent>
           </Collapsible>
           
-          {/* Core Metrics - Always visible */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+          {/* Core Metrics - Fixed sizes, NO horizontal scroll */}
+          <div className="flex flex-wrap gap-4 mb-6" style={{ overflow: 'visible' }}>
             <LiveProfitCounter />
-            <TradingLoopMonitor
-              botRunning={!!(spotBot || leverageBot)}
-              tradeIntervalMs={botConfig.tradeIntervalMs}
-            />
+            <div style={CARD_SIZES.loop}>
+              <TradingLoopMonitor
+                botRunning={!!(spotBot || leverageBot)}
+                tradeIntervalMs={botConfig.tradeIntervalMs}
+              />
+            </div>
             <PositionSizingPreviewWidget 
               basePositionSize={botConfig.amountPerTrade}
               targetProfit={botConfig.profitPerTrade}
@@ -1385,18 +1392,23 @@ export default function Bots() {
               </CollapsibleTrigger>
             </div>
             <CollapsibleContent>
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+              {/* FIXED: Use flex-wrap for responsive layout, NO horizontal scrolling */}
+              <div className="flex flex-wrap gap-4" style={{ overflow: 'visible' }}>
                 <VolatilityScanner />
                 <TradeTimingAdvisor />
-                <CapitalUtilizationChart exchanges={capitalState.exchangesForChart} />
-                <ScannerStatsWidget
-                  isScanning={scannerState.isScanning}
-                  opportunityCount={scannerState.stats.opportunityCount}
-                  rejectionsLast5Min={scannerState.stats.rejectionsLast5Min}
-                  symbolsActive={scannerState.stats.symbolsActive}
-                  rejectionBreakdown={scannerState.detailedStats.rejectionBreakdown}
-                  topOpportunities={scannerState.detailedStats.topOpportunities}
-                />
+                <div style={CARD_SIZES.capitalUtilization}>
+                  <CapitalUtilizationChart exchanges={capitalState.exchangesForChart} />
+                </div>
+                <div style={CARD_SIZES.marketScanner}>
+                  <ScannerStatsWidget
+                    isScanning={scannerState.isScanning}
+                    opportunityCount={scannerState.stats.opportunityCount}
+                    rejectionsLast5Min={scannerState.stats.rejectionsLast5Min}
+                    symbolsActive={scannerState.stats.symbolsActive}
+                    rejectionBreakdown={scannerState.detailedStats.rejectionBreakdown}
+                    topOpportunities={scannerState.detailedStats.topOpportunities}
+                  />
+                </div>
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -1500,8 +1512,10 @@ export default function Bots() {
                 </CollapsibleContent>
               </Collapsible>
               
-              {/* Speed Metrics Dashboard */}
-              <SpeedMetricsDashboard />
+              {/* Speed Metrics Dashboard - Fixed size */}
+              <div style={CARD_SIZES.executionSpeed}>
+                <SpeedMetricsDashboard />
+              </div>
             </div>
 
             {/* Middle Column - Trading Dashboard - Collapsible */}

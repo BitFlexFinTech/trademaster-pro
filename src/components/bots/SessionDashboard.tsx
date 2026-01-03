@@ -67,51 +67,78 @@ export function SessionDashboard() {
 
   const winRateColor = metrics.winRateLast20 >= 50 ? 'text-green-500' : 'text-red-500';
 
+  // Fixed card dimensions from CARD_SIZES
+  const cardStyle = { width: '200px', height: '120px', minWidth: '180px' };
+
   return (
-    <div className="flex items-center gap-2 px-2 py-1 rounded-md border bg-card/50">
-      {/* Session Status */}
-      <div className="flex items-center gap-1">
-        {metrics.canTrade ? (
-          <CheckCircle className="h-3 w-3 text-green-500" />
-        ) : (
-          <AlertTriangle className="h-3 w-3 text-red-500" />
-        )}
+    <div 
+      className="flex flex-col justify-between px-3 py-2 rounded-lg border bg-card/50"
+      style={cardStyle}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] font-medium text-muted-foreground">Session</span>
         <Badge 
           variant={metrics.canTrade ? "default" : "destructive"} 
-          className="text-[8px] h-3.5 px-1"
+          className="text-[8px] h-4 px-1.5"
         >
           {metrics.canTrade ? 'OK' : 'HALT'}
         </Badge>
       </div>
 
-      {/* Wins */}
-      <div className={cn(
-        "flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px]",
-        metrics.consecutiveWins > 0 ? "bg-green-500/10 text-green-500" : "text-muted-foreground"
-      )}>
-        <Trophy className="h-2.5 w-2.5" />
-        <span className="font-bold">{metrics.consecutiveWins}</span>
-      </div>
+      {/* Stats Row */}
+      <div className="flex items-center justify-around flex-1">
+        {/* Wins */}
+        <div className={cn(
+          "flex flex-col items-center gap-0.5 p-1.5 rounded",
+          metrics.consecutiveWins > 0 ? "bg-green-500/10" : "bg-muted/30"
+        )}>
+          <Trophy className={cn(
+            "h-3 w-3",
+            metrics.consecutiveWins > 0 ? "text-green-500" : "text-muted-foreground"
+          )} />
+          <span className={cn(
+            "text-sm font-bold font-mono",
+            metrics.consecutiveWins > 0 ? "text-green-500" : "text-muted-foreground"
+          )}>
+            {metrics.consecutiveWins}
+          </span>
+          <span className="text-[8px] text-muted-foreground">Wins</span>
+        </div>
 
-      {/* Losses */}
-      <div className={cn(
-        "flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px]",
-        metrics.consecutiveLosses >= 3 ? "bg-red-500/20 animate-pulse text-red-500" : 
-        metrics.consecutiveLosses > 0 ? "bg-red-500/10 text-red-500" : "text-muted-foreground"
-      )}>
-        <XCircle className="h-2.5 w-2.5" />
-        <span className="font-bold">{metrics.consecutiveLosses}</span>
-      </div>
+        {/* Losses */}
+        <div className={cn(
+          "flex flex-col items-center gap-0.5 p-1.5 rounded",
+          metrics.consecutiveLosses >= 3 ? "bg-red-500/20 animate-pulse" : 
+          metrics.consecutiveLosses > 0 ? "bg-red-500/10" : "bg-muted/30"
+        )}>
+          <XCircle className={cn(
+            "h-3 w-3",
+            metrics.consecutiveLosses > 0 ? "text-red-500" : "text-muted-foreground"
+          )} />
+          <span className={cn(
+            "text-sm font-bold font-mono",
+            metrics.consecutiveLosses > 0 ? "text-red-500" : "text-muted-foreground"
+          )}>
+            {metrics.consecutiveLosses}
+          </span>
+          <span className="text-[8px] text-muted-foreground">Losses</span>
+        </div>
 
-      {/* Win Rate */}
-      <span className={cn("text-[10px] font-mono font-medium", winRateColor)}>
-        {metrics.winRateLast20.toFixed(0)}%
-      </span>
+        {/* Win Rate */}
+        <div className="flex flex-col items-center gap-0.5 p-1.5 rounded bg-muted/30">
+          <CheckCircle className={cn("h-3 w-3", winRateColor)} />
+          <span className={cn("text-sm font-bold font-mono", winRateColor)}>
+            {metrics.winRateLast20.toFixed(0)}%
+          </span>
+          <span className="text-[8px] text-muted-foreground">Rate</span>
+        </div>
+      </div>
 
       {/* Cooldown Timer */}
       {metrics.cooloffRemainingMs > 0 && (
-        <div className="flex items-center gap-0.5 text-yellow-500 text-[10px]">
-          <Clock className="h-2.5 w-2.5" />
+        <div className="flex items-center justify-center gap-1 mt-2 text-yellow-500 text-[10px] bg-yellow-500/10 rounded py-0.5">
+          <Clock className="h-3 w-3" />
           <span className="font-mono">{formatCountdown(metrics.cooloffRemainingMs)}</span>
         </div>
       )}
