@@ -192,12 +192,12 @@ serve(async (req) => {
     
     console.log('[binance-futures-positions] User:', user.id);
     
-    // Get exchange credentials
+    // Get exchange credentials (case-insensitive match)
     const { data: connection, error: connError } = await supabase
       .from('exchange_connections')
       .select('*')
       .eq('user_id', user.id)
-      .eq('exchange_name', 'binance')
+      .ilike('exchange_name', 'binance')
       .eq('is_connected', true)
       .single();
     

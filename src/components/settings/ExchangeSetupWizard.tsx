@@ -4,7 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
-import { Check, X, AlertTriangle, ArrowRight, ExternalLink, Loader2, Shield, Zap, Wallet } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Check, X, AlertTriangle, ArrowRight, ExternalLink, Loader2, Shield, Zap, Wallet, Key } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -58,24 +60,91 @@ const EXCHANGE_INFO: Record<ExchangeType, {
 
 const STEPS = [
   { id: 1, title: 'Select Exchange', description: 'Choose your exchange' },
-  { id: 2, title: 'Check Permissions', description: 'Validate API key' },
-  { id: 3, title: 'Enable Futures', description: 'Setup futures trading' },
-  { id: 4, title: 'Verify Balance', description: 'Check wallet balance' },
-  { id: 5, title: 'Complete', description: 'Ready to trade!' },
+  { id: 2, title: 'Enter API Keys', description: 'Add credentials' },
+  { id: 3, title: 'Check Permissions', description: 'Validate API key' },
+  { id: 4, title: 'Enable Futures', description: 'Setup futures trading' },
+  { id: 5, title: 'Verify Balance', description: 'Check wallet balance' },
+  { id: 6, title: 'Complete', description: 'Ready to trade!' },
 ];
 
 export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: ExchangeSetupWizardProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedExchange, setSelectedExchange] = useState<ExchangeType | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [isSavingKeys, setIsSavingKeys] = useState(false);
   const [capabilities, setCapabilities] = useState<ExchangeCapabilities | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
+  const [hasExistingKeys, setHasExistingKeys] = useState(false);
+  
+  // API key entry state
+  const [apiKey, setApiKey] = useState('');
+  const [apiSecret, setApiSecret] = useState('');
+  const [passphrase, setPassphrase] = useState('');
 
-  const handleSelectExchange = (exchange: ExchangeType) => {
+  const handleSelectExchange = async (exchange: ExchangeType) => {
     setSelectedExchange(exchange);
     setCapabilities(null);
     setCheckError(null);
+    setApiKey('');
+    setApiSecret('');
+    setPassphrase('');
+    
+    // Check if credentials already exist
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: connection } = await supabase
+        .from('exchange_connections')
+        .select('encrypted_api_key')
+        .eq('user_id', user.id)
+        .ilike('exchange_name', exchange)
+        .single();
+      
+      setHasExistingKeys(!!connection?.encrypted_api_key);
+    }
+    
     setCurrentStep(2);
+  };
+
+  const handleSaveApiKeys = async () => {
+    if (!selectedExchange || !apiKey || !apiSecret) {
+      setCheckError('API Key and Secret are required');
+      return;
+    }
+    
+    setIsSavingKeys(true);
+    setCheckError(null);
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setCheckError('Please log in first');
+        return;
+      }
+      
+      // Use encrypt-api-key edge function to securely store credentials
+      const { data, error } = await supabase.functions.invoke('encrypt-api-key', {
+        body: {
+          exchange: selectedExchange,
+          apiKey,
+          apiSecret,
+          passphrase: passphrase || undefined,
+        }
+      });
+      
+      if (error) throw error;
+      
+      if (data?.success) {
+        setHasExistingKeys(true);
+        toast.success('API keys saved securely');
+        setCurrentStep(3); // Proceed to check permissions
+      } else {
+        setCheckError(data?.error || 'Failed to save API keys');
+      }
+    } catch (e) {
+      setCheckError(e instanceof Error ? e.message : 'Failed to save keys');
+    } finally {
+      setIsSavingKeys(false);
+    }
   };
 
   const handleCheckPermissions = async () => {
@@ -85,22 +154,23 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
     setCheckError(null);
     
     try {
-      // First check if we have stored credentials for this exchange
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setCheckError('Please log in to check exchange permissions');
         return;
       }
 
+      // Check for existing credentials (case-insensitive)
       const { data: connection } = await supabase
         .from('exchange_connections')
         .select('encrypted_api_key, encrypted_api_secret, encrypted_passphrase, encryption_iv')
         .eq('user_id', user.id)
-        .eq('exchange_name', selectedExchange.charAt(0).toUpperCase() + selectedExchange.slice(1))
+        .ilike('exchange_name', selectedExchange)
         .single();
 
       if (!connection?.encrypted_api_key) {
-        setCheckError(`No API credentials found for ${selectedExchange}. Please connect your exchange first in Settings > Exchanges.`);
+        setCheckError(`No API credentials found. Please enter your API keys.`);
+        setCurrentStep(2); // Go back to key entry
         return;
       }
 
@@ -124,11 +194,11 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
         // Auto-advance based on capabilities
         const futuresBalance = data?.futuresBalance ?? data?.totalBalance ?? 0;
         if ((data?.futuresEnabled || data?.positions !== undefined) && futuresBalance > 10) {
-          setCurrentStep(5); // All good!
+          setCurrentStep(6); // All good!
         } else if (data?.futuresEnabled || data?.positions !== undefined) {
-          setCurrentStep(4); // Need to transfer balance
+          setCurrentStep(5); // Need to transfer balance
         } else {
-          setCurrentStep(3); // Need to enable futures
+          setCurrentStep(4); // Need to enable futures
         }
       } else {
         setCheckError(data?.error || 'Failed to check permissions. Make sure your API key has futures permissions.');
@@ -180,6 +250,107 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
 
   const renderStep2 = () => (
     <div className="space-y-4">
+      {hasExistingKeys ? (
+        <>
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+            <p className="text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+              <Check className="h-4 w-4" />
+              API credentials found for {selectedExchange?.toUpperCase()}
+            </p>
+          </div>
+          <Button onClick={() => setCurrentStep(3)} className="w-full">
+            Continue to Check Permissions
+            <ArrowRight className="h-4 w-4 ml-2" />
+          </Button>
+          <Button variant="outline" onClick={() => setHasExistingKeys(false)} className="w-full">
+            Enter New API Keys
+          </Button>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-muted-foreground">
+            Enter your {selectedExchange?.toUpperCase()} API credentials. Your keys are encrypted and stored securely.
+          </p>
+          
+          {selectedExchange && (
+            <Button variant="outline" size="sm" className="w-full" asChild>
+              <a href={EXCHANGE_INFO[selectedExchange].apiGuide} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-4 w-4 mr-2" />
+                How to create API key on {EXCHANGE_INFO[selectedExchange].name}
+              </a>
+            </Button>
+          )}
+          
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="apiKey">API Key *</Label>
+              <Input
+                id="apiKey"
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter your API key"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="apiSecret">API Secret *</Label>
+              <Input
+                id="apiSecret"
+                type="password"
+                value={apiSecret}
+                onChange={(e) => setApiSecret(e.target.value)}
+                placeholder="Enter your API secret"
+              />
+            </div>
+            
+            {(selectedExchange === 'okx') && (
+              <div className="space-y-2">
+                <Label htmlFor="passphrase">Passphrase</Label>
+                <Input
+                  id="passphrase"
+                  type="password"
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                  placeholder="Enter your passphrase (OKX only)"
+                />
+              </div>
+            )}
+          </div>
+          
+          {checkError && (
+            <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+              <p className="text-sm text-destructive flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                {checkError}
+              </p>
+            </div>
+          )}
+          
+          <Button 
+            onClick={handleSaveApiKeys} 
+            disabled={isSavingKeys || !apiKey || !apiSecret} 
+            className="w-full"
+          >
+            {isSavingKeys ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Key className="h-4 w-4 mr-2" />
+                Save API Keys
+              </>
+            )}
+          </Button>
+        </>
+      )}
+    </div>
+  );
+
+  const renderStep3 = () => (
+    <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         We'll check if your {selectedExchange?.toUpperCase()} API key has the required permissions:
       </p>
@@ -228,7 +399,7 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
     </div>
   );
 
-  const renderStep3 = () => (
+  const renderStep4_EnableFutures = () => (
     <div className="space-y-4">
       <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
         <p className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
@@ -286,7 +457,7 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
     </div>
   );
 
-  const renderStep4 = () => (
+  const renderStep5_VerifyBalance = () => (
     <div className="space-y-4">
       <div className="flex items-center gap-3 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
         <Check className="h-5 w-5 text-emerald-500" />
@@ -336,7 +507,7 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
     </div>
   );
 
-  const renderStep5 = () => (
+  const renderStep6_Complete = () => (
     <div className="space-y-4 text-center">
       <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center">
         <Check className="h-8 w-8 text-emerald-500" />
@@ -414,8 +585,9 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
         {currentStep === 1 && renderStep1()}
         {currentStep === 2 && renderStep2()}
         {currentStep === 3 && renderStep3()}
-        {currentStep === 4 && renderStep4()}
-        {currentStep === 5 && renderStep5()}
+        {currentStep === 4 && renderStep4_EnableFutures()}
+        {currentStep === 5 && renderStep5_VerifyBalance()}
+        {currentStep === 6 && renderStep6_Complete()}
       </DialogContent>
     </Dialog>
   );
