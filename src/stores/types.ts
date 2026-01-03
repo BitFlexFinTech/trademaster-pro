@@ -137,6 +137,13 @@ export interface CapitalEfficiencyMetrics {
   history: Array<{ timestamp: number; score: number }>;
 }
 
+export interface ExchangeBalance {
+  exchange: string;
+  total: number;
+  available: number;
+  inPositions: number;
+}
+
 export interface BotState {
   // ===== Bot Data =====
   bots: Bot[];
@@ -154,6 +161,9 @@ export interface BotState {
   isSyncing: boolean;
   lastSyncTime: number;
   deploymentQueue: Order[];
+  
+  // ===== Exchange Balances (real data) =====
+  exchangeBalances: ExchangeBalance[];
   
   // ===== UI State =====
   isLoading: boolean;
@@ -189,6 +199,12 @@ export interface BotState {
   // Capital Metrics
   updateCapitalMetrics: (metrics: Partial<CapitalMetrics>) => void;
   calculateCapitalUtilization: () => void;
+  
+  // Exchange Balances
+  setExchangeBalances: (balances: ExchangeBalance[]) => void;
+  
+  // Position Prices (real-time from WebSocket)
+  updatePositionPrices: (prices: Record<string, number>) => void;
   
   // Capital History
   capitalHistory: CapitalHistoryPoint[];
