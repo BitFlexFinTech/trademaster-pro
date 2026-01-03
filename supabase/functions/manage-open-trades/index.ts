@@ -197,6 +197,10 @@ serve(async (req) => {
       if (netPnl >= effectiveTarget) {
         console.log(`[manage-open-trades] ✅ TARGET HIT: ${trade.pair} netPnL=$${netPnl.toFixed(2)} >= $${effectiveTarget}`);
 
+        // Calculate trade duration for speed analytics
+        const durationSeconds = Math.round((Date.now() - new Date(trade.created_at).getTime()) / 1000);
+        const hourOfDay = new Date().getUTCHours();
+
         // Close the trade
         const { error: updateError } = await supabaseService
           .from('trades')
@@ -207,12 +211,61 @@ serve(async (req) => {
             profit_percentage: ((currentPrice - trade.entry_price) / trade.entry_price) * 100,
             closed_at: new Date().toISOString(),
             holding_for_profit: false,
+            duration_seconds: durationSeconds,
           })
           .eq('id', trade.id);
 
         if (updateError) {
           console.error(`[manage-open-trades] Failed to close trade ${trade.id}:`, updateError);
           continue;
+        }
+
+        // Update speed analytics for learning
+        try {
+          const symbol = trade.pair.replace('/USDT', '').replace('/', '');
+          const { data: existing } = await supabaseService
+            .from('trade_speed_analytics')
+            .select('id, avg_duration_seconds, sample_size, win_rate')
+            .eq('user_id', user.id)
+            .eq('symbol', symbol)
+            .eq('hour_of_day', hourOfDay)
+            .maybeSingle();
+
+          if (existing) {
+            const newSampleSize = (existing.sample_size || 0) + 1;
+            const oldWins = Math.round((existing.win_rate || 0) / 100 * (existing.sample_size || 0));
+            const newWins = oldWins + (netPnl > 0 ? 1 : 0);
+            const newWinRate = (newWins / newSampleSize) * 100;
+            const newAvgDuration = Math.round(
+              ((existing.avg_duration_seconds || 0) * (existing.sample_size || 0) + durationSeconds) / newSampleSize
+            );
+
+            await supabaseService
+              .from('trade_speed_analytics')
+              .update({
+                avg_duration_seconds: newAvgDuration,
+                sample_size: newSampleSize,
+                win_rate: newWinRate,
+                last_updated: new Date().toISOString(),
+              })
+              .eq('id', existing.id);
+          } else {
+            await supabaseService
+              .from('trade_speed_analytics')
+              .insert({
+                user_id: user.id,
+                symbol,
+                timeframe: '1m',
+                avg_duration_seconds: durationSeconds,
+                sample_size: 1,
+                win_rate: netPnl > 0 ? 100 : 0,
+                hour_of_day: hourOfDay,
+                day_of_week: new Date().getDay(),
+              });
+          }
+          console.log(`[manage-open-trades] 📊 Updated speed analytics: ${symbol} duration=${durationSeconds}s`);
+        } catch (analyticsError) {
+          console.warn('[manage-open-trades] Failed to update speed analytics:', analyticsError);
         }
 
         // Insert audit log
@@ -236,6 +289,7 @@ serve(async (req) => {
           pair: trade.pair,
           direction: trade.direction,
           netPnl,
+          durationSeconds,
         });
 
         // Broadcast trade_closed event
@@ -248,6 +302,7 @@ serve(async (req) => {
             direction: trade.direction,
             netPnl,
             exchange: trade.exchange_name,
+            durationSeconds,
           },
         });
 

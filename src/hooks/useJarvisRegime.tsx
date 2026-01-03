@@ -114,11 +114,11 @@ export function useJarvisRegime(symbol: string = 'BTCUSDT'): UseJarvisRegimeRetu
     }
   }, [user?.id, symbol]);
 
-  // Fetch historical data for EMA calculation
+  // Fetch historical data for EMA calculation - using 5m for faster regime detection
   const fetchHistoricalData = useCallback(async () => {
     try {
       const response = await fetch(
-        `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=1h&limit=200`
+        `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=5m&limit=200`
       );
       
       if (!response.ok) {
