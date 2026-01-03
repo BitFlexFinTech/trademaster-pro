@@ -350,6 +350,33 @@ export type Database = {
         }
         Relationships: []
       }
+      exchange_cache: {
+        Row: {
+          cache_key: string
+          cache_value: Json
+          cached_at: string | null
+          exchange: string
+          expires_at: string
+          id: string
+        }
+        Insert: {
+          cache_key: string
+          cache_value: Json
+          cached_at?: string | null
+          exchange: string
+          expires_at: string
+          id?: string
+        }
+        Update: {
+          cache_key?: string
+          cache_value?: Json
+          cached_at?: string | null
+          exchange?: string
+          expires_at?: string
+          id?: string
+        }
+        Relationships: []
+      }
       exchange_connections: {
         Row: {
           api_key_hash: string | null
@@ -1291,6 +1318,7 @@ export type Database = {
           theme: string | null
           updated_at: string
           user_id: string
+          webhook_config: Json | null
         }
         Insert: {
           created_at?: string
@@ -1307,6 +1335,7 @@ export type Database = {
           theme?: string | null
           updated_at?: string
           user_id: string
+          webhook_config?: Json | null
         }
         Update: {
           created_at?: string
@@ -1323,6 +1352,7 @@ export type Database = {
           theme?: string | null
           updated_at?: string
           user_id?: string
+          webhook_config?: Json | null
         }
         Relationships: []
       }

@@ -13,6 +13,8 @@ import { ExecutionOptimizationPanel } from '@/components/bots/ExecutionOptimizat
 import { TelemetryHistoryDashboard } from '@/components/bots/TelemetryHistoryDashboard';
 import { ExecutionSpeedLeaderboard } from '@/components/bots/ExecutionSpeedLeaderboard';
 import { ExecutionTimeAlertSettings } from '@/components/bots/ExecutionTimeAlertSettings';
+import { WebhookAlertSettings } from '@/components/bots/WebhookAlertSettings';
+import { BottleneckAnalyzer } from '@/components/bots/BottleneckAnalyzer';
 import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
 import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboard';
 import { TradeDistributionChart } from '@/components/bots/TradeDistributionChart';
@@ -301,7 +303,11 @@ export default function BotAnalytics() {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <TelemetryHistoryDashboard />
+              <BottleneckAnalyzer />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <ExecutionTimeAlertSettings />
+              <WebhookAlertSettings />
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <TradeExecutionStatus isRunning={!!activeBot} />

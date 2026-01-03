@@ -8,10 +8,26 @@ export type ExecutionPhase =
   | 'ORDER_PLACEMENT'
   | 'CONFIRMATION';
 
+export interface ApiCallMetric {
+  endpoint: string;
+  method: string;
+  durationMs: number;
+  cached: boolean;
+  status: 'success' | 'error';
+  timestamp: number;
+}
+
 export interface PhaseMetrics {
   startMs: number;
   durationMs: number;
   details: string;
+  apiCalls?: ApiCallMetric[];
+}
+
+export interface CacheStats {
+  hits: number;
+  misses: number;
+  keys: string[];
 }
 
 export interface ExecutionTelemetry {
@@ -30,6 +46,8 @@ export interface ExecutionTelemetry {
   success: boolean;
   timestamp: string;
   metadata?: Record<string, unknown>;
+  apiCalls?: ApiCallMetric[];
+  cacheStats?: CacheStats;
 }
 
 export class TelemetryTracker {
@@ -37,6 +55,8 @@ export class TelemetryTracker {
   private currentPhaseStart: number;
   private phases: ExecutionTelemetry['phases'] = {};
   private metadata: Record<string, unknown> = {};
+  private apiCalls: ApiCallMetric[] = [];
+  private cacheStats: CacheStats = { hits: 0, misses: 0, keys: [] };
   
   public tradeId: string;
   public pair: string;
@@ -98,6 +118,54 @@ export class TelemetryTracker {
     this.exchange = exchange;
   }
   
+  // Record cache hit
+  recordCacheHit(key: string): void {
+    this.cacheStats.hits++;
+    if (!this.cacheStats.keys.includes(key)) {
+      this.cacheStats.keys.push(key);
+    }
+    console.log(`📦 [CACHE] HIT: ${key}`);
+  }
+  
+  // Record cache miss
+  recordCacheMiss(key: string): void {
+    this.cacheStats.misses++;
+    if (!this.cacheStats.keys.includes(key)) {
+      this.cacheStats.keys.push(key);
+    }
+    console.log(`📦 [CACHE] MISS: ${key}`);
+  }
+  
+  // Time an API call and record metrics
+  async timeApiCall<T>(
+    endpoint: string,
+    method: string,
+    operation: () => Promise<T>,
+    cached: boolean = false
+  ): Promise<T> {
+    const startTime = Date.now();
+    let status: 'success' | 'error' = 'success';
+    
+    try {
+      const result = await operation();
+      return result;
+    } catch (error) {
+      status = 'error';
+      throw error;
+    } finally {
+      const durationMs = Date.now() - startTime;
+      this.apiCalls.push({
+        endpoint,
+        method,
+        durationMs,
+        cached,
+        status,
+        timestamp: startTime,
+      });
+      console.log(`🌐 [API] ${method} ${endpoint}: ${durationMs}ms ${cached ? '(cached)' : ''} [${status}]`);
+    }
+  }
+  
   getMetrics(success: boolean = true): ExecutionTelemetry {
     const now = Date.now();
     return {
@@ -110,6 +178,8 @@ export class TelemetryTracker {
       success,
       timestamp: new Date().toISOString(),
       metadata: Object.keys(this.metadata).length > 0 ? this.metadata : undefined,
+      apiCalls: this.apiCalls.length > 0 ? this.apiCalls : undefined,
+      cacheStats: this.cacheStats.hits + this.cacheStats.misses > 0 ? this.cacheStats : undefined,
     };
   }
   
