@@ -991,6 +991,57 @@ export type Database = {
         }
         Relationships: []
       }
+      rejected_trades: {
+        Row: {
+          created_at: string | null
+          exchange: string
+          expected_duration: number | null
+          id: string
+          momentum: number | null
+          pattern_type: string | null
+          price_at_rejection: number | null
+          rejection_reason: string
+          spread_percent: number | null
+          symbol: string
+          timeframe: string
+          user_id: string
+          volatility: number | null
+          volume_surge: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          exchange: string
+          expected_duration?: number | null
+          id?: string
+          momentum?: number | null
+          pattern_type?: string | null
+          price_at_rejection?: number | null
+          rejection_reason: string
+          spread_percent?: number | null
+          symbol: string
+          timeframe: string
+          user_id: string
+          volatility?: number | null
+          volume_surge?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          exchange?: string
+          expected_duration?: number | null
+          id?: string
+          momentum?: number | null
+          pattern_type?: string | null
+          price_at_rejection?: number | null
+          rejection_reason?: string
+          spread_percent?: number | null
+          symbol?: string
+          timeframe?: string
+          user_id?: string
+          volatility?: number | null
+          volume_surge?: number | null
+        }
+        Relationships: []
+      }
       research_articles: {
         Row: {
           assets: string[] | null
@@ -1188,6 +1239,60 @@ export type Database = {
           },
         ]
       }
+      trade_speed_analytics: {
+        Row: {
+          avg_duration_seconds: number | null
+          created_at: string | null
+          day_of_week: number | null
+          hour_of_day: number | null
+          id: string
+          last_updated: string | null
+          momentum_avg: number | null
+          pattern_type: string | null
+          sample_size: number | null
+          symbol: string
+          timeframe: string
+          user_id: string
+          volatility_avg: number | null
+          volume_surge_avg: number | null
+          win_rate: number | null
+        }
+        Insert: {
+          avg_duration_seconds?: number | null
+          created_at?: string | null
+          day_of_week?: number | null
+          hour_of_day?: number | null
+          id?: string
+          last_updated?: string | null
+          momentum_avg?: number | null
+          pattern_type?: string | null
+          sample_size?: number | null
+          symbol: string
+          timeframe: string
+          user_id: string
+          volatility_avg?: number | null
+          volume_surge_avg?: number | null
+          win_rate?: number | null
+        }
+        Update: {
+          avg_duration_seconds?: number | null
+          created_at?: string | null
+          day_of_week?: number | null
+          hour_of_day?: number | null
+          id?: string
+          last_updated?: string | null
+          momentum_avg?: number | null
+          pattern_type?: string | null
+          sample_size?: number | null
+          symbol?: string
+          timeframe?: string
+          user_id?: string
+          volatility_avg?: number | null
+          volume_surge_avg?: number | null
+          win_rate?: number | null
+        }
+        Relationships: []
+      }
       trades: {
         Row: {
           amount: number
@@ -1195,28 +1300,35 @@ export type Database = {
           closed_at: string | null
           created_at: string
           direction: string
+          duration_seconds: number | null
           emotion: string | null
           entry_price: number
           exchange_name: string | null
           execution_telemetry: Json | null
           exit_price: number | null
+          expected_duration_seconds: number | null
           holding_for_profit: boolean | null
           id: string
           is_sandbox: boolean | null
           lessons_learned: string | null
           leverage: number | null
           market_context: string | null
+          momentum_at_entry: number | null
           mtf_analysis: Json | null
           notes: string | null
           pair: string
           profit_loss: number | null
           profit_percentage: number | null
+          qualification_confidence: number | null
           regime_at_entry: string | null
           setup_quality: number | null
+          spread_at_entry: number | null
           status: string | null
           tags: string[] | null
           target_profit_usd: number | null
           user_id: string
+          volatility_at_entry: number | null
+          volume_surge_at_entry: number | null
         }
         Insert: {
           amount: number
@@ -1224,28 +1336,35 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           direction: string
+          duration_seconds?: number | null
           emotion?: string | null
           entry_price: number
           exchange_name?: string | null
           execution_telemetry?: Json | null
           exit_price?: number | null
+          expected_duration_seconds?: number | null
           holding_for_profit?: boolean | null
           id?: string
           is_sandbox?: boolean | null
           lessons_learned?: string | null
           leverage?: number | null
           market_context?: string | null
+          momentum_at_entry?: number | null
           mtf_analysis?: Json | null
           notes?: string | null
           pair: string
           profit_loss?: number | null
           profit_percentage?: number | null
+          qualification_confidence?: number | null
           regime_at_entry?: string | null
           setup_quality?: number | null
+          spread_at_entry?: number | null
           status?: string | null
           tags?: string[] | null
           target_profit_usd?: number | null
           user_id: string
+          volatility_at_entry?: number | null
+          volume_surge_at_entry?: number | null
         }
         Update: {
           amount?: number
@@ -1253,28 +1372,35 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           direction?: string
+          duration_seconds?: number | null
           emotion?: string | null
           entry_price?: number
           exchange_name?: string | null
           execution_telemetry?: Json | null
           exit_price?: number | null
+          expected_duration_seconds?: number | null
           holding_for_profit?: boolean | null
           id?: string
           is_sandbox?: boolean | null
           lessons_learned?: string | null
           leverage?: number | null
           market_context?: string | null
+          momentum_at_entry?: number | null
           mtf_analysis?: Json | null
           notes?: string | null
           pair?: string
           profit_loss?: number | null
           profit_percentage?: number | null
+          qualification_confidence?: number | null
           regime_at_entry?: string | null
           setup_quality?: number | null
+          spread_at_entry?: number | null
           status?: string | null
           tags?: string[] | null
           target_profit_usd?: number | null
           user_id?: string
+          volatility_at_entry?: number | null
+          volume_surge_at_entry?: number | null
         }
         Relationships: [
           {

@@ -107,3 +107,6 @@ verify_jwt = true
 
 [functions.manage-open-trades]
 verify_jwt = true
+
+[functions.analyze-trade-speed]
+verify_jwt = true

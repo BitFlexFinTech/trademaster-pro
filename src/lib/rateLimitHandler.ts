@@ -18,12 +18,17 @@ interface RateLimitState {
   throttledRequests: number;
 }
 
-// Exchange-specific rate limits (requests per minute)
+// Exchange-specific rate limits (requests per minute) with endpoint-specific limits
 const EXCHANGE_RATE_LIMITS: Record<string, LeakyBucketConfig> = {
   Binance: { bucketSize: 1200, refillRate: 20, targetUtilization: 0.9 },
+  'Binance:orders': { bucketSize: 50, refillRate: 5, targetUtilization: 0.9 }, // 50 orders per 10s
+  'Binance:market': { bucketSize: 1200, refillRate: 20, targetUtilization: 0.9 },
   Bybit: { bucketSize: 600, refillRate: 10, targetUtilization: 0.9 },
+  'Bybit:orders': { bucketSize: 100, refillRate: 10, targetUtilization: 0.9 }, // 100 orders per 10s
   OKX: { bucketSize: 300, refillRate: 5, targetUtilization: 0.9 },
+  'OKX:orders': { bucketSize: 60, refillRate: 6, targetUtilization: 0.9 }, // 60 orders per 10s
   Kraken: { bucketSize: 180, refillRate: 3, targetUtilization: 0.9 },
+  'Kraken:orders': { bucketSize: 15, refillRate: 1, targetUtilization: 0.9 }, // Very strict
   KuCoin: { bucketSize: 600, refillRate: 10, targetUtilization: 0.9 },
   default: { bucketSize: 300, refillRate: 5, targetUtilization: 0.9 },
 };
