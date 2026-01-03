@@ -40,15 +40,21 @@ export function SmartTrailingStopPanel() {
   const [riskTolerance, setRiskTolerance] = useState<RiskTolerance>('medium');
   const [regimeAdjustments, setRegimeAdjustments] = useState(DEFAULT_REGIME_ADJUSTMENTS);
 
-  // Load settings
+  // Load settings from jarvis_settings (fields exist in DB but not in generated types)
   useEffect(() => {
     if (settings) {
-      // These fields may not exist yet in the type, but we added them in migration
-      const s = settings as any;
+      // Use type assertion since these fields exist in DB but types.ts is auto-generated
+      const s = settings as unknown as {
+        trailing_stop_enabled?: boolean;
+        trailing_activation_pct?: number;
+        trailing_distance_pct?: number;
+        risk_tolerance?: string;
+        regime_trailing_adjustments?: Record<string, RegimeAdjustment>;
+      };
       setEnabled(s.trailing_stop_enabled ?? true);
       setActivationPct(s.trailing_activation_pct ?? 0.75);
       setDistancePct(s.trailing_distance_pct ?? 0.25);
-      setRiskTolerance(s.risk_tolerance ?? 'medium');
+      setRiskTolerance((s.risk_tolerance as RiskTolerance) ?? 'medium');
       if (s.regime_trailing_adjustments) {
         setRegimeAdjustments(s.regime_trailing_adjustments);
       }
@@ -57,13 +63,14 @@ export function SmartTrailingStopPanel() {
 
   const handleSave = async () => {
     try {
+      // Type assertion needed since these fields exist in DB but types.ts is auto-generated
       await updateSettings({
         trailing_stop_enabled: enabled,
         trailing_activation_pct: activationPct,
         trailing_distance_pct: distancePct,
         risk_tolerance: riskTolerance,
-        regime_trailing_adjustments: regimeAdjustments,
-      } as any);
+        regime_trailing_adjustments: regimeAdjustments as unknown,
+      } as Partial<typeof settings>);
       toast.success('Trailing stop settings saved');
     } catch (error) {
       toast.error('Failed to save settings');
