@@ -100,6 +100,11 @@ import { useCapitalDeployment } from '@/hooks/useCapitalDeployment';
 import { useBotStore } from '@/stores/botStore';
 import { selectRunningBots, selectTotalPnL } from '@/stores/selectors';
 import { CARD_SIZES, LAYOUT_STYLES } from '@/lib/cardSizes';
+// NEW: Import new feature components
+import { IdleCapitalAlertSettings } from '@/components/bots/IdleCapitalAlertSettings';
+import { StoreDebugPanel } from '@/components/bots/StoreDebugPanel';
+import { AutoDeploySettings } from '@/components/bots/AutoDeploySettings';
+import { CapitalEfficiencyGauge } from '@/components/bots/CapitalEfficiencyGauge';
 
 interface UsdtFloat {
   exchange: string;
@@ -1398,6 +1403,29 @@ export default function Bots() {
                 <TradeTimingAdvisor />
                 <CapitalUtilizationChart />
                 <ScannerStatsWidget />
+                <CapitalEfficiencyGauge />
+                <SpeedMetricsDashboard />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+          
+          {/* Settings & Alerts - Collapsible Section */}
+          <Collapsible defaultOpen={false} className="mb-4">
+            <div className="flex items-center justify-between py-2 mb-3 border-b border-border/30">
+              <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                Capital Alerts & Auto-Deploy
+              </h3>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 px-2">
+                  <ChevronDown className="w-4 h-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+            <CollapsibleContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <IdleCapitalAlertSettings />
+                <AutoDeploySettings />
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -1620,6 +1648,9 @@ export default function Bots() {
           />
         ))}
       </NotificationStack>
+      
+      {/* Store Debug Panel - Dev Only */}
+      <StoreDebugPanel />
     </div>
     </TradingDataProvider>
   );

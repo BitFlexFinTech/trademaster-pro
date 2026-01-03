@@ -16,7 +16,9 @@ import type {
   CapitalMetrics,
   ExecutionMetrics,
   CapitalHistoryPoint,
-  IdleCapitalAlertConfig
+  IdleCapitalAlertConfig,
+  AutoDeployConfig,
+  CapitalEfficiencyMetrics
 } from './types';
 
 // Initial state values
@@ -52,6 +54,24 @@ const initialIdleAlertConfig: IdleCapitalAlertConfig = {
   maxIdleDurationMs: 300000, // 5 minutes
 };
 
+const initialAutoDeployConfig: AutoDeployConfig = {
+  enabled: false,
+  minIdleFunds: 50,
+  maxPositions: 5,
+  minConfidence: 0.75,
+  preferredExchanges: ['Binance'],
+  excludePairs: [],
+};
+
+const initialCapitalEfficiency: CapitalEfficiencyMetrics = {
+  score: 0,
+  utilizationRate: 0,
+  deploymentSpeed: 0,
+  avgIdleTime: 0,
+  trend: 'stable',
+  history: [],
+};
+
 export const useBotStore = create<BotState>()(
   subscribeWithSelector((set, get) => ({
     // ===== Initial State =====
@@ -75,6 +95,12 @@ export const useBotStore = create<BotState>()(
     // Idle Capital Alerts
     idleCapitalAlert: initialIdleAlertConfig,
     idleStartTime: null,
+    
+    // Auto-Deploy Config
+    autoDeployConfig: initialAutoDeployConfig,
+    
+    // Capital Efficiency
+    capitalEfficiency: initialCapitalEfficiency,
 
     // ===== Bot Management Actions =====
     updateBot: (id, data) => set(state => ({
@@ -355,6 +381,64 @@ export const useBotStore = create<BotState>()(
       } else {
         set({ idleStartTime: null });
       }
+    },
+
+    // ===== Auto-Deploy Config Actions =====
+    setAutoDeployConfig: (config) => set(state => ({
+      autoDeployConfig: { ...state.autoDeployConfig, ...config }
+    })),
+
+    // ===== Capital Efficiency Actions =====
+    calculateEfficiencyScore: () => {
+      const { capitalMetrics, executionMetrics, idleStartTime, capitalEfficiency } = get();
+      
+      // Utilization rate (40% weight)
+      const utilizationScore = Math.min(100, capitalMetrics.utilization);
+      
+      // Deployment speed (30% weight) - based on avg execution time
+      const speedScore = Math.max(0, Math.min(100, 
+        100 - ((executionMetrics.avgExecutionTimeMs - 500) / 15)
+      ));
+      
+      // Idle time score (30% weight)
+      const idleDurationMs = idleStartTime ? Date.now() - idleStartTime : 0;
+      const idleMinutes = idleDurationMs / 60000;
+      const idleScore = Math.max(0, Math.min(100, 100 - (idleMinutes * 20)));
+      
+      // Combined score
+      const score = Math.round(
+        (utilizationScore * 0.4) + 
+        (speedScore * 0.3) + 
+        (idleScore * 0.3)
+      );
+      
+      // Calculate trend
+      const history = capitalEfficiency.history;
+      let trend: 'improving' | 'stable' | 'declining' = 'stable';
+      if (history.length >= 5) {
+        const recentAvg = history.slice(-3).reduce((s, h) => s + h.score, 0) / 3;
+        const olderAvg = history.slice(-6, -3).reduce((s, h) => s + h.score, 0) / 3;
+        const diff = recentAvg - olderAvg;
+        if (diff > 5) trend = 'improving';
+        else if (diff < -5) trend = 'declining';
+      }
+      
+      // Update history (keep last 60 entries)
+      const newHistory = [
+        ...history,
+        { timestamp: Date.now(), score }
+      ].slice(-60);
+      
+      set({
+        capitalEfficiency: {
+          score,
+          utilizationRate: utilizationScore,
+          deploymentSpeed: speedScore,
+          avgIdleTime: idleDurationMs,
+          trend,
+          history: newHistory,
+        }
+      });
     },
 
     // ===== Execution Metrics Actions =====
