@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createTelemetryTracker, type TelemetryTracker } from "../_shared/executionTelemetry.ts";
 import { fetchPrice, fetchPriceOptimized, getMomentumFromWS, type RealtimePriceData } from "../_shared/priceUtils.ts";
+// Note: exchangeUtils.ts available for shared functions but keeping local implementations 
+// for this file due to complex interdependencies
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,7 +31,7 @@ async function decryptSecret(encrypted: string, iv: string, encryptionKey: strin
   return new TextDecoder().decode(decrypted);
 }
 
-// Note: fetchPrice, fetchPriceOptimized, RealtimePriceData imported from priceUtils.ts
+// Note: Price utils imported from priceUtils.ts
 
 // Get momentum from WebSocket data or calculate from REST
 async function getMomentumOptimized(
@@ -56,7 +58,6 @@ const LOT_SIZE_CACHE_TTL_MS = 3600000; // 1 hour
 async function getBinanceLotSize(symbol: string): Promise<LotSizeData> {
   const cacheKey = `binance:lot_size:${symbol}`;
   
-  // Check in-memory cache first
   const cached = LOT_SIZE_CACHE.get(cacheKey);
   if (cached && cached.expires > Date.now()) {
     console.log(`⚡ CACHE HIT: ${cacheKey}`);
@@ -83,9 +84,7 @@ async function getBinanceLotSize(symbol: string): Promise<LotSizeData> {
       minNotional: parseFloat(notionalFilter?.minNotional || notionalFilter?.notional || '10') || 10
     };
     
-    // Store in cache
     LOT_SIZE_CACHE.set(cacheKey, { data: lotSizeData, expires: Date.now() + LOT_SIZE_CACHE_TTL_MS });
-    
     return lotSizeData;
   } catch (e) {
     console.error('Failed to fetch Binance lot size:', e);
@@ -101,191 +100,97 @@ function roundToStepSize(quantity: number, stepSize: string): string {
   return rounded.toFixed(precision);
 }
 
-// Fetch free USDT balance from Binance account (for live position sizing)
-async function getBinanceFreeStableBalance(
-  apiKey: string,
-  apiSecret: string,
-): Promise<number> {
+// Fetch free USDT balance from Binance account
+async function getBinanceFreeStableBalance(apiKey: string, apiSecret: string): Promise<number> {
   try {
     const timestamp = Date.now();
     const params = `timestamp=${timestamp}`;
     const signature = await hmacSha256(apiSecret, params);
-
-    const response = await fetch(
-      `https://api.binance.com/api/v3/account?${params}&signature=${signature}`,
-      {
-        method: "GET",
-        headers: { "X-MBX-APIKEY": apiKey },
-      },
-    );
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      console.error("Failed to fetch Binance account balance:", error);
-      return 0;
-    }
-
+    const response = await fetch(`https://api.binance.com/api/v3/account?${params}&signature=${signature}`, {
+      method: "GET",
+      headers: { "X-MBX-APIKEY": apiKey },
+    });
+    if (!response.ok) return 0;
     const data = await response.json();
-    if (!data.balances || !Array.isArray(data.balances)) return 0;
-
-    const usdt = data.balances.find(
-      (b: { asset: string }) => b.asset === "USDT",
-    );
-    if (!usdt) return 0;
-
-    const free = parseFloat(usdt.free ?? "0");
-    return Number.isFinite(free) ? free : 0;
+    const usdt = data.balances?.find((b: { asset: string }) => b.asset === "USDT");
+    return parseFloat(usdt?.free ?? "0") || 0;
   } catch (e) {
-    console.error("Error fetching Binance account balance:", e);
+    console.error("Binance balance error:", e);
     return 0;
   }
 }
 
 // Fetch free USDT balance from Bybit account
-async function getBybitFreeStableBalance(
-  apiKey: string,
-  apiSecret: string,
-): Promise<number> {
+async function getBybitFreeStableBalance(apiKey: string, apiSecret: string): Promise<number> {
   try {
     const timestamp = Date.now().toString();
     const recvWindow = "5000";
     const params = `accountType=UNIFIED&coin=USDT`;
     const signPayload = timestamp + apiKey + recvWindow + params;
     const signature = await hmacSha256(apiSecret, signPayload);
-
-    const response = await fetch(
-      `https://api.bybit.com/v5/account/wallet-balance?${params}`,
-      {
-        method: "GET",
-        headers: {
-          "X-BAPI-API-KEY": apiKey,
-          "X-BAPI-SIGN": signature,
-          "X-BAPI-TIMESTAMP": timestamp,
-          "X-BAPI-RECV-WINDOW": recvWindow,
-        },
-      },
-    );
-
+    const response = await fetch(`https://api.bybit.com/v5/account/wallet-balance?${params}`, {
+      method: "GET",
+      headers: { "X-BAPI-API-KEY": apiKey, "X-BAPI-SIGN": signature, "X-BAPI-TIMESTAMP": timestamp, "X-BAPI-RECV-WINDOW": recvWindow },
+    });
     const data = await response.json();
-    if (data.retCode !== 0) {
-      console.error("Failed to fetch Bybit balance:", data.retMsg);
-      return 0;
-    }
-
-    // Parse UNIFIED account balance
-    const accounts = data.result?.list || [];
-    for (const account of accounts) {
-      const coins = account.coin || [];
-      const usdt = coins.find((c: { coin: string }) => c.coin === "USDT");
-      if (usdt) {
-        const free = parseFloat(usdt.availableToWithdraw || usdt.walletBalance || "0");
-        return Number.isFinite(free) ? free : 0;
-      }
-    }
-    return 0;
+    if (data.retCode !== 0) return 0;
+    const coins = data.result?.list?.[0]?.coin || [];
+    const usdt = coins.find((c: { coin: string }) => c.coin === "USDT");
+    return parseFloat(usdt?.availableToWithdraw || usdt?.walletBalance || "0") || 0;
   } catch (e) {
-    console.error("Error fetching Bybit account balance:", e);
+    console.error("Bybit balance error:", e);
     return 0;
   }
 }
 
 // Fetch free USDT balance from OKX account
-async function getOKXFreeStableBalance(
-  apiKey: string,
-  apiSecret: string,
-  passphrase: string,
-): Promise<number> {
+async function getOKXFreeStableBalance(apiKey: string, apiSecret: string, passphrase: string): Promise<number> {
   try {
     const timestamp = new Date().toISOString();
-    const method = "GET";
     const requestPath = "/api/v5/account/balance?ccy=USDT";
-    const preHash = timestamp + method + requestPath;
-    
-    // OKX uses base64 HMAC-SHA256
+    const preHash = timestamp + "GET" + requestPath;
     const encoder = new TextEncoder();
     const keyData = encoder.encode(apiSecret);
     const msgData = encoder.encode(preHash);
     const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
     const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, msgData);
     const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
-
-    const response = await fetch(
-      `https://www.okx.com${requestPath}`,
-      {
-        method: "GET",
-        headers: {
-          "OK-ACCESS-KEY": apiKey,
-          "OK-ACCESS-SIGN": signature,
-          "OK-ACCESS-TIMESTAMP": timestamp,
-          "OK-ACCESS-PASSPHRASE": passphrase,
-        },
-      },
-    );
-
+    const response = await fetch(`https://www.okx.com${requestPath}`, {
+      method: "GET",
+      headers: { "OK-ACCESS-KEY": apiKey, "OK-ACCESS-SIGN": signature, "OK-ACCESS-TIMESTAMP": timestamp, "OK-ACCESS-PASSPHRASE": passphrase },
+    });
     const data = await response.json();
-    if (data.code !== "0") {
-      console.error("Failed to fetch OKX balance:", data.msg);
-      return 0;
-    }
-
-    const balances = data.data?.[0]?.details || [];
-    const usdt = balances.find((b: { ccy: string }) => b.ccy === "USDT");
-    if (usdt) {
-      const free = parseFloat(usdt.availBal || usdt.cashBal || "0");
-      return Number.isFinite(free) ? free : 0;
-    }
-    return 0;
+    if (data.code !== "0") return 0;
+    const usdt = data.data?.[0]?.details?.find((b: { ccy: string }) => b.ccy === "USDT");
+    return parseFloat(usdt?.availBal || usdt?.cashBal || "0") || 0;
   } catch (e) {
-    console.error("Error fetching OKX account balance:", e);
+    console.error("OKX balance error:", e);
     return 0;
   }
 }
 
-// Fetch free USDT balance from Kraken account
-async function getKrakenFreeStableBalance(
-  apiKey: string,
-  apiSecret: string,
-): Promise<number> {
+// Fetch free USDT balance from Kraken account  
+async function getKrakenFreeStableBalance(apiKey: string, apiSecret: string): Promise<number> {
   try {
     const nonce = Date.now() * 1000;
     const postData = `nonce=${nonce}`;
     const path = "/0/private/Balance";
-    
-    // Kraken signature: HMAC-SHA512(path + SHA256(nonce + postData), base64_decode(secret))
     const sha256Hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(nonce + postData));
     const message = new Uint8Array([...new TextEncoder().encode(path), ...new Uint8Array(sha256Hash)]);
     const secretKey = Uint8Array.from(atob(apiSecret), c => c.charCodeAt(0));
     const cryptoKey = await crypto.subtle.importKey('raw', secretKey, { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']);
     const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, message);
     const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
-
-    const response = await fetch(
-      `https://api.kraken.com${path}`,
-      {
-        method: "POST",
-        headers: {
-          "API-Key": apiKey,
-          "API-Sign": signature,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: postData,
-      },
-    );
-
+    const response = await fetch(`https://api.kraken.com${path}`, {
+      method: "POST",
+      headers: { "API-Key": apiKey, "API-Sign": signature, "Content-Type": "application/x-www-form-urlencoded" },
+      body: postData,
+    });
     const data = await response.json();
-    if (data.error?.length > 0) {
-      console.error("Failed to fetch Kraken balance:", data.error);
-      return 0;
-    }
-
-    // Kraken uses ZUSD for USD, USDT for Tether
-    const result = data.result || {};
-    const usdt = parseFloat(result.USDT || "0");
-    const zusd = parseFloat(result.ZUSD || "0");
-    const total = usdt + zusd;
-    return Number.isFinite(total) ? total : 0;
+    if (data.error?.length > 0) return 0;
+    return parseFloat(data.result?.USDT || "0") + parseFloat(data.result?.ZUSD || "0");
   } catch (e) {
-    console.error("Error fetching Kraken account balance:", e);
+    console.error("Kraken balance error:", e);
     return 0;
   }
 }
@@ -293,37 +198,17 @@ async function getKrakenFreeStableBalance(
 // Get Bybit lot size info with caching
 async function getBybitLotSize(symbol: string): Promise<LotSizeData> {
   const cacheKey = `bybit:lot_size:${symbol}`;
-  
-  // Check in-memory cache first
   const cached = LOT_SIZE_CACHE.get(cacheKey);
-  if (cached && cached.expires > Date.now()) {
-    console.log(`⚡ CACHE HIT: ${cacheKey}`);
-    return cached.data;
-  }
-  
-  console.log(`🔄 CACHE MISS: ${cacheKey} - fetching from API`);
-  
+  if (cached && cached.expires > Date.now()) return cached.data;
   try {
     const response = await fetch(`https://api.bybit.com/v5/market/instruments-info?category=spot&symbol=${symbol}`);
     const data = await response.json();
-    
-    if (data.retCode !== 0 || !data.result?.list?.length) {
-      return { stepSize: '0.0001', minQty: '0.0001', minNotional: 5 };
-    }
-    
+    if (data.retCode !== 0 || !data.result?.list?.length) return { stepSize: '0.0001', minQty: '0.0001', minNotional: 5 };
     const info = data.result.list[0];
-    const lotSizeData: LotSizeData = {
-      stepSize: info.lotSizeFilter?.basePrecision || '0.0001',
-      minQty: info.lotSizeFilter?.minOrderQty || '0.0001',
-      minNotional: parseFloat(info.lotSizeFilter?.minOrderAmt || '5') || 5
-    };
-    
-    // Store in cache
+    const lotSizeData: LotSizeData = { stepSize: info.lotSizeFilter?.basePrecision || '0.0001', minQty: info.lotSizeFilter?.minOrderQty || '0.0001', minNotional: parseFloat(info.lotSizeFilter?.minOrderAmt || '5') || 5 };
     LOT_SIZE_CACHE.set(cacheKey, { data: lotSizeData, expires: Date.now() + LOT_SIZE_CACHE_TTL_MS });
-    
     return lotSizeData;
   } catch (e) {
-    console.error('Failed to fetch Bybit lot size:', e);
     return { stepSize: '0.0001', minQty: '0.0001', minNotional: 5 };
   }
 }
