@@ -65,16 +65,35 @@ class TradingEngine {
     if (!this.isRunning) return;
 
     const state = useBotStore.getState();
-    const { capitalMetrics, positions, opportunities, deploymentQueue } = state;
+    const { capitalMetrics, positions, opportunities, deploymentQueue, autoDeployConfig } = state;
 
     // Skip if already processing queue
     if (deploymentQueue.some(o => o.status === 'executing')) {
       return;
     }
 
+    // Use auto-deploy config if enabled, otherwise use defaults
+    const minIdleFunds = autoDeployConfig?.enabled 
+      ? autoDeployConfig.minIdleFunds 
+      : this.minIdleFundsForDeployment;
+    const maxPos = autoDeployConfig?.enabled 
+      ? autoDeployConfig.maxPositions 
+      : this.maxPositions;
+    const minConfidence = autoDeployConfig?.enabled 
+      ? autoDeployConfig.minConfidence 
+      : 0.75;
+
+    // Check if auto-deploy is enabled
+    if (!autoDeployConfig?.enabled) {
+      return;
+    }
+
     // Check if we can deploy idle funds
-    if (capitalMetrics.idleFunds >= this.minIdleFundsForDeployment) {
-      if (positions.length < this.maxPositions && opportunities.length > 0) {
+    if (capitalMetrics.idleFunds >= minIdleFunds) {
+      // Filter opportunities by confidence
+      const qualifiedOpps = opportunities.filter(o => o.confidence >= minConfidence);
+      
+      if (positions.length < maxPos && qualifiedOpps.length > 0) {
         await this.deployFundsImmediately(capitalMetrics.idleFunds);
       }
     }

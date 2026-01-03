@@ -142,3 +142,38 @@ export const selectCapitalSummary = (state: BotState) => ({
   utilization: state.capitalMetrics.utilization,
   positionCount: state.positions.length,
 });
+
+// ===== Auto-Deploy Selectors =====
+export const selectAutoDeployConfig = (state: BotState) => 
+  state.autoDeployConfig;
+
+export const selectAutoDeployReady = (state: BotState) => {
+  const { autoDeployConfig, capitalMetrics, positions, opportunities } = state;
+  return (
+    autoDeployConfig.enabled &&
+    capitalMetrics.idleFunds >= autoDeployConfig.minIdleFunds &&
+    positions.length < autoDeployConfig.maxPositions &&
+    opportunities.some(o => o.confidence >= autoDeployConfig.minConfidence)
+  );
+};
+
+// ===== Capital Efficiency Selectors =====
+export const selectCapitalEfficiency = (state: BotState) => 
+  state.capitalEfficiency;
+
+export const selectEfficiencyScore = (state: BotState) => 
+  state.capitalEfficiency.score;
+
+export const selectEfficiencyTrend = (state: BotState) => 
+  state.capitalEfficiency.trend;
+
+// ===== Capital History Selectors =====
+export const selectCapitalHistory = (state: BotState) => 
+  state.capitalHistory;
+
+// ===== Idle Alert Selectors =====
+export const selectIdleAlertConfig = (state: BotState) => 
+  state.idleCapitalAlert;
+
+export const selectIdleStartTime = (state: BotState) => 
+  state.idleStartTime;

@@ -108,7 +108,7 @@ class RealtimeSyncEngine {
   }
 
   /**
-   * Sync metrics - capital utilization, execution speed, alerts
+   * Sync metrics - capital utilization, execution speed, alerts, efficiency
    */
   private syncMetrics() {
     if (!this.isRunning) return;
@@ -120,6 +120,9 @@ class RealtimeSyncEngine {
     
     // Check idle capital alerts
     store.checkIdleCapitalAlert();
+    
+    // Calculate capital efficiency score
+    store.calculateEfficiencyScore();
   }
 
   /**

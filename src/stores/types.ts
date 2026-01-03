@@ -119,6 +119,24 @@ export interface IdleCapitalAlertConfig {
   maxIdleDurationMs: number;
 }
 
+export interface AutoDeployConfig {
+  enabled: boolean;
+  minIdleFunds: number;
+  maxPositions: number;
+  minConfidence: number;
+  preferredExchanges: string[];
+  excludePairs: string[];
+}
+
+export interface CapitalEfficiencyMetrics {
+  score: number;
+  utilizationRate: number;
+  deploymentSpeed: number;
+  avgIdleTime: number;
+  trend: 'improving' | 'stable' | 'declining';
+  history: Array<{ timestamp: number; score: number }>;
+}
+
 export interface BotState {
   // ===== Bot Data =====
   bots: Bot[];
@@ -181,6 +199,14 @@ export interface BotState {
   idleStartTime: number | null;
   setIdleAlertConfig: (config: Partial<IdleCapitalAlertConfig>) => void;
   checkIdleCapitalAlert: () => void;
+  
+  // Auto-Deploy Config
+  autoDeployConfig: AutoDeployConfig;
+  setAutoDeployConfig: (config: Partial<AutoDeployConfig>) => void;
+  
+  // Capital Efficiency
+  capitalEfficiency: CapitalEfficiencyMetrics;
+  calculateEfficiencyScore: () => void;
   
   // Execution Metrics
   recordExecution: (tradeId: string, durationMs: number, success: boolean) => void;

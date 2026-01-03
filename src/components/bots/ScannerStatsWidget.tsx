@@ -2,12 +2,14 @@
  * Scanner Stats Widget
  * Shows real-time scanner activity with animated scanning indicator
  * Connected to Zustand store for instant updates
+ * Includes live ticker display for scanned pairs
  */
 
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Radar, Check, X, Clock, Zap, TrendingUp } from 'lucide-react';
+import { Radar, Check, X, Clock, Zap, TrendingUp, TrendingDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useBotStore } from '@/stores/botStore';
 import { CARD_SIZES } from '@/lib/cardSizes';
@@ -25,6 +27,36 @@ export function ScannerStatsWidget({ className }: ScannerStatsWidgetProps) {
   const pairsScanned = marketData.pairsScanned;
   const opportunityCount = opportunities.length;
   
+  // Track price flashes for live ticker
+  const [priceFlashes, setPriceFlashes] = useState<Record<string, 'up' | 'down' | null>>({});
+  const [prevPrices, setPrevPrices] = useState<Record<string, number>>({});
+  
+  // Detect price changes for flash animation
+  useEffect(() => {
+    const newFlashes: Record<string, 'up' | 'down' | null> = {};
+    
+    Object.entries(marketData.prices).forEach(([symbol, price]) => {
+      const prev = prevPrices[symbol];
+      if (prev !== undefined && prev !== price) {
+        newFlashes[symbol] = price > prev ? 'up' : 'down';
+      }
+    });
+    
+    if (Object.keys(newFlashes).length > 0) {
+      setPriceFlashes(prev => ({ ...prev, ...newFlashes }));
+      // Clear flashes after animation
+      setTimeout(() => {
+        setPriceFlashes(prev => {
+          const cleared = { ...prev };
+          Object.keys(newFlashes).forEach(k => { cleared[k] = null; });
+          return cleared;
+        });
+      }, 500);
+    }
+    
+    setPrevPrices(marketData.prices);
+  }, [marketData.prices]);
+  
   // Calculate rejections (simulated based on scan activity)
   const rejectionsLast5Min = Math.max(0, pairsScanned - opportunityCount);
   const symbolsActive = Object.keys(marketData.prices).length || pairsScanned;
@@ -37,7 +69,18 @@ export function ScannerStatsWidget({ className }: ScannerStatsWidgetProps) {
     symbol: opp.symbol.replace('/USDT', '').replace('USDT', ''),
     confidence: opp.confidence,
     expectedDuration: Math.round(opp.expectedDurationMs / 1000),
+    direction: opp.direction,
   }));
+
+  // Live ticker - top 5 prices
+  const liveTickers = Object.entries(marketData.prices)
+    .slice(0, 5)
+    .map(([symbol, price]) => ({
+      symbol: symbol.replace('USDT', ''),
+      price,
+      change: marketData.changes24h[symbol] || 0,
+      flash: priceFlashes[symbol],
+    }));
 
   return (
     <Card 
@@ -100,37 +143,62 @@ export function ScannerStatsWidget({ className }: ScannerStatsWidgetProps) {
         )}
       </CardHeader>
       
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-2">
+        {/* Live Ticker Display - WebSocket prices */}
+        {liveTickers.length > 0 && (
+          <div className="flex gap-1.5 overflow-x-hidden">
+            {liveTickers.map((ticker, idx) => (
+              <div 
+                key={idx}
+                className={cn(
+                  "flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors duration-200",
+                  ticker.flash === 'up' && "bg-green-500/20",
+                  ticker.flash === 'down' && "bg-red-500/20",
+                  !ticker.flash && "bg-muted/30"
+                )}
+              >
+                <span className="text-muted-foreground">{ticker.symbol}</span>
+                <span className={cn(
+                  "ml-1",
+                  ticker.change >= 0 ? "text-green-500" : "text-red-500"
+                )}>
+                  {ticker.change >= 0 ? '+' : ''}{ticker.change.toFixed(1)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Main Stats Grid */}
         <div className="grid grid-cols-3 gap-2">
-          <div className="text-center p-2 bg-primary/10 rounded-lg">
-            <div className="flex items-center justify-center gap-1 mb-0.5">
-              <Check className="w-3 h-3 text-primary" />
-              <span className="text-[10px] text-muted-foreground">Qualified</span>
+          <div className="text-center p-1.5 bg-primary/10 rounded-lg">
+            <div className="flex items-center justify-center gap-0.5 mb-0.5">
+              <Check className="w-2.5 h-2.5 text-primary" />
+              <span className="text-[9px] text-muted-foreground">Qualified</span>
             </div>
-            <span className="text-base font-bold font-mono text-primary">{opportunityCount}</span>
+            <span className="text-sm font-bold font-mono text-primary">{opportunityCount}</span>
           </div>
           
-          <div className="text-center p-2 bg-destructive/10 rounded-lg">
-            <div className="flex items-center justify-center gap-1 mb-0.5">
-              <X className="w-3 h-3 text-destructive" />
-              <span className="text-[10px] text-muted-foreground">Rejected</span>
+          <div className="text-center p-1.5 bg-destructive/10 rounded-lg">
+            <div className="flex items-center justify-center gap-0.5 mb-0.5">
+              <X className="w-2.5 h-2.5 text-destructive" />
+              <span className="text-[9px] text-muted-foreground">Rejected</span>
             </div>
-            <span className="text-base font-bold font-mono text-destructive">{rejectionsLast5Min}</span>
+            <span className="text-sm font-bold font-mono text-destructive">{rejectionsLast5Min}</span>
           </div>
           
-          <div className="text-center p-2 bg-muted/50 rounded-lg">
-            <div className="flex items-center justify-center gap-1 mb-0.5">
-              <Zap className="w-3 h-3 text-muted-foreground" />
-              <span className="text-[10px] text-muted-foreground">Symbols</span>
+          <div className="text-center p-1.5 bg-muted/50 rounded-lg">
+            <div className="flex items-center justify-center gap-0.5 mb-0.5">
+              <Zap className="w-2.5 h-2.5 text-muted-foreground" />
+              <span className="text-[9px] text-muted-foreground">Symbols</span>
             </div>
-            <span className="text-base font-bold font-mono">{symbolsActive}</span>
+            <span className="text-sm font-bold font-mono">{symbolsActive}</span>
           </div>
         </div>
 
         {/* Qualification Rate */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-xs">
+        <div className="space-y-0.5">
+          <div className="flex items-center justify-between text-[10px]">
             <span className="text-muted-foreground">Qualification Rate</span>
             <span className={cn(
               "font-mono font-medium",
@@ -141,30 +209,37 @@ export function ScannerStatsWidget({ className }: ScannerStatsWidgetProps) {
           </div>
           <Progress 
             value={qualificationRate} 
-            className="h-1.5"
+            className="h-1"
           />
         </div>
 
         {/* Top Qualified Opportunities */}
         {topOpportunities.length > 0 && (
-          <div className="space-y-1.5">
-            <div className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+          <div className="space-y-1">
+            <div className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
               <TrendingUp className="w-3 h-3" />
               Ready to Trade
             </div>
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {topOpportunities.map((opp, idx) => (
                 <div 
                   key={idx}
-                  className="flex items-center justify-between text-xs bg-primary/5 rounded px-2 py-1"
+                  className="flex items-center justify-between text-[10px] bg-primary/5 rounded px-1.5 py-0.5"
                 >
-                  <span className="font-medium">{opp.symbol}/USDT</span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    {opp.direction === 'long' ? (
+                      <ArrowUp className="w-3 h-3 text-green-500" />
+                    ) : (
+                      <ArrowDown className="w-3 h-3 text-red-500" />
+                    )}
+                    <span className="font-medium">{opp.symbol}/USDT</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
                     <span className="text-muted-foreground flex items-center gap-0.5">
-                      <Clock className="w-3 h-3" />
+                      <Clock className="w-2.5 h-2.5" />
                       {opp.expectedDuration}s
                     </span>
-                    <Badge variant="outline" className="text-[10px] h-4">
+                    <Badge variant="outline" className="text-[9px] h-3.5 px-1">
                       {(opp.confidence * 100).toFixed(0)}%
                     </Badge>
                   </div>
@@ -176,8 +251,8 @@ export function ScannerStatsWidget({ className }: ScannerStatsWidgetProps) {
 
         {/* No Opportunities State */}
         {opportunityCount === 0 && isScanning && (
-          <div className="text-center py-1 text-xs text-muted-foreground">
-            <p>Scanning for fast trade opportunities...</p>
+          <div className="text-center py-0.5 text-[10px] text-muted-foreground">
+            Scanning for fast trade opportunities...
           </div>
         )}
       </CardContent>
