@@ -85,32 +85,53 @@ export function ExchangeSetupWizard({ open, onOpenChange, onComplete }: Exchange
     setCheckError(null);
     
     try {
-      const { data, error } = await supabase.functions.invoke('test-exchange-connection', {
-        body: { exchange: selectedExchange, checkFutures: true }
+      // First check if we have stored credentials for this exchange
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setCheckError('Please log in to check exchange permissions');
+        return;
+      }
+
+      const { data: connection } = await supabase
+        .from('exchange_connections')
+        .select('encrypted_api_key, encrypted_api_secret, encrypted_passphrase, encryption_iv')
+        .eq('user_id', user.id)
+        .eq('exchange_name', selectedExchange.charAt(0).toUpperCase() + selectedExchange.slice(1))
+        .single();
+
+      if (!connection?.encrypted_api_key) {
+        setCheckError(`No API credentials found for ${selectedExchange}. Please connect your exchange first in Settings > Exchanges.`);
+        return;
+      }
+
+      // Use binance-futures-positions to check capabilities (it handles decryption)
+      const { data, error } = await supabase.functions.invoke('binance-futures-positions', {
+        body: { checkCapabilities: true, exchange: selectedExchange }
       });
       
       if (error) throw error;
       
-      if (data?.success) {
+      if (data?.success || data?.positions !== undefined) {
         setCapabilities({
-          spotEnabled: data.spotEnabled ?? true,
-          futuresEnabled: data.futuresEnabled ?? false,
-          marginEnabled: data.marginEnabled ?? false,
-          permissions: data.permissions ?? [],
-          spotBalance: data.spotBalance ?? 0,
-          futuresBalance: data.futuresBalance ?? 0,
+          spotEnabled: true,
+          futuresEnabled: data?.futuresEnabled ?? (data?.positions !== undefined),
+          marginEnabled: data?.marginEnabled ?? false,
+          permissions: data?.permissions ?? ['Read', 'Trade'],
+          spotBalance: data?.spotBalance ?? 0,
+          futuresBalance: data?.futuresBalance ?? data?.totalBalance ?? 0,
         });
         
         // Auto-advance based on capabilities
-        if (data.futuresEnabled && data.futuresBalance > 10) {
+        const futuresBalance = data?.futuresBalance ?? data?.totalBalance ?? 0;
+        if ((data?.futuresEnabled || data?.positions !== undefined) && futuresBalance > 10) {
           setCurrentStep(5); // All good!
-        } else if (data.futuresEnabled) {
+        } else if (data?.futuresEnabled || data?.positions !== undefined) {
           setCurrentStep(4); // Need to transfer balance
         } else {
           setCurrentStep(3); // Need to enable futures
         }
       } else {
-        setCheckError(data?.error || 'Failed to check permissions');
+        setCheckError(data?.error || 'Failed to check permissions. Make sure your API key has futures permissions.');
       }
     } catch (e) {
       setCheckError(e instanceof Error ? e.message : 'Connection failed');
