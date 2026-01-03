@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 import { LivePositionProfitTracker } from './LivePositionProfitTracker';
 import { ExecutionBenchmarkDashboard } from './ExecutionBenchmarkDashboard';
 import { VolatilityOpportunityIndicator } from './VolatilityOpportunityIndicator';
+import { ExchangeCapacityIndicator } from './ExchangeCapacityIndicator';
 import { OpenPosition } from '@/hooks/useWebSocketPositionMonitor';
 import {
   Tooltip,
@@ -2627,6 +2628,11 @@ export function BotCard({
       {/* Real-Time Volatility Opportunity Indicator */}
       {isRunning && (
         <VolatilityOpportunityIndicator className="mb-3" />
+      )}
+
+      {/* Exchange Capacity Indicator */}
+      {isRunning && (
+        <ExchangeCapacityIndicator className="mb-3" />
       )}
 
       {/* Progress */}
