@@ -185,6 +185,7 @@ export interface BotState {
   startTradingEngine: () => void;
   stopTradingEngine: () => void;
   deployIdleFunds: () => Promise<void>;
+  forceCloseAllPositions: () => void;
   
   // Position Management
   addPosition: (position: Position) => void;
