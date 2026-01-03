@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { TrendingUp, TrendingDown, Minus, Activity, RefreshCw } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Activity, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 interface AssetTrend {
   symbol: string;
@@ -26,6 +26,7 @@ export function MarketRegimeIndicator({ className }: MarketRegimeIndicatorProps)
   const [assetTrends, setAssetTrends] = useState<AssetTrend[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // Fetch price data and calculate trends
   const fetchTrends = async () => {
@@ -79,10 +80,11 @@ export function MarketRegimeIndicator({ className }: MarketRegimeIndicatorProps)
 
   // Calculate overall market regime
   const marketRegime = useMemo(() => {
-    if (assetTrends.length === 0) return { regime: 'neutral' as const, confidence: 0 };
+    if (assetTrends.length === 0) return { regime: 'neutral' as const, confidence: 0, bullishCount: 0, bearishCount: 0 };
     
     const bullishCount = assetTrends.filter(a => a.trend === 'bullish').length;
     const bearishCount = assetTrends.filter(a => a.trend === 'bearish').length;
+    const neutralCount = assetTrends.filter(a => a.trend === 'neutral').length;
     const totalMomentum = assetTrends.reduce((sum, a) => sum + a.momentum, 0);
     const avgMomentum = totalMomentum / assetTrends.length;
     
@@ -103,7 +105,7 @@ export function MarketRegimeIndicator({ className }: MarketRegimeIndicatorProps)
       confidence = 60 + (bearishCount - bullishCount) * 5;
     }
     
-    return { regime, confidence, bullishCount, bearishCount, avgMomentum };
+    return { regime, confidence, bullishCount, bearishCount, neutralCount };
   }, [assetTrends]);
 
   const regimeConfig = {
@@ -112,24 +114,18 @@ export function MarketRegimeIndicator({ className }: MarketRegimeIndicatorProps)
       label: 'BULLISH',
       color: 'text-green-500',
       bg: 'bg-green-500/10',
-      border: 'border-green-500/30',
-      description: 'Market trending up - favor LONG positions',
     },
     bearish: {
       icon: TrendingDown,
       label: 'BEARISH',
       color: 'text-red-500',
       bg: 'bg-red-500/10',
-      border: 'border-red-500/30',
-      description: 'Market trending down - favor SHORT positions',
     },
     neutral: {
       icon: Minus,
       label: 'NEUTRAL',
       color: 'text-yellow-500',
       bg: 'bg-yellow-500/10',
-      border: 'border-yellow-500/30',
-      description: 'Mixed signals - trade with caution',
     },
   };
 
@@ -137,86 +133,84 @@ export function MarketRegimeIndicator({ className }: MarketRegimeIndicatorProps)
   const Icon = config.icon;
 
   return (
-    <Card className={cn('overflow-hidden', config.border, className)}>
-      <CardHeader className={cn('py-2 px-3', config.bg)}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-sm font-medium">Market Regime</CardTitle>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-muted-foreground">
-              {lastUpdate.toLocaleTimeString()}
-            </span>
-            <RefreshCw 
-              className={cn('h-3 w-3 text-muted-foreground cursor-pointer hover:text-foreground', loading && 'animate-spin')}
-              onClick={() => { setLoading(true); fetchTrends(); }}
-            />
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="p-3 space-y-3">
-        {/* Main Regime Display */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={cn('p-1.5 rounded-full', config.bg)}>
-              <Icon className={cn('h-5 w-5', config.color)} />
-            </div>
-            <div>
-              <span className={cn('font-bold text-lg', config.color)}>
-                {config.label}
-              </span>
-              <p className="text-[10px] text-muted-foreground">{config.description}</p>
-            </div>
-          </div>
-          <Badge variant="outline" className={cn('text-xs', config.color)}>
-            {marketRegime.confidence}% confidence
-          </Badge>
-        </div>
-
-        {/* Asset Grid */}
-        <div className="grid grid-cols-5 gap-1">
-          {assetTrends.slice(0, 10).map((asset) => (
-            <div
-              key={asset.symbol}
-              className={cn(
-                'flex flex-col items-center p-1 rounded text-center',
-                asset.trend === 'bullish' && 'bg-green-500/10',
-                asset.trend === 'bearish' && 'bg-red-500/10',
-                asset.trend === 'neutral' && 'bg-muted/50'
-              )}
-            >
-              <span className="text-[9px] font-medium text-muted-foreground">
-                {asset.symbol}
-              </span>
-              <div className="flex items-center gap-0.5">
-                {asset.trend === 'bullish' && <TrendingUp className="h-2.5 w-2.5 text-green-500" />}
-                {asset.trend === 'bearish' && <TrendingDown className="h-2.5 w-2.5 text-red-500" />}
-                {asset.trend === 'neutral' && <Minus className="h-2.5 w-2.5 text-yellow-500" />}
-                <span className={cn(
-                  'text-[10px] font-medium',
-                  asset.change24h > 0 ? 'text-green-500' : asset.change24h < 0 ? 'text-red-500' : 'text-muted-foreground'
-                )}>
-                  {asset.change24h > 0 ? '+' : ''}{asset.change24h.toFixed(1)}%
-                </span>
+    <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+      <div className={cn('rounded-lg border bg-card overflow-hidden', className)}>
+        {/* Compact Banner - Always Visible */}
+        <CollapsibleTrigger className="w-full">
+          <div className={cn('flex items-center justify-between px-3 py-1.5 cursor-pointer hover:bg-muted/50 transition-colors', config.bg)}>
+            <div className="flex items-center gap-2">
+              <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs font-medium text-muted-foreground">Market Regime</span>
+              <div className="flex items-center gap-1.5">
+                <Icon className={cn('h-4 w-4', config.color)} />
+                <span className={cn('font-bold text-sm', config.color)}>{config.label}</span>
+                <Badge variant="outline" className={cn('text-[9px] h-4 px-1', config.color)}>
+                  {marketRegime.confidence}%
+                </Badge>
               </div>
             </div>
-          ))}
-        </div>
+            
+            <div className="flex items-center gap-3">
+              {/* Summary Stats */}
+              <div className="flex items-center gap-2 text-[10px]">
+                <span className="text-green-500">↑{marketRegime.bullishCount}</span>
+                <span className="text-yellow-500">↔{marketRegime.neutralCount}</span>
+                <span className="text-red-500">↓{marketRegime.bearishCount}</span>
+              </div>
+              
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-muted-foreground">
+                  {lastUpdate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <RefreshCw 
+                  className={cn('h-3 w-3 text-muted-foreground', loading && 'animate-spin')}
+                  onClick={(e) => { e.stopPropagation(); setLoading(true); fetchTrends(); }}
+                />
+                {isExpanded ? (
+                  <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+              </div>
+            </div>
+          </div>
+        </CollapsibleTrigger>
 
-        {/* Summary Stats */}
-        <div className="flex justify-between text-[10px] text-muted-foreground pt-1 border-t">
-          <span className="text-green-500">
-            ↑ {marketRegime.bullishCount || 0} bullish
-          </span>
-          <span className="text-yellow-500">
-            ↔ {assetTrends.filter(a => a.trend === 'neutral').length} neutral
-          </span>
-          <span className="text-red-500">
-            ↓ {marketRegime.bearishCount || 0} bearish
-          </span>
-        </div>
-      </CardContent>
-    </Card>
+        {/* Expandable Details */}
+        <CollapsibleContent>
+          <div className="px-3 py-2 border-t">
+            {/* Asset Grid */}
+            <div className="grid grid-cols-5 gap-1">
+              {assetTrends.slice(0, 10).map((asset) => (
+                <div
+                  key={asset.symbol}
+                  className={cn(
+                    'flex flex-col items-center p-1 rounded text-center',
+                    asset.trend === 'bullish' && 'bg-green-500/10',
+                    asset.trend === 'bearish' && 'bg-red-500/10',
+                    asset.trend === 'neutral' && 'bg-muted/50'
+                  )}
+                >
+                  <span className="text-[9px] font-medium text-muted-foreground">
+                    {asset.symbol}
+                  </span>
+                  <div className="flex items-center gap-0.5">
+                    {asset.trend === 'bullish' && <TrendingUp className="h-2.5 w-2.5 text-green-500" />}
+                    {asset.trend === 'bearish' && <TrendingDown className="h-2.5 w-2.5 text-red-500" />}
+                    {asset.trend === 'neutral' && <Minus className="h-2.5 w-2.5 text-yellow-500" />}
+                    <span className={cn(
+                      'text-[10px] font-medium',
+                      asset.change24h > 0 ? 'text-green-500' : asset.change24h < 0 ? 'text-red-500' : 'text-muted-foreground'
+                    )}>
+                      {asset.change24h > 0 ? '+' : ''}{asset.change24h.toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
   );
 }
