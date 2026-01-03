@@ -15,13 +15,18 @@ import {
   Activity, 
   Database,
   Zap,
-  DollarSign
+  DollarSign,
+  FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { tradeFlowLogger } from '@/lib/tradeFlowLogger';
 
 export function StoreDebugPanel() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [lastRenderTime, setLastRenderTime] = useState(Date.now());
+  const [verboseLogging, setVerboseLogging] = useState(() => {
+    return localStorage.getItem('verbose_trade_logging') === 'true';
+  });
   
   // Subscribe to store state
   const bots = useBotStore(state => state.bots);
@@ -210,6 +215,21 @@ export function StoreDebugPanel() {
                 </div>
               </div>
             </div>
+
+            {/* Verbose Logging Toggle */}
+            <Button
+              size="sm"
+              variant={verboseLogging ? "default" : "outline"}
+              onClick={() => {
+                const newValue = !verboseLogging;
+                setVerboseLogging(newValue);
+                tradeFlowLogger.setVerbose(newValue);
+              }}
+              className="w-full h-7 text-xs gap-1"
+            >
+              <FileText className="w-3 h-3" />
+              {verboseLogging ? 'Verbose ON' : 'Verbose OFF'}
+            </Button>
 
             {/* Manual Sync Button */}
             <Button

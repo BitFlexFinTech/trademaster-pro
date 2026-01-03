@@ -86,11 +86,52 @@ class RealtimeSyncEngine {
    * Initial data sync on startup
    */
   private async initialSync() {
-    console.log('[RealtimeSync] Running initial sync');
+    console.log('[RealtimeSync] Running initial sync with exchange balances');
     try {
+      // Sync exchange balances FIRST
+      await this.syncExchangeBalances();
+      
+      // Then sync bots and positions
       await useBotStore.getState().syncAllData();
+      
+      console.log('[RealtimeSync] Initial sync complete');
     } catch (error) {
       console.error('[RealtimeSync] Initial sync failed:', error);
+    }
+  }
+
+  /**
+   * Sync exchange balances from connected exchanges
+   */
+  private async syncExchangeBalances() {
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      if (!session?.session?.user?.id) return;
+      
+      console.log('[RealtimeSync] Fetching exchange balances...');
+      
+      const { data, error } = await supabase.functions.invoke('sync-exchange-balances', {
+        body: { userId: session.session.user.id }
+      });
+      
+      if (error) {
+        console.warn('[RealtimeSync] Balance sync error (edge function may not exist):', error.message);
+        return;
+      }
+      
+      if (data?.balances && Array.isArray(data.balances)) {
+        useBotStore.getState().setExchangeBalances(
+          data.balances.map((b: { exchange: string; total: number; available: number; inPositions?: number }) => ({
+            exchange: b.exchange,
+            total: b.total,
+            available: b.available,
+            inPositions: b.inPositions || 0,
+          }))
+        );
+        console.log('[RealtimeSync] Exchange balances synced:', data.balances.length, 'exchanges');
+      }
+    } catch (err) {
+      console.warn('[RealtimeSync] Exchange balance sync failed:', err);
     }
   }
 

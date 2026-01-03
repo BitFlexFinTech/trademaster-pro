@@ -7,6 +7,7 @@
 import { useBotStore } from '@/stores/botStore';
 import { supabase } from '@/integrations/supabase/client';
 import { findBestOpportunity, getTopOpportunities } from '@/lib/pairAnalyzer';
+import { tradeFlowLogger } from '@/lib/tradeFlowLogger';
 import type { ScannerOpportunity } from '@/stores/types';
 
 class TradingEngine {
@@ -16,6 +17,7 @@ class TradingEngine {
   private isRunning = false;
   private minIdleFundsForDeployment = 50; // $50 minimum to deploy
   private maxPositions = 5;
+  private lastScanLogTime = 0;
 
   /**
    * Start the trading engine execution loop
@@ -26,16 +28,18 @@ class TradingEngine {
       return;
     }
 
-    console.log('[TradingEngine] Starting execution loop');
+    console.log('[TradingEngine] 🚀 Starting trading engine');
+    console.log('[TradingEngine] Execution interval: 50ms, Scan interval: 200ms');
     this.isRunning = true;
     
     // Update store and auto-enable deployment
     const state = useBotStore.getState();
     useBotStore.setState({ 
       isTrading: true,
-      autoDeployConfig: { ...state.autoDeployConfig, enabled: true }
+      autoDeployConfig: { ...state.autoDeployConfig, enabled: true },
+      marketData: { ...state.marketData, isScanning: true }
     });
-    console.log('[TradingEngine] Auto-enabled capital deployment');
+    console.log('[TradingEngine] ✅ Auto-enabled capital deployment');
 
     // Start the execution loop
     this.executionIntervalId = setInterval(() => {
@@ -46,15 +50,20 @@ class TradingEngine {
     this.scanIntervalId = setInterval(() => {
       this.scanMarkets();
     }, 200);
+    
+    console.log('[TradingEngine] Engine started successfully');
   }
 
   /**
    * Stop the trading engine
    */
   stop() {
-    console.log('[TradingEngine] Stopping execution loop');
+    console.log('[TradingEngine] 🛑 Stopping trading engine');
     this.isRunning = false;
-    useBotStore.setState({ isTrading: false });
+    useBotStore.setState(state => ({ 
+      isTrading: false,
+      marketData: { ...state.marketData, isScanning: false }
+    }));
 
     if (this.executionIntervalId) {
       clearInterval(this.executionIntervalId);
@@ -65,6 +74,8 @@ class TradingEngine {
       clearInterval(this.scanIntervalId);
       this.scanIntervalId = null;
     }
+    
+    console.log('[TradingEngine] Engine stopped');
   }
 
   /**
@@ -76,10 +87,30 @@ class TradingEngine {
     const state = useBotStore.getState();
     const { capitalMetrics, positions, opportunities, deploymentQueue, autoDeployConfig } = state;
 
-    // Skip if already processing queue
-    if (deploymentQueue.some(o => o.status === 'executing')) {
-      return;
+    // Clear stuck executing items (older than 10 seconds)
+    const now = Date.now();
+    const stuckItems = deploymentQueue.filter(o => 
+      o.status === 'executing' && 
+      o.createdAt && 
+      (now - o.createdAt) > 10000
+    );
+    
+    if (stuckItems.length > 0) {
+      console.warn('[TradingEngine] ⚠️ Clearing', stuckItems.length, 'stuck executions');
+      useBotStore.setState(s => ({
+        deploymentQueue: s.deploymentQueue.filter(o => 
+          !stuckItems.some(stuck => stuck.id === o.id)
+        )
+      }));
     }
+
+    // Skip if already processing queue (that aren't stuck)
+    const hasExecutingItems = deploymentQueue.some(o => 
+      o.status === 'executing' && 
+      o.createdAt && 
+      (now - o.createdAt) <= 10000
+    );
+    if (hasExecutingItems) return;
 
     // Use auto-deploy config if enabled, otherwise use defaults
     const minIdleFunds = autoDeployConfig?.enabled 
@@ -126,21 +157,51 @@ class TradingEngine {
       return;
     }
 
-    console.log('[TradingEngine] Deploying $', amount.toFixed(2), 'to', opportunity.symbol, 
+    // Start flow logging
+    const tradeId = `trade_${Date.now()}`;
+    tradeFlowLogger.startFlow(tradeId);
+    tradeFlowLogger.log('ANALYZE', {
+      symbol: opportunity.symbol,
+      direction: opportunity.direction,
+      confidence: opportunity.confidence.toFixed(2),
+      exchange: opportunity.exchange,
+      volatility: opportunity.volatility?.toFixed(4) || 'N/A',
+    });
+
+    console.log('[TradingEngine] ⚡ Deploying $', amount.toFixed(2), 'to', opportunity.symbol, 
       'direction:', opportunity.direction, 'confidence:', opportunity.confidence.toFixed(2));
+
+    // Mark as executing
+    const queueId = `deploy_${Date.now()}`;
+    useBotStore.getState().addToQueue({
+      id: queueId,
+      symbol: opportunity.symbol,
+      exchange: opportunity.exchange,
+      side: opportunity.direction === 'long' ? 'buy' : 'sell',
+      type: 'market',
+      amount,
+      status: 'executing',
+      createdAt: startTime
+    });
+
+    tradeFlowLogger.log('EXECUTE', {
+      queueId,
+      amount: amount.toFixed(2),
+      positionSize: `$${amount.toFixed(2)}`
+    });
 
     try {
       const { data: session } = await supabase.auth.getSession();
       if (!session?.session?.user?.id) {
-        console.error('[TradingEngine] Not authenticated');
+        tradeFlowLogger.log('ERROR', { reason: 'No active session' });
+        console.error('[TradingEngine] ❌ Not authenticated');
         return;
       }
 
       // FIXED: Calculate position size dynamically based on target profit and expected move
-      // For $1 profit with 0.3% expected move: $1 / 0.003 = $333
       // Read from bot config if available, else use dynamic calculation
       const activeBots = state.bots.filter(b => b.status === 'running');
-      const botAmountPerTrade = activeBots[0]?.amountPerTrade || 333;
+      const botAmountPerTrade = activeBots[0]?.amountPerTrade || 100; // Use 100 as default, not 333
       const positionSize = Math.min(amount, botAmountPerTrade);
 
       // Execute the trade via edge function
@@ -149,37 +210,53 @@ class TradingEngine {
           userId: session.session.user.id,
           symbol: opportunity.symbol,
           exchange: opportunity.exchange,
-          direction: opportunity.direction, // Now properly long or short based on momentum
+          direction: opportunity.direction,
           amount: positionSize,
-          leverage: 1, // Spot trading
-          targetProfit: 1.00, // $1 target
+          leverage: 1,
+          targetProfit: 1.00,
         }
       });
 
       const duration = Date.now() - startTime;
 
       if (error) {
-        console.error('[TradingEngine] Trade execution failed:', error);
-        state.recordExecution(`deploy_${Date.now()}`, duration, false);
-        return;
+        tradeFlowLogger.log('ERROR', { 
+          error: error.message,
+          executionTime: `${duration}ms`
+        });
+        console.error('[TradingEngine] ❌ Trade execution failed:', error);
+        state.recordExecution(queueId, duration, false);
+      } else {
+        tradeFlowLogger.log('COMPLETE', { 
+          success: true,
+          executionTime: `${duration}ms`,
+          response: data
+        });
+        console.log('[TradingEngine] ✅ Trade executed in', duration, 'ms');
+        state.recordExecution(queueId, duration, true);
+
+        // Update capital metrics
+        state.calculateCapitalUtilization();
+
+        // Remove used opportunity
+        state.clearOpportunities();
+
+        // Refresh positions
+        await state.syncPositions();
       }
-
-      console.log('[TradingEngine] Trade executed in', duration, 'ms');
-      state.recordExecution(`deploy_${Date.now()}`, duration, true);
-
-      // Update capital metrics
-      state.calculateCapitalUtilization();
-
-      // Remove used opportunity
-      state.clearOpportunities();
-
-      // Refresh positions
-      await state.syncPositions();
-
     } catch (error) {
       const duration = Date.now() - startTime;
-      state.recordExecution(`deploy_${Date.now()}`, duration, false);
-      console.error('[TradingEngine] Deploy error:', error);
+      tradeFlowLogger.log('ERROR', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        executionTime: `${duration}ms`
+      });
+      console.error('[TradingEngine] ❌ Deploy error:', error);
+      state.recordExecution(queueId, duration, false);
+    } finally {
+      // Clear the queue item
+      useBotStore.setState(s => ({
+        deploymentQueue: s.deploymentQueue.filter(o => o.id !== queueId)
+      }));
     }
   }
 
@@ -192,8 +269,12 @@ class TradingEngine {
     const state = useBotStore.getState();
     const { marketData, autoDeployConfig } = state;
     
-    // Update scanning status
-    state.updateMarketData({ isScanning: true });
+    // Ensure scanning status is set
+    if (!marketData.isScanning) {
+      useBotStore.setState(s => ({
+        marketData: { ...s.marketData, isScanning: true }
+      }));
+    }
 
     try {
       const { prices, changes24h, volumes } = marketData;
@@ -202,10 +283,13 @@ class TradingEngine {
       if (Object.keys(prices).length === 0) {
         // Fallback to basic pairs for initial scanning
         const fallbackPairs = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT'];
-        state.updateMarketData({ 
-          pairsScanned: fallbackPairs.length,
-          isScanning: true,
-        });
+        useBotStore.setState(s => ({ 
+          marketData: {
+            ...s.marketData,
+            pairsScanned: fallbackPairs.length,
+            isScanning: true,
+          }
+        }));
         return;
       }
 
@@ -222,10 +306,25 @@ class TradingEngine {
         preferredExchange
       );
 
-      state.updateMarketData({ 
-        pairsScanned: Object.keys(prices).length,
-        isScanning: true,
-      });
+      // Log scan results periodically (every 5 seconds)
+      const now = Date.now();
+      if (now - this.lastScanLogTime > 5000 && topOpportunities.length > 0) {
+        this.lastScanLogTime = now;
+        console.log('[TradingEngine] 🔍 Market scan:', {
+          pairsScanned: Object.keys(prices).length,
+          opportunitiesFound: topOpportunities.length,
+          topPair: topOpportunities[0]?.symbol || 'none',
+          topConfidence: topOpportunities[0]?.confidence?.toFixed(2) || 0,
+        });
+      }
+
+      useBotStore.setState(s => ({ 
+        marketData: {
+          ...s.marketData,
+          pairsScanned: Object.keys(prices).length,
+          isScanning: true,
+        }
+      }));
 
       // Add opportunities to store
       topOpportunities.forEach(opp => {
@@ -233,7 +332,7 @@ class TradingEngine {
       });
 
     } catch (error) {
-      console.error('[TradingEngine] Market scan error:', error);
+      console.error('[TradingEngine] ❌ Market scan error:', error);
     }
   }
 
@@ -280,10 +379,10 @@ if (!autoStartSubscribed) {
       const { isTrading } = useBotStore.getState();
       
       if (hasRunningBot && !isTrading) {
-        console.log('[TradingEngine] Auto-starting: bot is running');
+        console.log('[TradingEngine] 🚀 Auto-starting: bot is running');
         tradingEngine.start();
       } else if (!hasRunningBot && isTrading) {
-        console.log('[TradingEngine] Auto-stopping: no bots running');
+        console.log('[TradingEngine] 🛑 Auto-stopping: no bots running');
         tradingEngine.stop();
       }
     }
