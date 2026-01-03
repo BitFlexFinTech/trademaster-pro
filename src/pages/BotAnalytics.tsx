@@ -26,8 +26,10 @@ import { TradeReplayHistory } from '@/components/bots/TradeReplayHistory';
 import { MultiExchangePositionDashboard } from '@/components/bots/MultiExchangePositionDashboard';
 import { TradingDataProvider } from '@/contexts/TradingDataContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity, Clock, List, Zap, PlayCircle, Layers, LineChart } from 'lucide-react';
+import { Brain, Shield, BarChart3, TrendingUp, ArrowLeft, Wallet, Activity, Clock, List, Zap, PlayCircle, Layers, LineChart, Target } from 'lucide-react';
 import { CumulativeProfitChart } from '@/components/bots/CumulativeProfitChart';
+import { TradePerformanceDashboard } from '@/components/bots/TradePerformanceDashboard';
+import { ProfitTimelineChart } from '@/components/analytics/ProfitTimelineChart';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -142,7 +144,7 @@ export default function BotAnalytics() {
 
       {/* Tabs */}
       <Tabs defaultValue="strategy" className="flex-1 min-h-0 flex flex-col">
-        <TabsList className="grid w-full grid-cols-12 flex-shrink-0">
+        <TabsList className="grid w-full grid-cols-14 flex-shrink-0">
           <TabsTrigger value="strategy" className="text-xs gap-1">
             <Brain className="w-3 h-3" />
             Strategy
@@ -154,6 +156,14 @@ export default function BotAnalytics() {
           <TabsTrigger value="performance" className="text-xs gap-1">
             <BarChart3 className="w-3 h-3" />
             Performance
+          </TabsTrigger>
+          <TabsTrigger value="streaks" className="text-xs gap-1">
+            <Target className="w-3 h-3" />
+            Streaks
+          </TabsTrigger>
+          <TabsTrigger value="timeline" className="text-xs gap-1">
+            <TrendingUp className="w-3 h-3" />
+            Timeline
           </TabsTrigger>
           <TabsTrigger value="profits" className="text-xs gap-1">
             <Wallet className="w-3 h-3" />
@@ -231,6 +241,19 @@ export default function BotAnalytics() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <BotAnalyticsDashboard />
               <BotPerformanceDashboard />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="streaks" className="m-0 space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <TradePerformanceDashboard days={30} />
+              <TradePerformanceDashboard days={7} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="timeline" className="m-0 space-y-4">
+            <div className="grid grid-cols-1 gap-4">
+              <ProfitTimelineChart days={30} />
             </div>
           </TabsContent>
 

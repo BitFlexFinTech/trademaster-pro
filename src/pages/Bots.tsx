@@ -85,6 +85,8 @@ import { ResizableCard } from '@/components/bots/ResizableCard';
 import { TradingLoopMonitor } from '@/components/bots/TradingLoopMonitor';
 import { PositionSizingHistoryChart } from '@/components/bots/PositionSizingHistoryChart';
 import { PositionSizingPreviewWidget } from '@/components/bots/PositionSizingPreviewWidget';
+import { EnhancedPositionMonitor } from '@/components/bots/EnhancedPositionMonitor';
+import { SmartPositionSizingAdvisor } from '@/components/bots/SmartPositionSizingAdvisor';
 import { ProfitExtractionHistoryLog } from '@/components/bots/ProfitExtractionHistoryLog';
 
 interface UsdtFloat {
@@ -1563,8 +1565,14 @@ export default function Bots() {
               {/* Unified Trading Dashboard - Merged positions + trades */}
               <UnifiedTradingDashboard className="flex-1 min-h-0" />
               
-              {/* Position Sizing History Chart (CumulativeProfitChart moved to BotAnalytics) */}
-              <PositionSizingHistoryChart />
+              {/* Enhanced Position Monitor with Real-Time P&L */}
+              <EnhancedPositionMonitor />
+              
+              {/* Smart Position Sizing Advisor */}
+              <SmartPositionSizingAdvisor 
+                mode={leverageBot ? 'leverage' : 'spot'} 
+                accountBalance={tradingMode === 'demo' ? virtualBalance : exchangeBalances.reduce((sum, b) => sum + (b.totalValue || 0), 0)} 
+              />
 
               {/* Link to full analytics page */}
               <Button asChild variant="outline" className="h-8 gap-2">
