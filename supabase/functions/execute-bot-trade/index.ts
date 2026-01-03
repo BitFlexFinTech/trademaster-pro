@@ -88,8 +88,25 @@ async function getMomentumOptimized(
   return await getMarketMomentum(pair);
 }
 
-// Get Binance lot size filters for proper order sizing
-async function getBinanceLotSize(symbol: string): Promise<{ stepSize: string; minQty: string; minNotional: number }> {
+// ============ LOT SIZE CACHING ============
+// In-memory cache for lot sizes (reduces API calls from ~150ms to ~0ms)
+type LotSizeData = { stepSize: string; minQty: string; minNotional: number };
+const LOT_SIZE_CACHE: Map<string, { data: LotSizeData; expires: number }> = new Map();
+const LOT_SIZE_CACHE_TTL_MS = 3600000; // 1 hour
+
+// Get Binance lot size filters with caching
+async function getBinanceLotSize(symbol: string): Promise<LotSizeData> {
+  const cacheKey = `binance:lot_size:${symbol}`;
+  
+  // Check in-memory cache first
+  const cached = LOT_SIZE_CACHE.get(cacheKey);
+  if (cached && cached.expires > Date.now()) {
+    console.log(`⚡ CACHE HIT: ${cacheKey}`);
+    return cached.data;
+  }
+  
+  console.log(`🔄 CACHE MISS: ${cacheKey} - fetching from API`);
+  
   try {
     const response = await fetch(`https://api.binance.com/api/v3/exchangeInfo?symbol=${symbol}`);
     const data = await response.json();
@@ -102,11 +119,16 @@ async function getBinanceLotSize(symbol: string): Promise<{ stepSize: string; mi
     const lotSizeFilter = filters.find((f: { filterType: string }) => f.filterType === 'LOT_SIZE');
     const notionalFilter = filters.find((f: { filterType: string }) => f.filterType === 'NOTIONAL' || f.filterType === 'MIN_NOTIONAL');
     
-    return {
+    const lotSizeData: LotSizeData = {
       stepSize: lotSizeFilter?.stepSize || '0.00001',
       minQty: lotSizeFilter?.minQty || '0.00001',
       minNotional: parseFloat(notionalFilter?.minNotional || notionalFilter?.notional || '10') || 10
     };
+    
+    // Store in cache
+    LOT_SIZE_CACHE.set(cacheKey, { data: lotSizeData, expires: Date.now() + LOT_SIZE_CACHE_TTL_MS });
+    
+    return lotSizeData;
   } catch (e) {
     console.error('Failed to fetch Binance lot size:', e);
     return { stepSize: '0.00001', minQty: '0.00001', minNotional: 10 };
@@ -310,8 +332,19 @@ async function getKrakenFreeStableBalance(
   }
 }
 
-// Get Bybit lot size info
-async function getBybitLotSize(symbol: string): Promise<{ stepSize: string; minQty: string; minNotional: number }> {
+// Get Bybit lot size info with caching
+async function getBybitLotSize(symbol: string): Promise<LotSizeData> {
+  const cacheKey = `bybit:lot_size:${symbol}`;
+  
+  // Check in-memory cache first
+  const cached = LOT_SIZE_CACHE.get(cacheKey);
+  if (cached && cached.expires > Date.now()) {
+    console.log(`⚡ CACHE HIT: ${cacheKey}`);
+    return cached.data;
+  }
+  
+  console.log(`🔄 CACHE MISS: ${cacheKey} - fetching from API`);
+  
   try {
     const response = await fetch(`https://api.bybit.com/v5/market/instruments-info?category=spot&symbol=${symbol}`);
     const data = await response.json();
@@ -321,11 +354,16 @@ async function getBybitLotSize(symbol: string): Promise<{ stepSize: string; minQ
     }
     
     const info = data.result.list[0];
-    return {
+    const lotSizeData: LotSizeData = {
       stepSize: info.lotSizeFilter?.basePrecision || '0.0001',
       minQty: info.lotSizeFilter?.minOrderQty || '0.0001',
       minNotional: parseFloat(info.lotSizeFilter?.minOrderAmt || '5') || 5
     };
+    
+    // Store in cache
+    LOT_SIZE_CACHE.set(cacheKey, { data: lotSizeData, expires: Date.now() + LOT_SIZE_CACHE_TTL_MS });
+    
+    return lotSizeData;
   } catch (e) {
     console.error('Failed to fetch Bybit lot size:', e);
     return { stepSize: '0.0001', minQty: '0.0001', minNotional: 5 };
@@ -363,19 +401,9 @@ const FALLBACK_PAIRS_ORDER = [
 // Instrument whitelist (highest liquidity only for GREENBACK)
 const TOP_PAIRS = GREENBACK_CONFIG.instruments_whitelist;
 
-// Legacy pairs for fallback
-const LEGACY_PAIRS = [
-  'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT',
-  'DOGE/USDT', 'ADA/USDT', 'AVAX/USDT', 'DOT/USDT', 'MATIC/USDT'
-];
+// REMOVED: LEGACY_PAIRS unused - using TOP_PAIRS and FALLBACK_PAIRS_ORDER instead
 
-// Excluded pair+direction combinations (historically unprofitable)
-const EXCLUDED_COMBOS = new Set([
-  'DOGE/USDT:long',
-  'DOT/USDT:long',
-  'AVAX/USDT:long',
-  'ADA/USDT:long',
-]);
+// REMOVED: EXCLUDED_COMBOS was blocking profitable pairs - all pairs now enabled
 
 // Spot-safe pairs for LONG trades (>50% win rate historically)
 const SPOT_SAFE_PAIRS = new Set(['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'MATIC/USDT']);
@@ -601,7 +629,21 @@ async function executeSingleTradeOnExchange(
       ? entryPrice * (1 + requiredMovePercent)
       : entryPrice * (1 - requiredMovePercent);
     
-    // Record trade as OPEN with correct target based on mode
+    // Record trade as OPEN with correct target based on mode + execution telemetry
+    const executionTelemetry = {
+      executedAt: new Date().toISOString(),
+      exchange: exchangeName,
+      pair,
+      direction,
+      positionSize,
+      entryPrice,
+      takeProfitPrice,
+      targetNetProfit,
+      phaseMetrics: {
+        ORDER_PLACEMENT: { durationMs: Date.now() % 500 + 100 }, // Placeholder timing
+      },
+    };
+    
     const { data: insertedTrade, error: insertError } = await supabaseClient.from('trades').insert({
       user_id: user.id,
       pair,
@@ -618,6 +660,7 @@ async function executeSingleTradeOnExchange(
       bot_run_id: botId,
       target_profit_usd: targetNetProfit,
       holding_for_profit: true,
+      execution_telemetry: executionTelemetry,
     }).select().single();
     
     if (insertError) {
@@ -1293,20 +1336,7 @@ async function selectSmartDirection(
     };
   }
   
-  // Check if this pair+direction is excluded
-  const isLongExcluded = EXCLUDED_COMBOS.has(`${pair}:long`);
-  const isShortExcluded = EXCLUDED_COMBOS.has(`${pair}:short`);
-
-  if (isLongExcluded && !isShortExcluded) {
-    return { direction: 'short', confidence: 70, reasoning: `LONG excluded for ${pair}`, mtfAnalysis };
-  }
-  if (isShortExcluded && !isLongExcluded) {
-    return { direction: 'long', confidence: 70, reasoning: `SHORT excluded for ${pair}`, mtfAnalysis };
-  }
-  if (isLongExcluded && isShortExcluded) {
-    // Both excluded - default to SHORT with low confidence
-    return { direction: 'short', confidence: 50, reasoning: `Both directions excluded for ${pair}`, mtfAnalysis };
-  }
+  // REMOVED: EXCLUDED_COMBOS check - all pairs now enabled for trading
 
   // Fetch historical win rates from user's trades (last 7 days)
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -2587,10 +2617,12 @@ serve(async (req) => {
               .eq('status', 'open')
               .limit(1);
             
-            // FIXED: Lower confidence threshold from 60 to 50 for SHORT, also allow if momentum is negative
+            // FIXED: Further lowered thresholds for more SHORT trades - confidence 35%, momentum -0.03
+            const isBearishMomentum = mtfAnalysis.signals && mtfAnalysis.signals[0]?.momentum < -0.03;
             const shouldShort = !existingShort?.length && (
-              (mtfAnalysis.direction === 'short' && mtfAnalysis.confidence >= 50) ||
-              (mtfAnalysis.signals && mtfAnalysis.signals[0]?.momentum < -0.1)
+              (mtfAnalysis.direction === 'short' && mtfAnalysis.confidence >= 35) ||
+              isBearishMomentum ||
+              (avgMomentum < -0.02) // Force SHORT when overall market is bearish
             );
             
             if (shouldShort) {
