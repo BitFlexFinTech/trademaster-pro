@@ -1925,13 +1925,14 @@ serve(async (req) => {
       });
     }
 
+    const requestBody = await req.json();
     const { 
       botId, 
       mode, 
       profitTarget, 
-      exchanges, 
-      leverages, 
-      isSandbox, 
+      exchanges = ['binance'], // Default to binance if not provided
+      leverages = {}, 
+      isSandbox = false, 
       maxPositionSize, 
       realtimePrices, 
       wsConnected,
@@ -1940,7 +1941,7 @@ serve(async (req) => {
     }: BotTradeRequest & { 
       useDynamicSizing?: boolean; 
       volatilityData?: { volatility: number; pair: string } 
-    } = await req.json();
+    } = requestBody;
     
     // Calculate position size based on volatility if dynamic sizing is enabled
     let userPositionSize = Math.min(maxPositionSize || DEFAULT_POSITION_SIZE, MAX_POSITION_SIZE_CAP);
@@ -1962,12 +1963,12 @@ serve(async (req) => {
     
     console.log('========================================');
     console.log(`🤖 BOT TRADE EXECUTION REQUEST`);
-    console.log(`   Bot ID: ${botId}`);
-    console.log(`   Mode: ${mode}`);
+    console.log(`   Bot ID: ${botId || 'not provided'}`);
+    console.log(`   Mode: ${mode || 'not provided'}`);
     console.log(`   Sandbox: ${isSandbox}`);
-    console.log(`   Profit Target: $${profitTarget}`);
+    console.log(`   Profit Target: $${profitTarget || 'default'}`);
     console.log(`   Max Position Size: $${userPositionSize} (requested: $${maxPositionSize || 'default'})`);
-    console.log(`   Exchanges: ${exchanges.join(', ')}`);
+    console.log(`   Exchanges: ${Array.isArray(exchanges) ? exchanges.join(', ') : 'binance (default)'}`);
     console.log(`   Price Source: ${priceSource}`);
     console.log('========================================');
 
