@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/badge';
 export type BotFilter = 'all' | 'running' | 'stopped' | 'profitable' | 'losing';
 import { BotCard } from '@/components/bots/BotCard';
 import { BotCardSkeleton } from '@/components/bots/BotCardSkeleton';
+import { TradeExecutionTimeline } from '@/components/bots/TradeExecutionTimeline';
 import { ConnectionStatusIndicator } from '@/components/bots/ConnectionStatusIndicator';
 import { BotAnalyticsDashboard } from '@/components/bots/BotAnalyticsDashboard';
 import { BotPerformanceDashboard } from '@/components/bots/BotPerformanceDashboard';
@@ -111,6 +112,8 @@ import { AutoDeploySettings } from '@/components/bots/AutoDeploySettings';
 import { CapitalEfficiencyGauge } from '@/components/bots/CapitalEfficiencyGauge';
 // WebSocket Bridge for real-time price sync to store
 import { useWebSocketBridge } from '@/hooks/useWebSocketBridge';
+// Trading Engine for Force Stop All
+import { tradingEngine } from '@/services/tradingEngine';
 
 interface UsdtFloat {
   exchange: string;
@@ -1180,7 +1183,54 @@ export default function Bots() {
                 )}
                 Export CSV
               </Button>
-              {/* KILL SWITCH - Emergency Stop */}
+              {/* FORCE STOP ALL - Always visible when trading or bots exist */}
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-6 text-xs gap-1 hidden md:flex bg-red-600 hover:bg-red-700"
+                onClick={async () => {
+                  setKillingAll(true);
+                  try {
+                    // 1. Stop trading engine immediately
+                    tradingEngine.stop();
+                    console.log('🛑 [ForceStop] Trading engine stopped');
+                    
+                    // 2. Clear all store state
+                    useBotStore.getState().forceCloseAllPositions();
+                    console.log('🛑 [ForceStop] Store state cleared');
+                    
+                    // 3. Stop all running bots
+                    const runningBots = bots.filter(b => b.status === 'running');
+                    for (const bot of runningBots) {
+                      await stopBot(bot.id);
+                    }
+                    console.log('🛑 [ForceStop] All bots stopped:', runningBots.length);
+                    
+                    toast.success('🛑 All Trading Halted', {
+                      description: `Stopped ${runningBots.length} bot(s), cleared all positions and queue`,
+                    });
+                    
+                    // Refresh data
+                    refetch();
+                  } catch (err) {
+                    console.error('Force stop error:', err);
+                    toast.error('Force stop failed', {
+                      description: err instanceof Error ? err.message : 'Unknown error',
+                    });
+                  } finally {
+                    setKillingAll(false);
+                  }
+                }}
+                disabled={killingAll}
+              >
+                {killingAll ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Power className="w-3 h-3" />
+                )}
+                FORCE STOP ALL
+              </Button>
+              {/* KILL SWITCH - Emergency Stop (legacy, kept for active positions) */}
               {(spotBot || leverageBot) && (
                 <Button
                   size="sm"
@@ -1389,6 +1439,11 @@ export default function Bots() {
             <CapitalUtilizationChart />
             <ScannerStatsWidget />
             <TradeFlowDiagram />
+          </div>
+          
+          {/* Trade Execution Timeline - Real-time step-by-step visualization */}
+          <div className="mb-4">
+            <TradeExecutionTimeline />
           </div>
           
           {/* Trading Analytics - Collapsible Section */}
