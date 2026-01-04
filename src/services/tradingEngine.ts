@@ -306,16 +306,25 @@ class TradingEngine {
         preferredExchange
       );
 
-      // Log scan results periodically (every 5 seconds)
+      // Log scan results periodically (every 5 seconds) with detailed info
       const now = Date.now();
-      if (now - this.lastScanLogTime > 5000 && topOpportunities.length > 0) {
+      if (now - this.lastScanLogTime > 5000) {
         this.lastScanLogTime = now;
-        console.log('[TradingEngine] 🔍 Market scan:', {
+        
+        // Log via tradeFlowLogger for verbose mode support
+        tradeFlowLogger.log('SCAN', {
           pairsScanned: Object.keys(prices).length,
           opportunitiesFound: topOpportunities.length,
           topPair: topOpportunities[0]?.symbol || 'none',
           topConfidence: topOpportunities[0]?.confidence?.toFixed(2) || 0,
+          topDirection: topOpportunities[0]?.direction || 'none',
+          exchange: preferredExchange,
         });
+        
+        // Always log to console with emoji markers
+        console.log(`🔍 [SCAN] ${Object.keys(prices).length} pairs → ${topOpportunities.length} opportunities`, 
+          topOpportunities.length > 0 ? `| Best: ${topOpportunities[0].symbol} (${(topOpportunities[0].confidence * 100).toFixed(0)}% ${topOpportunities[0].direction})` : ''
+        );
       }
 
       useBotStore.setState(s => ({ 
